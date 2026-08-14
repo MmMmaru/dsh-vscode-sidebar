@@ -1,13 +1,14 @@
 /**
- * ComposerCard placeholder (owned by W4; the overlay swap mechanism is W5).
- * Contract: no props — reads composer + overlay slices (ARCHITECTURE.md
- * section 5.3). Renders a minimal input row so sendPrompt/cancel/selectModel
- * are exercisable; while an approval/question/plan review is pending it shows
- * a bare takeover strip (the real panels replace this in W5).
+ * ComposerCard placeholder (owned by W4; the takeover panels live in
+ * components/overlay/OverlayHost, owned by W5).
+ * Contract: no props — reads the composer slice (ARCHITECTURE.md section 5.3).
+ * Renders a minimal input row so sendPrompt/cancel/selectModel are exercisable;
+ * OverlayHost is mounted above the input row and renders null when idle.
  */
 
 import { useState, type JSX } from 'react'
 import { useAppStore } from '../../store'
+import { OverlayHost } from '../overlay/OverlayHost'
 
 export function ComposerCard(): JSX.Element {
   const [text, setText] = useState('')
@@ -17,11 +18,6 @@ export function ComposerCard(): JSX.Element {
   const selectedModel = useAppStore((s) => s.selectedModel)
   const sendPrompt = useAppStore((s) => s.sendPrompt)
   const cancel = useAppStore((s) => s.cancel)
-  const pendingApproval = useAppStore((s) => s.pendingApproval)
-  const pendingQuestion = useAppStore((s) => s.pendingQuestion)
-  const planReview = useAppStore((s) => s.planReview)
-  const resolveApproval = useAppStore((s) => s.resolveApproval)
-  const answerQuestion = useAppStore((s) => s.answerQuestion)
 
   const running = turnStatus === 'running'
   const canSend = activeSessionId !== null && text.trim() !== '' && !running
@@ -34,38 +30,7 @@ export function ComposerCard(): JSX.Element {
 
   return (
     <section className="region region-composer" data-region="ComposerCard">
-      {pendingApproval !== null && (
-        <div className="overlay-strip">
-          <span>审批：{pendingApproval.toolName} — {pendingApproval.reason ?? ''}</span>
-          <button type="button" onClick={() => void resolveApproval('allow-once')}>Allow once</button>
-          <button type="button" onClick={() => void resolveApproval('refuse')}>Refuse</button>
-        </div>
-      )}
-      {pendingQuestion !== null && planReview === null && (
-        <div className="overlay-strip">
-          <span>提问：{pendingQuestion.questions[0]?.question}</span>
-          {pendingQuestion.questions[0]?.options?.map((o) => (
-            <button
-              key={o.label}
-              type="button"
-              onClick={() => void answerQuestion([{ id: pendingQuestion.questions[0]?.id ?? '', selected: [o.label] }])}
-            >
-              {o.label}
-            </button>
-          ))}
-        </div>
-      )}
-      {planReview !== null && (
-        <div className="overlay-strip">
-          <span>计划评审（{planReview.approveLabel}）</span>
-          <button
-            type="button"
-            onClick={() => void answerQuestion([{ id: planReview.questionId, selected: [planReview.approveLabel] }])}
-          >
-            Approve
-          </button>
-        </div>
-      )}
+      <OverlayHost />
       <div className="composer-row">
         <textarea
           value={text}
