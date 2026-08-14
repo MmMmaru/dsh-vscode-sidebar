@@ -5,8 +5,8 @@
  * extension posts ExtensionMessage, the webview posts WebviewMessage.
  */
 
-import type { SessionId } from '../extension/protocol/brand'
-import type { MuxFrame, HostFrame } from '../extension/protocol/events'
+import type { ApprovalRequestId, SessionId } from '../extension/protocol/brand'
+import type { AskUserQuestionAnswerItem, MuxFrame, HostFrame } from '../extension/protocol/events'
 
 /** Host lifecycle states pushed to the webview. */
 export type HostStatus = 'starting' | 'ready' | 'down'
@@ -50,6 +50,16 @@ export type WebviewMessage =
   | { type: 'ready' }
   /** Passthrough dsh RPC; `method` is e.g. `session.list`. Answered by `rpc-result`. */
   | { type: 'rpc'; id: string; method: string; params?: unknown }
+  /**
+   * Answer an answerable frame (contract addition, ARCHITECTURE.md section 3
+   * revision 2). Approval/question requests are server-requests answered via
+   * POST /api/respond echoing the frame's rpcId; that rpcId never reaches the
+   * webview (the MuxFrame union does not carry it), so the webview correlates
+   * by `approvalId` / `sessionId` and the extension resolves the rpcId from
+   * the client's pending-request tables.
+   */
+  | { type: 'respond'; kind: 'approval'; approvalId: ApprovalRequestId; decision: 'allow-once' | 'refuse' }
+  | { type: 'respond'; kind: 'question'; sessionId: SessionId; answers: AskUserQuestionAnswerItem[] }
 
 /** Messages the extension host sends to the webview. */
 export type ExtensionMessage =

@@ -1,0 +1,257 @@
+/*
+ * Base layout + design tokens for the sidebar webview (contract skeleton).
+ * Tokens consume --vscode-* theme variables so the panel follows the VSCode
+ * theme. W2-W6 extend per-region styles in their own files; this file owns
+ * the shell layout and the shared token layer.
+ */
+
+:root {
+  /* Shared tokens, all derived from the VSCode theme. */
+  --dsh-border: var(--vscode-panelBorder, var(--vscode-sideBar-border, #3c3c3c));
+  --dsh-bg: var(--vscode-sideBar-background, #1f1f1f);
+  --dsh-bg-raised: var(--vscode-editorWidget-background, #252526);
+  --dsh-fg: var(--vscode-foreground, #cccccc);
+  --dsh-fg-muted: var(--vscode-descriptionForeground, #9d9d9d);
+  --dsh-accent: var(--vscode-focusBorder, #007fd4);
+  --dsh-danger: var(--vscode-editorError-foreground, #f48771);
+  --dsh-warning: var(--vscode-editorWarning-foreground, #cca700);
+  --dsh-ok: var(--vscode-testing-iconPassed, #73c991);
+  --dsh-radius: 6px;
+  --dsh-gap: 8px;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  font-family: var(--vscode-font-family);
+  font-size: var(--vscode-font-size);
+  color: var(--dsh-fg);
+  background: var(--dsh-bg);
+}
+
+/* Three-layer shell: list (capped) / conversation (flex + scroll) / composer. */
+.app-shell {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  overflow: hidden;
+}
+
+.region {
+  border: 1px dashed var(--dsh-border);
+  border-radius: var(--dsh-radius);
+  margin: 4px;
+  min-height: 0;
+}
+
+/* Top: session list, capped so the conversation keeps the majority. */
+.region-chat-list {
+  flex: none;
+  max-height: 30%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* Middle: message stream takes all remaining space and scrolls. */
+.region-conversation {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  padding: var(--dsh-gap);
+}
+
+/* Bottom: composer sizes to its content. */
+.region-composer {
+  flex: none;
+  padding: var(--dsh-gap);
+}
+
+.region-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 6px var(--dsh-gap);
+  border-bottom: 1px solid var(--dsh-border);
+  color: var(--dsh-fg-muted);
+  font-weight: 600;
+}
+
+.host-banner {
+  flex: none;
+  padding: 4px var(--dsh-gap);
+  text-align: center;
+}
+
+.host-banner-starting {
+  color: var(--dsh-warning);
+}
+
+.host-banner-down {
+  color: var(--dsh-danger);
+}
+
+/* --- placeholder internals (W2-W6 replace with real designs) --- */
+
+.session-list {
+  list-style: none;
+  margin: 0;
+  padding: 4px;
+  overflow-y: auto;
+}
+
+.session-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 4px 6px;
+  border: none;
+  border-radius: var(--dsh-radius);
+  background: transparent;
+  color: var(--dsh-fg);
+  text-align: left;
+  cursor: pointer;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.session-row:hover {
+  background: var(--vscode-list-hoverBackground, rgba(255, 255, 255, 0.06));
+}
+
+.session-row-active {
+  background: var(--vscode-list-activeSelectionBackground, rgba(0, 127, 212, 0.25));
+}
+
+.status-dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--dsh-fg-muted);
+}
+
+.status-dot-running {
+  background: var(--dsh-ok);
+}
+
+.node-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.node {
+  display: flex;
+  gap: 6px;
+  align-items: baseline;
+}
+
+.node-kind {
+  flex: none;
+  font-size: 0.8em;
+  color: var(--dsh-fg-muted);
+  border: 1px solid var(--dsh-border);
+  border-radius: 4px;
+  padding: 0 4px;
+}
+
+.node-preview {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.node-error .node-preview {
+  color: var(--dsh-danger);
+}
+
+.empty-hero {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: var(--dsh-fg-muted);
+}
+
+.turn-status {
+  margin-top: var(--dsh-gap);
+  color: var(--dsh-fg-muted);
+  font-style: italic;
+}
+
+.overlay-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  padding: 6px;
+  margin-bottom: 6px;
+  border: 1px solid var(--dsh-warning);
+  border-radius: var(--dsh-radius);
+}
+
+.composer-row {
+  display: flex;
+  gap: 6px;
+}
+
+.composer-row textarea {
+  flex: 1;
+  resize: none;
+  font: inherit;
+  color: var(--dsh-fg);
+  background: var(--vscode-input-background, #3c3c3c);
+  border: 1px solid var(--vscode-input-border, var(--dsh-border));
+  border-radius: var(--dsh-radius);
+  padding: 6px;
+}
+
+.composer-meta {
+  margin-top: 4px;
+  font-size: 0.85em;
+  color: var(--dsh-fg-muted);
+}
+
+button {
+  font: inherit;
+  color: var(--vscode-button-foreground, #ffffff);
+  background: var(--vscode-button-background, #0e639c);
+  border: none;
+  border-radius: var(--dsh-radius);
+  padding: 4px 10px;
+  cursor: pointer;
+}
+
+button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* Settings modal mount point. */
+.settings-modal {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.4);
+  z-index: 10;
+}
+
+.settings-card {
+  width: 90%;
+  max-height: 85%;
+  overflow-y: auto;
+  background: var(--dsh-bg-raised);
+  border: 1px solid var(--dsh-border);
+  border-radius: var(--dsh-radius);
+  padding: var(--dsh-gap);
+}
