@@ -15,7 +15,7 @@
 │                              → host-manager.ts            │
 └───────────────────────────┬─────────────────────────────┘
                             │ HTTP RPC: POST /api/<ns>.<method>
-                            │ WebSocket: /api/events/mux, /api/events/host
+                            │ WebSocket: /api/events.mux, /api/events.host
                             ▼
                     dsh web Host (127.0.0.1:<port>)
                     （无实例时由插件自动 spawn）
@@ -75,6 +75,7 @@ Extension → Webview：
 | `rpc-result` | `{ id: string, result?: unknown, error?: string }` | RPC 应答 |
 | `event` | `{ channel: 'mux' \| 'host', frame: MuxFrame \| HostFrame }` | dsh 事件流透传 |
 | `host-status` | `{ status: 'starting' \| 'ready' \| 'down' }` | host 生命周期通知 |
+| `command` | `{ command: 'newChat' \| 'openSettings' }` | 工具栏命令转发（W1 新增；store 侧决定行为） |
 
 ## 4. 扩展宿主侧模块
 

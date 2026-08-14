@@ -1,0 +1,95 @@
+{
+  "name": "dsh-vscode-sidebar",
+  "displayName": "DeepSeek Harness Sidebar",
+  "description": "VSCode sidebar client for the DeepSeek harness (dsh) web host",
+  "version": "0.0.1",
+  "publisher": "deepseek",
+  "license": "MIT",
+  "private": true,
+  "engines": {
+    "vscode": "^1.95.0"
+  },
+  "categories": [
+    "AI",
+    "Chat"
+  ],
+  "activationEvents": [],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "dsh",
+          "title": "DeepSeek",
+          "icon": "resources/icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "dsh": [
+        {
+          "id": "dsh.sidebar",
+          "name": "Chats",
+          "type": "webview"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "dsh.newChat",
+        "title": "New Chat",
+        "category": "DSH"
+      },
+      {
+        "command": "dsh.openSettings",
+        "title": "Open Settings",
+        "category": "DSH"
+      },
+      {
+        "command": "dsh.openFullPanel",
+        "title": "Open Full Panel",
+        "category": "DSH"
+      }
+    ],
+    "configuration": {
+      "title": "DSH",
+      "properties": {
+        "dsh.port": {
+          "type": "number",
+          "default": 3080,
+          "description": "Base port for the local dsh web host; occupied ports are skipped in order."
+        },
+        "dsh.keepHostOnExit": {
+          "type": "boolean",
+          "default": false,
+          "description": "Keep the dsh host process alive when VSCode shuts down (only applies when the extension spawned it)."
+        }
+      }
+    }
+  },
+  "dsh": {
+    "compatibleVersionPrefixes": ["0.1.0-rc.", "0.0.1"]
+  },
+  "scripts": {
+    "build": "npm run build:extension && npm run build:webview",
+    "build:extension": "node esbuild.config.mjs",
+    "build:webview": "vite build",
+    "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.webview.json",
+    "test": "node esbuild.config.mjs --tests && node --test .temp/test-dist/*.test.mjs",
+    "smoke": "node esbuild.config.mjs --smoke && node .temp/smoke-dist/smoke.mjs",
+    "watch": "node esbuild.config.mjs --watch",
+    "package": "vsce package"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@types/vscode": "^1.95.0",
+    "@vitejs/plugin-react": "^5.0.0",
+    "esbuild": "^0.25.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "typescript": "^5.9.0",
+    "vite": "^7.0.0"
+  }
+}
