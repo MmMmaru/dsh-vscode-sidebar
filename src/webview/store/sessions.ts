@@ -49,12 +49,14 @@ export const createSessionsSlice: StateCreator<AppStore, [], [], SessionsSlice> 
   },
 
   selectSession: async (id) => {
-    if (get().activeSessionId === id) return
-    set({
-      activeSessionId: id,
-      // Selecting a session marks it read (clears the blue unread dot).
-      sessions: get().sessions.map((s) => (s.sessionId === id ? { ...s, unread: false } : s)),
-    })
+    // Selecting a session marks it read (clears the blue unread dot) — even
+    // when it is already the active one, so a finished turn can be acked.
+    const markRead = get().sessions.map((s) => (s.sessionId === id ? { ...s, unread: false } : s))
+    if (get().activeSessionId === id) {
+      set({ sessions: markRead })
+      return
+    }
+    set({ activeSessionId: id, sessions: markRead })
     get().clearConversation()
     get().clearOverlay()
     await Promise.all([get().loadHistory(id), get().loadModels(id)])
@@ -109,10 +111,10 @@ export const createSessionsSlice: StateCreator<AppStore, [], [], SessionsSlice> 
         set({ sessions: get().sessions.filter((s) => s.sessionId !== frame.sessionId) })
         break
       case 'host/session-status': {
-        // A running -> idle transition on a background session marks it unread.
+        // A running -> idle transition marks the session unread (blue dot),
+        // including the active one — it clears when the user selects it again.
         const ended =
           !frame.running &&
-          frame.sessionId !== get().activeSessionId &&
           get().sessions.some((s) => s.sessionId === frame.sessionId && s.running)
         set({
           sessions: get().sessions.map((s) =>
@@ -136,14 +138,10 @@ export const createSessionsSlice: StateCreator<AppStore, [], [], SessionsSlice> 
   },
 
   applyProjectionFrame: (frame) => {
-    // A live turn ending on a background session marks it unread (blue dot);
-    // the active session and freshly created ones are never marked. History
-    // pages arrive via RPC, not the event stream, so old turns never hit this.
-    if (
-      frame.type === 'session/event' &&
-      frame.event.type === 'turn/end' &&
-      frame.sessionId !== get().activeSessionId
-    ) {
+    // Any live turn ending marks the session unread (blue dot), including the
+    // active one; selecting the session clears it. History pages arrive via
+    // RPC, not the event stream, so old turns never hit this.
+    if (frame.type === 'session/event' && frame.event.type === 'turn/end') {
       set({
         sessions: get().sessions.map((s) =>
           s.sessionId === frame.sessionId ? { ...s, unread: true } : s),
