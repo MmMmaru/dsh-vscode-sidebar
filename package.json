@@ -6,6 +6,7 @@
   "publisher": "deepseek",
   "license": "MIT",
   "private": true,
+  "icon": "resources/icon.png",
   "engines": {
     "vscode": "^1.95.0"
   },
