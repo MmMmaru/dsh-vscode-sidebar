@@ -13,9 +13,11 @@ import type {
   AskUserQuestionItem,
   HostFrame,
   MuxFrame,
+  QueuedInboxItem,
 } from '../../extension/protocol/events'
 import type { SessionEvent } from '../../extension/protocol/session'
-import type { HistoryEntry, SessionModels, SessionSummary } from '../../extension/protocol/sessions'
+import type { HistoryEntry, QueueAction, SessionModels, SessionSummary } from '../../extension/protocol/sessions'
+import type { SkillEntry } from '../../extension/protocol/views'
 import type { SettingsNamespaceView } from '../../extension/protocol/settings'
 import type { ConfigurableProviderView } from '../../extension/protocol/settings'
 import type { HostStatus, InitPayload, SessionMeta } from '../../shared/bridge'
@@ -186,6 +188,40 @@ const PROVIDERS: ConfigurableProviderView[] = [
   { provider: 'openai', displayName: 'OpenAI', settingsNs: 'llm-openai', settingsPath: [], active: true },
 ]
 
+/** Skill catalog served by skill.list (drives the composer `/` suggestions). */
+const SKILLS: SkillEntry[] = [
+  { name: 'review', description: '审查当前改动并给出意见', modelInvocable: true },
+  { name: 'test', description: '为指定代码补测试', modelInvocable: true },
+  { name: 'refactor', description: '重构选中模块', whenToUse: '代码结构明显腐化时', modelInvocable: true },
+  { name: 'commit', description: '整理工作区并生成提交', modelInvocable: false },
+]
+
+/** Pending inbox snapshots per session (session/queue frames), mutated by session.updateQueue. */
+const queueStore = new Map<SessionId, QueuedInboxItem[]>()
+
+/** Sessions whose scripted turn is in flight; prompts to them enqueue instead of streaming. */
+const turnActive = new Set<SessionId>()
+
+/** Push the authoritative session/queue snapshot for one session. */
+function emitQueue(sessionId: SessionId): void {
+  emit('mux', { type: 'session/queue', sessionId, items: queueStore.get(sessionId) ?? [] })
+}
+
+/** Apply one queue mutation to the mock inbox and re-emit the snapshot. */
+function applyQueueAction(sessionId: SessionId, itemId: MessageId, action: QueueAction): boolean {
+  const items = queueStore.get(sessionId) ?? []
+  const item = items.find((i) => i.id === itemId)
+  if (item === undefined) return false
+  if (action.kind === 'edit') {
+    item.message = { ...item.message, content: action.content }
+  } else {
+    // remove + steer both drop the row (steer is claimed by the running turn).
+    queueStore.set(sessionId, items.filter((i) => i.id !== itemId))
+  }
+  emitQueue(sessionId)
+  return true
+}
+
 const namespaces = new Map<string, SettingsNamespaceView>([
   ['llm-deepseek', {
     ns: 'llm-deepseek',
@@ -235,6 +271,7 @@ let pendingScriptedApproval: { sessionId: SessionId; approvalId: ApprovalRequest
 
 /** Schedule the scripted frames answering one prompt on the demo session. */
 function runDemoStream(sessionId: SessionId, text: string): void {
+  turnActive.add(sessionId)
   const callId = `call-${seq}` as CallId
   emit('mux', { type: 'session/event', sessionId, event: ev('turn/start', { turn: 2 }) }, 100)
   emit('mux', {
@@ -290,6 +327,7 @@ function finishDemoStream(approved: boolean): void {
     }, 300)
     emit('mux', { type: 'question/requested', sessionId, questions: DEMO_QUESTIONS }, 600)
   } else {
+    turnActive.delete(sessionId)
     emit('mux', {
       type: 'session/event',
       sessionId,
@@ -368,16 +406,41 @@ function rpc<T = unknown>(method: string, params?: unknown): Promise<T> {
     }
     case 'session.prompt': {
       const sessionId = p['sessionId'] as SessionId
-      const content = p['content'] as Array<{ type: string; text?: string }>
-      const text = content.find((c) => c.type === 'text')?.text ?? ''
+      const content = p['content'] as Array<{ type: string; text?: string; name?: string }>
       const row = sessions.find((s) => s.sessionId === sessionId)
       if (row) row.updatedAt = Date.now()
+      if (turnActive.has(sessionId)) {
+        // A turn is in flight: the prompt lands in the pending inbox.
+        const items = queueStore.get(sessionId) ?? []
+        const id = nextMessageId()
+        items.push({
+          id,
+          placement: 'queued',
+          message: {
+            id,
+            role: 'user',
+            content: content
+              .map((c) => (c.type === 'text' ? { type: 'text' as const, text: c.text ?? '' } : null))
+              .filter((c): c is { type: 'text'; text: string } => c !== null),
+            source: { kind: 'user' },
+          },
+        })
+        queueStore.set(sessionId, items)
+        emitQueue(sessionId)
+        return respond({ accepted: true })
+      }
+      const text = content.find((c) => c.type === 'text')?.text ?? ''
       if (sessionId === DEMO_SESSION_ID) runDemoStream(sessionId, text)
       else emit('mux', { type: 'session/event', sessionId, event: ev('turn/start', { turn: 1 }) }, 100)
       return respond({ accepted: true })
     }
-    case 'session.updateQueue':
-      return respond({ accepted: true })
+    case 'session.updateQueue': {
+      const sessionId = p['sessionId'] as SessionId
+      const ok = applyQueueAction(sessionId, p['itemId'] as MessageId, p['action'] as QueueAction)
+      return ok ? respond({ accepted: true }) : Promise.reject(new Error(`mock bridge: unknown queue item ${String(p['itemId'])}`))
+    }
+    case 'skill.list':
+      return respond({ skills: SKILLS })
     case 'session.cancel':
       return respond({ accepted: true })
     case 'workspace.archiveSession': {
@@ -433,6 +496,7 @@ function respondApproval(approvalId: ApprovalRequestId, decision: 'allow-once' |
 /** Mock question answer: emits question/resolved and finishes the scripted turn. */
 function respondQuestion(sessionId: SessionId, answers: AskUserQuestionAnswerItem[]): Promise<void> {
   void answers
+  turnActive.delete(sessionId)
   emit('mux', { type: 'question/resolved', sessionId, questionRpcId: 'mock-rpc' as never, outcome: 'answered' }, 100)
   emit('mux', {
     type: 'session/event',
