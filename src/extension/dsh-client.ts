@@ -184,6 +184,35 @@ export class DshClient {
     await this.respond(RpcId(requestId), value)
   }
 
+  /**
+   * Answer a pending approval correlated by approvalId instead of rpcId. The
+   * webview never sees rpcIds (the MuxFrame union does not carry them), so the
+   * bridge's `respond` message correlates by approvalId and this lookup
+   * recovers the frame rpcId (ARCHITECTURE.md section 3 revision 2).
+   * @param approvalId - approvalId from the `approval/requested` frame.
+   * @param decision - 'allow-once' or 'refuse'.
+   */
+  async resolveApprovalByApprovalId(approvalId: ApprovalRequestId, decision: 'allow-once' | 'refuse'): Promise<void> {
+    for (const [rpcId, pending] of this.pendingApprovals) {
+      if (pending.approvalId === approvalId) return await this.resolveApproval(rpcId, decision)
+    }
+    throw new Error(`unknown or already-resolved approval: ${approvalId}`)
+  }
+
+  /**
+   * Answer a pending question batch correlated by sessionId instead of rpcId
+   * (same correlation gap as resolveApprovalByApprovalId). At most one ask()
+   * batch is pending per session, so the sessionId identifies the frame.
+   * @param sessionId - sessionId of the `question/requested` frame.
+   * @param answers - per-question answers keyed by question id.
+   */
+  async answerQuestionBySessionId(sessionId: SessionId, answers: AskUserQuestionAnswerItem[]): Promise<void> {
+    for (const [rpcId, pending] of this.pendingQuestions) {
+      if (pending.sessionId === sessionId) return await this.answerQuestion(rpcId, answers)
+    }
+    throw new Error(`unknown or already-resolved question for session: ${sessionId}`)
+  }
+
   /** Close both sockets, stop reconnecting, and drop pending state. */
   async dispose(): Promise<void> {
     this.disposed = true

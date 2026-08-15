@@ -62,6 +62,26 @@ export class Bridge {
       case 'rpc':
         await this.handleRpc(webview, message.id, message.method, message.params)
         break
+      case 'respond':
+        await this.handleRespond(message)
+        break
+    }
+  }
+
+  /**
+   * Dispatch one `respond` message: correlate by approvalId/sessionId (the
+   * webview never sees frame rpcIds) and POST /api/respond through the client.
+   * Failures surface as an error notification; the webview panel re-arms.
+   */
+  private async handleRespond(message: Extract<WebviewMessage, { type: 'respond' }>): Promise<void> {
+    try {
+      if (message.kind === 'approval') {
+        await this.client.resolveApprovalByApprovalId(message.approvalId, message.decision)
+      } else {
+        await this.client.answerQuestionBySessionId(message.sessionId, message.answers)
+      }
+    } catch (error) {
+      void vscode.window.showErrorMessage(`DSH 应答失败：${errorMessage(error)}`)
     }
   }
 
