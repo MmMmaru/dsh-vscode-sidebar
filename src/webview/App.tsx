@@ -32,7 +32,10 @@ export function App(): JSX.Element {
       <ChatListPanel />
       {activeSessionId === null ? (
         <section className="region region-conversation" data-region="ConversationView">
-          <div className="empty-hero">{initialized ? '选择或新建一个会话' : '加载中…'}</div>
+          <div className="empty-hero">
+            <div className="empty-hero-icon">🐋</div>
+            <div>{initialized ? '选择或新建一个会话' : '加载中…'}</div>
+          </div>
         </section>
       ) : (
         <ConversationView key={activeSessionId} sessionId={activeSessionId} />

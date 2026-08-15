@@ -42,9 +42,9 @@ body {
 }
 
 .region {
-  border: 1px dashed var(--dsh-border);
+  border: none;
   border-radius: var(--dsh-radius);
-  margin: 4px;
+  margin: 0;
   min-height: 0;
 }
 
@@ -140,84 +140,32 @@ body {
   background: var(--dsh-ok);
 }
 
-.node-list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.node {
-  display: flex;
-  gap: 6px;
-  align-items: baseline;
-}
-
-.node-kind {
-  flex: none;
-  font-size: 0.8em;
-  color: var(--dsh-fg-muted);
-  border: 1px solid var(--dsh-border);
-  border-radius: 4px;
-  padding: 0 4px;
-}
-
-.node-preview {
-  white-space: pre-wrap;
-  word-break: break-word;
-}
-
-.node-error .node-preview {
-  color: var(--dsh-danger);
-}
-
 .empty-hero {
   display: flex;
+  flex-direction: column;
+  gap: 10px;
   align-items: center;
   justify-content: center;
   height: 100%;
   color: var(--dsh-fg-muted);
+  opacity: 0.7;
+}
+
+.empty-hero-icon {
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  background: var(--dsh-bg-raised);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 20px;
 }
 
 .turn-status {
   margin-top: var(--dsh-gap);
   color: var(--dsh-fg-muted);
   font-style: italic;
-}
-
-.overlay-strip {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  align-items: center;
-  padding: 6px;
-  margin-bottom: 6px;
-  border: 1px solid var(--dsh-warning);
-  border-radius: var(--dsh-radius);
-}
-
-.composer-row {
-  display: flex;
-  gap: 6px;
-}
-
-.composer-row textarea {
-  flex: 1;
-  resize: none;
-  font: inherit;
-  color: var(--dsh-fg);
-  background: var(--vscode-input-background, #3c3c3c);
-  border: 1px solid var(--vscode-input-border, var(--dsh-border));
-  border-radius: var(--dsh-radius);
-  padding: 6px;
-}
-
-.composer-meta {
-  margin-top: 4px;
-  font-size: 0.85em;
-  color: var(--dsh-fg-muted);
 }
 
 button {
@@ -233,25 +181,4 @@ button {
 button:disabled {
   opacity: 0.5;
   cursor: default;
-}
-
-/* Settings modal mount point. */
-.settings-modal {
-  position: fixed;
-  inset: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: rgba(0, 0, 0, 0.4);
-  z-index: 10;
-}
-
-.settings-card {
-  width: 90%;
-  max-height: 85%;
-  overflow-y: auto;
-  background: var(--dsh-bg-raised);
-  border: 1px solid var(--dsh-border);
-  border-radius: var(--dsh-radius);
-  padding: var(--dsh-gap);
 }
