@@ -50,7 +50,11 @@ export const createSessionsSlice: StateCreator<AppStore, [], [], SessionsSlice> 
 
   selectSession: async (id) => {
     if (get().activeSessionId === id) return
-    set({ activeSessionId: id })
+    set({
+      activeSessionId: id,
+      // Selecting a session marks it read (clears the blue unread dot).
+      sessions: get().sessions.map((s) => (s.sessionId === id ? { ...s, unread: false } : s)),
+    })
     get().clearConversation()
     get().clearOverlay()
     await Promise.all([get().loadHistory(id), get().loadModels(id)])
@@ -104,12 +108,20 @@ export const createSessionsSlice: StateCreator<AppStore, [], [], SessionsSlice> 
       case 'host/session-removed':
         set({ sessions: get().sessions.filter((s) => s.sessionId !== frame.sessionId) })
         break
-      case 'host/session-status':
+      case 'host/session-status': {
+        // A running -> idle transition on a background session marks it unread.
+        const ended =
+          !frame.running &&
+          frame.sessionId !== get().activeSessionId &&
+          get().sessions.some((s) => s.sessionId === frame.sessionId && s.running)
         set({
           sessions: get().sessions.map((s) =>
-            s.sessionId === frame.sessionId ? { ...s, running: frame.running } : s),
+            s.sessionId === frame.sessionId
+              ? { ...s, running: frame.running, ...(ended ? { unread: true } : {}) }
+              : s),
         })
         break
+      }
       case 'host/archived-sessions-changed': {
         const gone = new Set(frame.archivedSessionIds)
         set({ sessions: get().sessions.filter((s) => !gone.has(s.sessionId)) })
@@ -124,6 +136,20 @@ export const createSessionsSlice: StateCreator<AppStore, [], [], SessionsSlice> 
   },
 
   applyProjectionFrame: (frame) => {
+    // A live turn ending on a background session marks it unread (blue dot);
+    // the active session and freshly created ones are never marked. History
+    // pages arrive via RPC, not the event stream, so old turns never hit this.
+    if (
+      frame.type === 'session/event' &&
+      frame.event.type === 'turn/end' &&
+      frame.sessionId !== get().activeSessionId
+    ) {
+      set({
+        sessions: get().sessions.map((s) =>
+          s.sessionId === frame.sessionId ? { ...s, unread: true } : s),
+      })
+      return
+    }
     if (frame.type !== 'session/projection') return
     if (frame.key === 'title' && typeof frame.value === 'string') {
       set({

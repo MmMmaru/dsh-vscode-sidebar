@@ -203,6 +203,11 @@
   background: var(--dsh-warning);
 }
 
+/* Turn finished while the session was not open; cleared when the row is picked. */
+.status-dot-unread {
+  background: var(--dsh-accent);
+}
+
 .chat-list-viewall {
   flex: none;
   background: transparent;

@@ -67,7 +67,9 @@ function buildSessions(): SessionMeta[] {
     },
   ]
   for (let i = 0; i < 29; i += 1) {
-    metas.push({
+    // `unread` is a webview-local field (webview/types.ts); one row is preset
+    // so the blue unread dot shows up in mock screenshots.
+    const row: SessionMeta & { unread?: boolean } = {
       sessionId: `s-${String(i + 1).padStart(2, '0')}` as SessionId,
       title: SESSION_TITLES[i] ?? `会话 ${i + 1}`,
       updatedAt: now - (i + 1) * (DAY_MS / 3) - i * 17 * 60_000,
@@ -75,7 +77,9 @@ function buildSessions(): SessionMeta[] {
       blank: i % 9 === 8,
       cwd: MOCK_CWD,
       ...(i === 5 ? { parentSessionId: DEMO_SESSION_ID } : {}),
-    })
+    }
+    if (i === 4) row.unread = true
+    metas.push(row)
   }
   return metas
 }

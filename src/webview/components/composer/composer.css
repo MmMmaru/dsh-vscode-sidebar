@@ -391,13 +391,16 @@
 
 .context-meter-track {
   fill: none;
-  stroke: var(--dsh-border);
+  /* Unused arc: muted foreground at low opacity, keeping it a light track. */
+  stroke: var(--dsh-fg-muted);
+  stroke-opacity: 0.3;
   stroke-width: 2;
 }
 
 .context-meter-fill {
   fill: none;
-  stroke: var(--dsh-fg-muted);
+  /* Used arc: full foreground, the dark filled portion. */
+  stroke: var(--dsh-fg);
   stroke-width: 2;
   stroke-linecap: round;
 }

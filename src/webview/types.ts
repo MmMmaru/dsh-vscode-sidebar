@@ -27,11 +27,14 @@ import type {
 import type { TodoItem } from '../extension/protocol/session'
 import type { ModelReasoning, ModelSelection } from '../extension/protocol/sessions'
 import type { ToolCallView, ToolResultView } from '../extension/protocol/tool-views'
-import type { SessionMeta } from '../shared/bridge'
+import type { SessionMeta as BridgeSessionMeta } from '../shared/bridge'
 
-// `SessionMeta` is defined on the bridge contract (src/shared/bridge.ts) and
-// re-exported here so UI code has a single import surface.
-export type { SessionMeta }
+// `SessionMeta` is defined on the bridge contract (src/shared/bridge.ts); the
+// UI layer widens it with view-local bits maintained by the sessions slice.
+export interface SessionMeta extends BridgeSessionMeta {
+  /** A turn finished while this session was not active; cleared on select (blue dot). */
+  unread?: boolean
+}
 export type { TodoItem, ModelSelection, AskUserQuestionItem }
 
 // ---------------------------------------------------------------------------

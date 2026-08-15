@@ -38,3 +38,9 @@
 - 修复设置保存失败：wire 枚举 'danger-full-access' ↔ UI 内部 'full-access' 在 settings.ts 绑定层双向映射。
 - 整体字号调大：base.css 基准抬到 max(vscode字号, 14px)，em 相对层级自动等比上调。
 - 回归：typecheck + 15 单测 + verify:mock + verify:composer 全绿；真实 DeepSeek e2e 通过；截图复验通过；VSIX 重打 191.76KB。
+
+### 08-15 12:05
+- ContextMeter 用量环配色：底轨（未用）浅色 30% 透明，填充弧（已用）主题前景深色。
+- 会话列表显隐：仅开始界面（无活动会话）常驻最近 5 条 + View all；进入会话后只留 Chats 头部，历史走时钟下拉。
+- 状态点三态规则：绿=执行中，蓝=执行完未读（running→false 且非活动会话时标记，选中即清除），灰=已读；审批等待仍保持琥珀色最高优先级。
+- 回归：typecheck + 15 单测 + verify:mock 全绿；截图复验通过；VSIX 重打。

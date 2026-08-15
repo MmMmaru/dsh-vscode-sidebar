@@ -1,8 +1,10 @@
 /**
  * ChatListPanel (W2): the top region of the sidebar — "Chats" header with
- * history / settings / new-chat icon buttons, the session list (status dot,
- * title, relative time, hover menu: rename / fork / archive), and a
- * "View all (N)" expander that also reveals the search box.
+ * history / settings / new-chat icon buttons. While no session is active the
+ * panel also shows the recent session list (status dot, title, relative time,
+ * hover menu: rename / fork / archive) and a "View all (N)" expander; once a
+ * session is active, history is only reachable through the clock button's
+ * dropdown layer (which also reveals the search box).
  * Contract: no props — reads the sessions slice (ARCHITECTURE.md section 5.3).
  */
 
@@ -23,10 +25,11 @@ function relativeTime(updatedAt: number): string {
   return `${Math.floor(hours / 24)}d`
 }
 
-/** Status dot priority: waiting (amber, if this session has the pending overlay) > running (green) > idle. */
+/** Status dot priority: waiting (amber, if this session has the pending overlay) > running (green) > unread (blue) > idle (grey). */
 function dotClass(session: SessionMeta, waitingSessionId: SessionId | null): string {
   if (waitingSessionId !== null && session.sessionId === waitingSessionId) return 'status-dot status-dot-waiting'
   if (session.running) return 'status-dot status-dot-running'
+  if (session.unread === true) return 'status-dot status-dot-unread'
   return 'status-dot'
 }
 
@@ -179,9 +182,10 @@ function SessionRow(props: { session: SessionMeta; waitingSessionId: SessionId |
   )
 }
 
-/** The panel: header buttons + inline recent list + a dropdown full-history layer. */
+/** The panel: header buttons + an inline recent list (start screen only) + a dropdown full-history layer. */
 export function ChatListPanel(): JSX.Element {
   const sessions = useAppStore((s) => s.sessions)
+  const activeSessionId = useAppStore((s) => s.activeSessionId)
   const newChat = useAppStore((s) => s.newChat)
   const openSettings = useAppStore((s) => s.openSettings)
   const pendingApproval = useAppStore((s) => s.pendingApproval)
@@ -244,15 +248,21 @@ export function ChatListPanel(): JSX.Element {
           </button>
         </span>
       </div>
-      <ul className="session-list">
-        {visible.map((s) => (
-          <SessionRow key={s.sessionId} session={s} waitingSessionId={waitingSessionId} />
-        ))}
-      </ul>
-      {filtered.length > 5 && (
-        <button type="button" className="chat-list-viewall" onClick={() => setExpanded(true)}>
-          View all ({filtered.length})
-        </button>
+      {/* The persistent recent list only shows on the start screen; inside a
+          session, history is reachable through the clock dropdown below. */}
+      {activeSessionId === null && (
+        <>
+          <ul className="session-list">
+            {visible.map((s) => (
+              <SessionRow key={s.sessionId} session={s} waitingSessionId={waitingSessionId} />
+            ))}
+          </ul>
+          {filtered.length > 5 && (
+            <button type="button" className="chat-list-viewall" onClick={() => setExpanded(true)}>
+              View all ({filtered.length})
+            </button>
+          )}
+        </>
       )}
       {expanded && (
         <div className="chat-list-dropdown">
