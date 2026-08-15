@@ -8,6 +8,7 @@
 import type { StateCreator } from 'zustand'
 import type { MessageId, SessionId } from '../../extension/protocol/brand'
 import type { MuxFrame } from '../../extension/protocol/events'
+import type { HostDescription } from '../../extension/protocol/host'
 import type { PromptContentPart, QueueAction } from '../../extension/protocol/sessions'
 import type { SessionModels } from '../../extension/protocol/sessions'
 import { rpc } from '../bridge'
@@ -36,6 +37,11 @@ export interface ComposerSlice {
   setPermissionMode: (mode: PermissionMode) => void
   /** Load the global model catalog (llm.models); session.models refines later. */
   loadGlobalModels: () => Promise<void>
+  /**
+   * Preselect the saved deployment default (host.describe echoes the last
+   * selected model) so the chip is filled before any session exists.
+   */
+  loadDefaultModel: () => Promise<void>
   /** Load the model catalog + current selection of a session. */
   loadModels: (sessionId: SessionId) => Promise<void>
   /** Mutate one pending queue item (edit / remove / steer). */
@@ -115,6 +121,14 @@ export const createComposerSlice: StateCreator<AppStore, [], [], ComposerSlice> 
     )
     // Global catalog fills the selector only until a session refines it.
     if (get().activeSessionId === null) set({ models })
+  },
+
+  loadDefaultModel: async () => {
+    const desc = await rpc<HostDescription>('host.describe', {})
+    if (desc.provider === undefined || desc.model === undefined) return
+    // Never override a choice the user already made this run.
+    if (get().selectedModel !== null || get().pendingModelSelection !== null) return
+    set({ selectedModel: { provider: desc.provider, model: desc.model } })
   },
 
   loadModels: async (sessionId) => {

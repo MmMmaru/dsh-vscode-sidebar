@@ -728,6 +728,16 @@ function rpc<T = unknown>(method: string, params?: unknown): Promise<T> {
       return respond({ providers: llmProviders() })
     case 'llm.models':
       return respond({ groups: MODELS.groups, failures: [] })
+    case 'host.describe':
+      // Echo the saved default so the composer chip preselects the last model.
+      return respond({
+        version: '0.0.1-mock',
+        cwd: MOCK_CWD,
+        provider: MODELS.current.provider,
+        model: MODELS.current.model,
+        attachedSessions: 1,
+        canOpenPath: false,
+      })
     case 'credentials.describe': {
       const refs = (p['refs'] ?? []) as string[]
       const credentials: Record<string, { configured: boolean; source?: string; writable: boolean }> = {}

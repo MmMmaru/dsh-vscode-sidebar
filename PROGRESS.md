@@ -55,3 +55,6 @@
 
 ### 08-15 13:10
 - 修复默认权限不同步：composer 权限芯片原先硬编码初始 workspace-write，且 loadSettings 只在打开设置页时才跑。新增 settings slice 的 syncPermissionDefault（启动时 settings.describe 只取 permission 命名空间 → 同步 uiPrefs 与芯片状态，设置面不可写时回退 localStorage）；setUiPref('permissionMode') 同步芯片；newChat 时芯片重置为已保存的默认权限。真实 host 验证：permission.defaultPreset 已是 danger-full-access，重装后新会话芯片显示 Full access。
+
+### 08-15 13:40
+- 模型自动选型：web 端的"记住上次模型"本就在 host 端（session.selectModel 会把选择存为部署级默认 agent-default-model，新会话 session.models.current 直接带回）。插件补的是无会话首页：启动时调 host.describe 取回默认 provider/model 预选到模型芯片（已选/待定选择不覆盖），发送时沿用既有 pendingModelSelection 链路。mock 补 host.describe 处理器。真实 host 验证新会话 current 即上次模型（deepseek-v4-flash）。
