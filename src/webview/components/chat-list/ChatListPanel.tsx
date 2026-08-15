@@ -175,7 +175,7 @@ function SessionRow(props: { session: SessionMeta; waitingSessionId: SessionId |
   )
 }
 
-/** The panel: header buttons + (optionally expanded) session list. */
+/** The panel: header buttons + inline recent list + a dropdown full-history layer. */
 export function ChatListPanel(): JSX.Element {
   const sessions = useAppStore((s) => s.sessions)
   const newChat = useAppStore((s) => s.newChat)
@@ -185,6 +185,7 @@ export function ChatListPanel(): JSX.Element {
   const [expanded, setExpanded] = useState(false)
   const [query, setQuery] = useState('')
   const [debounced, setDebounced] = useState('')
+  const panelRef = useRef<HTMLElement>(null)
 
   // The session holding the pending overlay drives the amber "waiting" dot.
   const waitingSessionId = pendingApproval?.sessionId ?? pendingQuestion?.sessionId ?? null
@@ -195,13 +196,31 @@ export function ChatListPanel(): JSX.Element {
     return () => clearTimeout(t)
   }, [query])
 
+  // The history dropdown closes on outside pointer-down and on Escape.
+  useEffect(() => {
+    if (!expanded) return
+    const onPointerDown = (e: PointerEvent): void => {
+      if (e.target instanceof Node && panelRef.current?.contains(e.target)) return
+      setExpanded(false)
+    }
+    const onKeyDown = (e: KeyboardEvent): void => {
+      if (e.key === 'Escape') setExpanded(false)
+    }
+    window.addEventListener('pointerdown', onPointerDown)
+    window.addEventListener('keydown', onKeyDown)
+    return () => {
+      window.removeEventListener('pointerdown', onPointerDown)
+      window.removeEventListener('keydown', onKeyDown)
+    }
+  }, [expanded])
+
   const filtered = debounced === ''
     ? sessions
     : sessions.filter((s) => (s.title ?? '').toLowerCase().includes(debounced))
-  const visible = expanded ? filtered : filtered.slice(0, 5)
+  const visible = filtered.slice(0, 5)
 
   return (
-    <section className="region-chat-list chat-list" data-region="ChatListPanel">
+    <section className="region-chat-list chat-list" data-region="ChatListPanel" ref={panelRef}>
       <div className="chat-list-header">
         <span className="chat-list-title">Chats</span>
         <span className="chat-list-actions">
@@ -221,25 +240,34 @@ export function ChatListPanel(): JSX.Element {
           </button>
         </span>
       </div>
-      {expanded && (
-        <div className="chat-list-search">
-          <Icon name="search" />
-          <input
-            placeholder="搜索会话…"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-          />
-        </div>
-      )}
       <ul className="session-list">
         {visible.map((s) => (
           <SessionRow key={s.sessionId} session={s} waitingSessionId={waitingSessionId} />
         ))}
       </ul>
-      {!expanded && filtered.length > 5 && (
+      {filtered.length > 5 && (
         <button type="button" className="chat-list-viewall" onClick={() => setExpanded(true)}>
           View all ({filtered.length})
         </button>
+      )}
+      {expanded && (
+        <div className="chat-list-dropdown">
+          <div className="chat-list-search">
+            <Icon name="search" />
+            <input
+              autoFocus
+              placeholder="搜索会话…"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+            />
+          </div>
+          <ul className="session-list chat-list-dropdown-list">
+            {filtered.map((s) => (
+              <SessionRow key={s.sessionId} session={s} waitingSessionId={waitingSessionId} />
+            ))}
+            {filtered.length === 0 && <li className="chat-list-empty">无匹配会话</li>}
+          </ul>
+        </div>
       )}
     </section>
   )

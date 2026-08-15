@@ -6,8 +6,40 @@
 .chat-list {
   display: flex;
   flex-direction: column;
-  overflow: hidden;
+  /* visible so the absolute history dropdown can overlay the regions below */
+  overflow: visible;
   padding: 2px 4px;
+  position: relative;
+}
+
+/* History dropdown: overlays the conversation region, closes on outside click. */
+.chat-list-dropdown {
+  position: absolute;
+  top: 34px;
+  left: 4px;
+  right: 4px;
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  max-height: 60vh;
+  background: var(--dsh-bg-raised);
+  border: 1px solid var(--dsh-border);
+  border-radius: var(--dsh-radius);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.4);
+  padding-bottom: 4px;
+}
+
+.chat-list-dropdown-list {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.chat-list-empty {
+  padding: 8px 10px;
+  color: var(--dsh-fg-muted);
+  font-size: 0.85em;
+  list-style: none;
 }
 
 .chat-list-header {
