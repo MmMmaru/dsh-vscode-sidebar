@@ -52,3 +52,6 @@
 - 新增：有后台 session 运行时，历史会话按钮变为旋转圈 + 中心数字（运行中数量），点击仍展开历史下拉。
 - 网页端统一：newChat 先调 workspace.create（按插件根目录幂等归属），再 session.create({workspaceId})；老 host 不支持时回退 cwd 创建。插件会话此后在 dsh 网页端归入对应 Workspace 统一管理。真实 host 已验证 workspace.create 可用。
 - 排查结论（未改代码）：subagent 停不掉是插件缺实现——harness 有 subagent.interrupt RPC（仅 continuable 模式）且 web 端已接；协议类型插件已 vendored（protocol/subagents.ts），补一个 subagent 列表 + 停止按钮即可。
+
+### 08-15 13:10
+- 修复默认权限不同步：composer 权限芯片原先硬编码初始 workspace-write，且 loadSettings 只在打开设置页时才跑。新增 settings slice 的 syncPermissionDefault（启动时 settings.describe 只取 permission 命名空间 → 同步 uiPrefs 与芯片状态，设置面不可写时回退 localStorage）；setUiPref('permissionMode') 同步芯片；newChat 时芯片重置为已保存的默认权限。真实 host 验证：permission.defaultPreset 已是 danger-full-access，重装后新会话芯片显示 Full access。

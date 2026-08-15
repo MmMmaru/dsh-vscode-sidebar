@@ -70,6 +70,8 @@ export const useAppStore = create<AppStore>()((...a) => {
       get().initSessions(init.sessions, init.cwd)
       // Populate the model selector even before any session is selected.
       void get().loadGlobalModels().catch(() => undefined)
+      // Reflect the saved default permission in the composer chip.
+      void get().syncPermissionDefault().catch(() => undefined)
     },
 
     ...createSessionsSlice(...a),

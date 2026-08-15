@@ -181,6 +181,11 @@ export interface SettingsSlice {
   removeProvider: (target: ProviderTarget) => Promise<void>
   /** Persist one UI preference (settings namespace when bound, else local). */
   setUiPref: <K extends keyof UiPrefs>(key: K, value: UiPrefs[K]) => Promise<void>
+  /**
+   * Startup sync: pull the host's permission.defaultPreset into the composer's
+   * permission chip (and uiPrefs), so a saved default is what new sessions show.
+   */
+  syncPermissionDefault: () => Promise<void>
   /** Persist the default preset for subsequently created sessions. */
   selectDefaultPreset: (id: string) => Promise<void>
 }
@@ -276,12 +281,33 @@ export const createSettingsSlice: StateCreator<AppStore, [], [], SettingsSlice> 
     const binding = UI_PREF_BINDINGS[key]
     const next = { ...get().uiPrefs, [key]: value }
     set({ uiPrefs: next })
+    // The composer's permission chip mirrors the saved default.
+    if (key === 'permissionMode') set({ permissionMode: value as PermissionMode })
     if (get().uiPrefSources[key] === 'settings') {
       const ns = get().namespaces.find((n) => n.ns === binding.ns)
       await get().updateSettings(binding.ns, { [binding.field]: binding.toWire(value) }, ns?.revision)
     } else {
       writeLocalPrefs(next)
     }
+  },
+
+  syncPermissionDefault: async () => {
+    const binding = UI_PREF_BINDINGS.permissionMode
+    let mode: PermissionMode | undefined
+    try {
+      const described = await rpc<SettingsDescribeResult>('settings.describe', {})
+      const ns = described.namespaces.find((n) => n.ns === binding.ns)
+      if (described.writable && ns !== undefined) {
+        set({ uiPrefSources: { ...get().uiPrefSources, permissionMode: 'settings' } })
+        const wire = (ns.value as Record<string, unknown> | null)?.[binding.field]
+        mode = binding.fromWire(wire)
+      }
+    } catch {
+      // Settings plane unavailable: fall through to the local fallback.
+    }
+    mode ??= readLocalPrefs().permissionMode
+    if (mode === undefined) return
+    set({ uiPrefs: { ...get().uiPrefs, permissionMode: mode }, permissionMode: mode })
   },
 
   selectDefaultPreset: async (id) => {

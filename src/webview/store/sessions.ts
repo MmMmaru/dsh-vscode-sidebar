@@ -78,6 +78,8 @@ export const createSessionsSlice: StateCreator<AppStore, [], [], SessionsSlice> 
     const { sessionId } = await rpc<{ sessionId: SessionId }>('session.create', payload)
     // The host/session-added frame also inserts the row; applyHostFrame dedupes.
     await get().selectSession(sessionId)
+    // A new session starts at the configured default permission.
+    set({ permissionMode: get().uiPrefs.permissionMode })
     // A model chosen before the session existed is applied now.
     const pending = get().pendingModelSelection
     if (pending !== null) {
