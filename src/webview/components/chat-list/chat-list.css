@@ -90,6 +90,37 @@
   height: 15px;
 }
 
+/* History button while background sessions run: spinning ring + count inside. */
+.chat-list-running-badge {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+}
+
+.chat-list-running-spinner {
+  position: absolute;
+  inset: 0;
+  border: 1.5px solid var(--dsh-border);
+  border-top-color: var(--dsh-accent);
+  border-radius: 50%;
+  animation: chat-list-spin 0.8s linear infinite;
+}
+
+.chat-list-running-count {
+  font-size: 9px;
+  line-height: 1;
+  color: var(--dsh-accent);
+}
+
+@keyframes chat-list-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 .chat-list-search {
   display: flex;
   align-items: center;

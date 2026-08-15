@@ -10,7 +10,7 @@
  * Selection: bridge.ts picks this module for `?mock` / VITE_DSH_MOCK=1.
  */
 
-import type { ApprovalRequestId, CallId, MessageId, SessionId } from '../../extension/protocol/brand'
+import type { ApprovalRequestId, CallId, MessageId, SessionId, WorkspaceId } from '../../extension/protocol/brand'
 import type {
   AskUserQuestionAnswerItem,
   AskUserQuestionItem,
@@ -586,6 +586,18 @@ function rpc<T = unknown>(method: string, params?: unknown): Promise<T> {
           projections: { asOfSeq: seq, values: s.title === null ? {} : { title: s.title } },
         }))
       return respond({ items })
+    }
+    case 'workspace.create': {
+      // Idempotent per-path workspace resolution; the mock owns one workspace.
+      const workspace = {
+        workspaceId: 'ws-mock' as WorkspaceId,
+        path: MOCK_CWD,
+        title: 'mock-workspace',
+        sessionIds: sessions.map((s) => s.sessionId),
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      }
+      return respond({ workspace, created: false })
     }
     case 'session.create': {
       const sessionId = `s-new-${Date.now()}` as SessionId

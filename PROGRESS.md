@@ -47,3 +47,8 @@
 
 ### 08-15 12:25
 - 修复未读蓝点不生效：turn/end 与 host/session-status 的未读标记原先排除活动会话，导致"执行完直接变灰"。现在任何会话 turn 结束都标蓝，选中（含重复点击当前会话）即清除为灰。Playwright 探针验证：审批+提问走完后活动会话点变蓝，mock 预置行渲染蓝点。
+
+### 08-15 12:50
+- 新增：有后台 session 运行时，历史会话按钮变为旋转圈 + 中心数字（运行中数量），点击仍展开历史下拉。
+- 网页端统一：newChat 先调 workspace.create（按插件根目录幂等归属），再 session.create({workspaceId})；老 host 不支持时回退 cwd 创建。插件会话此后在 dsh 网页端归入对应 Workspace 统一管理。真实 host 已验证 workspace.create 可用。
+- 排查结论（未改代码）：subagent 停不掉是插件缺实现——harness 有 subagent.interrupt RPC（仅 continuable 模式）且 web 端已接；协议类型插件已 vendored（protocol/subagents.ts），补一个 subagent 列表 + 停止按钮即可。

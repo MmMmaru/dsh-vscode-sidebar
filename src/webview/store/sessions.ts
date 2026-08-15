@@ -6,8 +6,9 @@
  */
 
 import type { StateCreator } from 'zustand'
-import type { SessionId } from '../../extension/protocol/brand'
+import type { SessionId, WorkspaceId } from '../../extension/protocol/brand'
 import type { HostFrame, MuxFrame } from '../../extension/protocol/events'
+import type { WorkspaceView } from '../../extension/protocol/views'
 import { rpc } from '../bridge'
 import type { SessionMeta } from '../types'
 import type { AppStore } from './index'
@@ -63,7 +64,18 @@ export const createSessionsSlice: StateCreator<AppStore, [], [], SessionsSlice> 
   },
 
   newChat: async () => {
-    const { sessionId } = await rpc<{ sessionId: SessionId }>('session.create', { cwd: get().cwd })
+    // Group the session under the per-root workspace so the dsh web UI can
+    // manage it. workspace.create is idempotent per canonical path; if the
+    // host predates workspaces, fall back to a plain cwd-scoped create.
+    const cwd = get().cwd
+    let payload: { workspaceId: WorkspaceId } | { cwd: string }
+    try {
+      const { workspace } = await rpc<{ workspace: WorkspaceView; created: boolean }>('workspace.create', { path: cwd })
+      payload = { workspaceId: workspace.workspaceId }
+    } catch {
+      payload = { cwd }
+    }
+    const { sessionId } = await rpc<{ sessionId: SessionId }>('session.create', payload)
     // The host/session-added frame also inserts the row; applyHostFrame dedupes.
     await get().selectSession(sessionId)
     // A model chosen before the session existed is applied now.

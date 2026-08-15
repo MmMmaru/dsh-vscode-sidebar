@@ -227,6 +227,9 @@ export function ChatListPanel(): JSX.Element {
     : sessions.filter((s) => (s.title ?? '').toLowerCase().includes(debounced))
   const visible = filtered.slice(0, 5)
 
+  // Background sessions still executing; drives the history button badge.
+  const runningCount = sessions.filter((s) => s.running).length
+
   return (
     <section className="region-chat-list chat-list" data-region="ChatListPanel" ref={panelRef}>
       <div className="chat-list-header">
@@ -235,10 +238,17 @@ export function ChatListPanel(): JSX.Element {
           <button
             type="button"
             className={`icon-btn${expanded ? ' icon-btn-active' : ''}`}
-            title="历史会话"
+            title={runningCount > 0 ? `历史会话（${runningCount} 个运行中）` : '历史会话'}
             onClick={() => setExpanded((v) => !v)}
           >
-            <Icon name="clock" />
+            {runningCount > 0 ? (
+              <span className="chat-list-running-badge">
+                <span className="chat-list-running-spinner" aria-hidden />
+                <span className="chat-list-running-count">{runningCount}</span>
+              </span>
+            ) : (
+              <Icon name="clock" />
+            )}
           </button>
           <button type="button" className="icon-btn" title="设置" onClick={openSettings}>
             <Icon name="gear" />
