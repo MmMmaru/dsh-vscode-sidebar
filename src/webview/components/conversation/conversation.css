@@ -157,43 +157,149 @@
 
 /* --- Assistant markdown --- */
 
+/* Body text: system sans stack, relaxed line height (Codex-style prose). */
 .md-body {
-  line-height: 1.55;
+  font-family: var(--vscode-font-family, -apple-system, 'Segoe UI', sans-serif);
+  line-height: 1.6;
+  overflow-wrap: break-word;
   word-break: break-word;
 }
 
 .md-body p {
-  margin: 6px 0;
+  margin: 8px 0;
+}
+
+/* Trim outer margins so the block sits flush in the message stream. */
+.md-body > *:first-child {
+  margin-top: 0;
+}
+
+.md-body > *:last-child {
+  margin-bottom: 0;
+}
+
+/* Headings: gentle size gradient, semi-bold, tight bottom margins. */
+.md-body h1,
+.md-body h2,
+.md-body h3,
+.md-body h4 {
+  font-weight: 600;
+  line-height: 1.35;
+  margin: 14px 0 6px;
+}
+
+.md-body h1 {
+  font-size: 1.25em;
+}
+
+.md-body h2 {
+  font-size: 1.15em;
+}
+
+.md-body h3 {
+  font-size: 1.05em;
+}
+
+.md-body h4 {
+  font-size: 1em;
+}
+
+.md-body strong {
+  font-weight: 600;
+}
+
+.md-body hr {
+  border: none;
+  height: 1px;
+  margin: 12px 0;
+  background: var(--dsh-border);
+}
+
+/* Links: theme link color at rest, underline only on hover/focus. */
+.md-body a {
+  color: var(--vscode-textLink-foreground, var(--dsh-accent));
+  text-decoration: none;
+}
+
+.md-body a:hover,
+.md-body a:focus {
+  text-decoration: underline;
+}
+
+/* Lists: modest indent, compact item spacing. */
+.md-body ul,
+.md-body ol {
+  margin: 8px 0;
+  padding-left: 20px;
+}
+
+.md-body li:not(:first-child) {
+  margin-top: 4px;
+}
+
+.md-body li > p {
+  margin: 4px 0;
+}
+
+.md-body li > ul,
+.md-body li > ol {
+  margin: 4px 0;
+}
+
+/* Quote: left rule + muted text. */
+.md-body blockquote {
+  margin: 8px 0;
+  padding-left: 12px;
+  border-left: 2px solid var(--dsh-border);
+  color: var(--dsh-fg-muted);
+}
+
+.md-body blockquote > *:first-child {
+  margin-top: 0;
+}
+
+.md-body blockquote > *:last-child {
+  margin-bottom: 0;
 }
 
 .md-plain {
   white-space: pre-wrap;
   word-break: break-word;
   color: var(--dsh-fg);
+  line-height: 1.6;
 }
 
 .md-inline-code {
   background: var(--vscode-textCodeBlock-background, rgba(255, 255, 255, 0.08));
   border-radius: 4px;
-  padding: 0 4px;
+  padding: 1px 5px;
   font-family: var(--vscode-editor-font-family, monospace);
-  font-size: 0.9em;
+  font-size: 0.875em;
 }
 
+/* Inline code inside headings keeps the heading size/weight. */
+.md-body :where(h1, h2, h3, h4) .md-inline-code {
+  font-size: 0.85em;
+}
+
+/* Fenced block: dark base, rounded corners, padding, horizontal scroll. */
 .md-codeblock {
-  margin: 6px 0;
+  margin: 8px 0;
   border: 1px solid var(--dsh-border);
   border-radius: var(--dsh-radius);
   overflow: hidden;
+  background: var(--vscode-textCodeBlock-background, var(--dsh-bg-raised));
 }
 
 .md-codeblock-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 2px 8px;
+  padding: 3px 10px;
   background: var(--dsh-bg-raised);
+  border-bottom: 1px solid var(--dsh-border);
   color: var(--dsh-fg-muted);
+  font-family: var(--vscode-editor-font-family, monospace);
   font-size: 0.75em;
 }
 
@@ -211,21 +317,36 @@
 
 .md-codeblock pre {
   margin: 0;
-  padding: 8px;
+  padding: 10px 12px;
   overflow-x: auto;
   font-family: var(--vscode-editor-font-family, monospace);
   font-size: 0.85em;
-  line-height: 1.45;
+  line-height: 1.5;
 }
 
+/* Tables: bordered cells with zebra striping, scroll when too wide. */
 .md-body table {
+  display: block;
+  max-width: 100%;
+  overflow-x: auto;
   border-collapse: collapse;
+  margin: 8px 0;
+  font-size: 0.9em;
 }
 
 .md-body th,
 .md-body td {
   border: 1px solid var(--dsh-border);
-  padding: 2px 8px;
+  padding: 4px 10px;
+}
+
+.md-body th {
+  font-weight: 600;
+  background: var(--dsh-bg-raised);
+}
+
+.md-body tbody tr:nth-child(even) {
+  background: var(--vscode-list-hoverBackground, rgba(255, 255, 255, 0.04));
 }
 
 /* --- Reasoning (Think) row --- */
