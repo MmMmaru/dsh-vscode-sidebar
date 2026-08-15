@@ -40,9 +40,15 @@ export interface ConversationSlice {
   todos: TodoItem[]
   /** Accumulated token usage of the current/last turn. */
   stats: TurnStats | null
+  /** Wall time of the last completed turn in ms (drives the turn-tail stats row). */
+  lastTurnMs: number | null
+  /** True while a Load-older page request is in flight. */
+  loadingOlder: boolean
 
   /** Load the history tail page of a session and project it into nodes. */
   loadHistory: (sessionId: SessionId) => Promise<void>
+  /** Prepend the next older history page (Load older at the top of the stream). */
+  loadOlderHistory: (sessionId: SessionId) => Promise<void>
   /** Fold one mux frame into conversation state (the frozen projector entry). */
   applyMuxFrame: (frame: MuxFrame) => void
   /** Append an error node (host/agent-error, rpc failures surfaced inline). */
@@ -211,6 +217,34 @@ function projectEvent(nodes: ConversationNode[], event: SessionEvent, view?: Too
   }
 }
 
+/** Fold one history page into projected conversation state. */
+function projectPage(entries: HistoryResult['events']): {
+  nodes: ConversationNode[]
+  stats: TurnStats | null
+  todos: TodoItem[]
+  lastTurnMs: number | null
+} {
+  let nodes: ConversationNode[] = []
+  let stats: TurnStats | null = null
+  let todos: TodoItem[] = []
+  let lastTurnMs: number | null = null
+  const turnStarts = new Map<number, number>()
+  for (const entry of entries) {
+    nodes = projectEvent(nodes, entry.event, entry.view)
+    const event = entry.event
+    if (event.type === 'turn/start') turnStarts.set(event.data.turn, event.time)
+    if (event.type === 'turn/end') {
+      const start = turnStarts.get(event.data.turn)
+      if (start !== undefined) lastTurnMs = Math.max(0, event.time - start)
+    }
+    if (event.type === 'assistant/message' && event.data.usage) {
+      stats = addUsage(stats, event.data.usage)
+    }
+    if (event.type === 'todo/write') todos = event.data.todos
+  }
+  return { nodes, stats, todos, lastTurnMs }
+}
+
 export const createConversationSlice: StateCreator<AppStore, [], [], ConversationSlice> = (set, get) => ({
   nodes: [],
   hasMoreHistory: false,
@@ -218,20 +252,32 @@ export const createConversationSlice: StateCreator<AppStore, [], [], Conversatio
   turnStartedAt: null,
   todos: [],
   stats: null,
+  lastTurnMs: null,
+  loadingOlder: false,
 
   loadHistory: async (sessionId) => {
     const page = await rpc<HistoryResult>('session.history', { sessionId })
-    let nodes: ConversationNode[] = []
-    let stats: TurnStats | null = null
-    let todos: TodoItem[] = []
-    for (const entry of page.events) {
-      nodes = projectEvent(nodes, entry.event, entry.view)
-      if (entry.event.type === 'assistant/message' && entry.event.data.usage) {
-        stats = addUsage(stats, entry.event.data.usage)
-      }
-      if (entry.event.type === 'todo/write') todos = entry.event.data.todos
+    const { nodes, stats, todos, lastTurnMs } = projectPage(page.events)
+    set({ nodes, stats, todos, lastTurnMs, hasMoreHistory: page.hasMore, turnStatus: 'idle', turnStartedAt: null })
+  },
+
+  loadOlderHistory: async (sessionId) => {
+    if (!get().hasMoreHistory || get().loadingOlder) return
+    const beforeSeq = get().nodes[0]?.seq
+    if (beforeSeq === undefined) return
+    set({ loadingOlder: true })
+    try {
+      const page = await rpc<HistoryResult>('session.history', { sessionId, beforeSeq })
+      const older = projectPage(page.events)
+      set({
+        nodes: [...older.nodes, ...get().nodes],
+        hasMoreHistory: page.hasMore,
+        // Earlier pages only prepend content; stats/todos/lastTurnMs describe
+        // the latest turn and stay owned by the tail page.
+      })
+    } finally {
+      set({ loadingOlder: false })
     }
-    set({ nodes, stats, todos, hasMoreHistory: page.hasMore, turnStatus: 'idle', turnStartedAt: null })
   },
 
   applyMuxFrame: (frame) => {
@@ -245,9 +291,14 @@ export const createConversationSlice: StateCreator<AppStore, [], [], Conversatio
         const event = frame.event
         set({ nodes: projectEvent(get().nodes, event, frame.view) })
         if (event.type === 'turn/start') {
-          set({ turnStatus: 'running', turnStartedAt: event.time, stats: null })
+          set({ turnStatus: 'running', turnStartedAt: event.time, stats: null, lastTurnMs: null })
         } else if (event.type === 'turn/end') {
-          set({ turnStatus: 'idle', turnStartedAt: null })
+          const startedAt = get().turnStartedAt
+          set({
+            turnStatus: 'idle',
+            turnStartedAt: null,
+            lastTurnMs: startedAt === null ? get().lastTurnMs : Math.max(0, event.time - startedAt),
+          })
           if (event.data.reason.kind === 'error') {
             get().appendError(event.data.reason.error.message, event.data.reason.error.code)
           }
@@ -276,6 +327,15 @@ export const createConversationSlice: StateCreator<AppStore, [], [], Conversatio
   },
 
   clearConversation: () => {
-    set({ nodes: [], hasMoreHistory: false, turnStatus: 'idle', turnStartedAt: null, todos: [], stats: null })
+    set({
+      nodes: [],
+      hasMoreHistory: false,
+      turnStatus: 'idle',
+      turnStartedAt: null,
+      todos: [],
+      stats: null,
+      lastTurnMs: null,
+      loadingOlder: false,
+    })
   },
 })
