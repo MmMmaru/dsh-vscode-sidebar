@@ -3,7 +3,7 @@
   "displayName": "DeepSeek Harness Sidebar",
   "description": "VSCode sidebar client for the DeepSeek harness (dsh) web host",
   "version": "0.0.1",
-  "publisher": "deepseek",
+  "publisher": "XuRongSheng",
   "license": "MIT",
   "private": true,
   "icon": "resources/icon.png",
