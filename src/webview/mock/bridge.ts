@@ -10,7 +10,7 @@
  * Selection: bridge.ts picks this module for `?mock` / VITE_DSH_MOCK=1.
  */
 
-import type { ApprovalRequestId, CallId, MessageId, SessionId, WorkspaceId } from '../../extension/protocol/brand'
+import type { ApprovalRequestId, CallId, JobId, MessageId, SessionId, WorkspaceId } from '../../extension/protocol/brand'
 import type {
   AskUserQuestionAnswerItem,
   AskUserQuestionItem,
@@ -26,7 +26,7 @@ import type {
 } from '../../extension/protocol/projections'
 import type { SessionEvent } from '../../extension/protocol/session'
 import type { HistoryEntry, QueueAction, SessionModels, SessionSummary } from '../../extension/protocol/sessions'
-import type { SkillEntry } from '../../extension/protocol/views'
+import type { JobView, SkillEntry } from '../../extension/protocol/views'
 import type { SettingsNamespaceView } from '../../extension/protocol/settings'
 import type { ConfigurableProviderView } from '../../extension/protocol/settings'
 import type { HostStatus, InitPayload, SessionMeta } from '../../shared/bridge'
@@ -252,6 +252,13 @@ const queueStore = new Map<SessionId, QueuedInboxItem[]>()
 
 /** Sessions whose scripted turn is in flight; prompts to them enqueue instead of streaming. */
 const turnActive = new Set<SessionId>()
+
+/** Demo continuable subagent of the demo session (served by subagent.list). */
+const DEMO_SUBAGENT_ID = 's-sub-demo' as SessionId
+/** True once subagent.interrupt was admitted for the demo subagent. */
+let demoSubagentStopped = false
+/** The scripted background job emitted with the demo live stream. */
+let demoJob: JobView | null = null
 
 /** Push the authoritative session/queue snapshot for one session. */
 function emitQueue(sessionId: SessionId): void {
@@ -513,6 +520,9 @@ function runDemoStream(sessionId: SessionId, text: string): void {
     } satisfies ContextPressureProjection,
     seq,
   }, 700)
+  // Background-job snapshot: one running job appears alongside the turn.
+  demoJob = { id: 'bash-1' as JobId, kind: 'bash', label: 'npm run build', status: 'running', startedAt: Date.now() }
+  emit('mux', { type: 'session/jobs', sessionId, jobs: [demoJob] }, 650)
   const approvalId = `ap-${seq}` as ApprovalRequestId
   pendingScriptedApproval = { sessionId, approvalId, callId }
   emit('mux', { type: 'approval/requested', sessionId, approvalId, toolName: 'bash', callId, reason: '需要执行构建命令 npm run build' }, 900)
@@ -679,6 +689,31 @@ function rpc<T = unknown>(method: string, params?: unknown): Promise<T> {
       return respond({ skills: SKILLS })
     case 'session.cancel':
       return respond({ accepted: true })
+    case 'subagent.list': {
+      // The demo session has one continuable running child until interrupted.
+      const isDemo = p['parentSessionId'] === DEMO_SESSION_ID
+      return respond({
+        entries: isDemo
+          ? [{
+            kind: 'child',
+            id: DEMO_SUBAGENT_ID,
+            activity: demoSubagentStopped ? 'inactive' : 'running',
+            hasChildren: false,
+            mode: 'continuable',
+            label: '调研 store 切片划分',
+          }]
+          : [],
+        parentAvailable: true,
+      })
+    }
+    case 'subagent.interrupt': {
+      if (p['childSessionId'] !== DEMO_SUBAGENT_ID) {
+        return Promise.reject(new Error(`mock bridge: unknown subagent ${String(p['childSessionId'])}`))
+      }
+      demoSubagentStopped = true
+      emit('host', { type: 'host/session-status', sessionId: DEMO_SUBAGENT_ID, running: false })
+      return respond({ accepted: true })
+    }
     case 'workspace.archiveSession': {
       archived.add(p['sessionId'] as SessionId)
       emit('host', { type: 'host/archived-sessions-changed', archivedSessionIds: [...archived] })
@@ -827,6 +862,15 @@ function respondQuestion(sessionId: SessionId, answers: AskUserQuestionAnswerIte
     seq,
   }, 400)
   emit('mux', { type: 'session/event', sessionId, event: ev('turn/end', { turn: 2, reason: { kind: 'completed' } }) }, 500)
+  // The scripted job settles with the turn.
+  if (demoJob !== null) {
+    emit('mux', {
+      type: 'session/jobs',
+      sessionId,
+      jobs: [{ ...demoJob, status: 'completed', finishedAt: Date.now() }],
+    }, 600)
+    demoJob = null
+  }
   return Promise.resolve()
 }
 

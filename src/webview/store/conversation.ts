@@ -2,8 +2,10 @@
  * Conversation slice (owned by W3). Projects mux frames into the renderable
  * ConversationNode[] stream. applyMuxFrame is the frozen projector entry of
  * ARCHITECTURE.md section 5.2; it handles session/event + session/projection
- * frames here and ignores overlay/queue frames (routed to their own slices by
- * store/index.ts).
+ * frames here, snapshots the session/jobs frame into activeJobs, and ignores
+ * overlay/queue frames (routed to their own slices by store/index.ts). It
+ * also owns the subagent catalog of the active session (subagent.list /
+ * subagent.interrupt).
  */
 
 import type { StateCreator } from 'zustand'
@@ -18,6 +20,12 @@ import type {
 } from '../../extension/protocol/projections'
 import type { SessionEvent } from '../../extension/protocol/session'
 import type { SessionRpc } from '../../extension/protocol/sessions'
+import type {
+  SubagentCatalog,
+  SubagentInterruptReceipt,
+  SubagentListEntry,
+} from '../../extension/protocol/subagents'
+import type { JobView } from '../../extension/protocol/views'
 import { rpc } from '../bridge'
 import type {
   AssistantTextNode,
@@ -58,11 +66,19 @@ export interface ConversationSlice {
   lastTurnMs: number | null
   /** True while a Load-older page request is in flight. */
   loadingOlder: boolean
+  /** Background jobs visible to the active session (session/jobs snapshot). */
+  activeJobs: JobView[]
+  /** Direct-child subagent catalog of the active session (subagent.list). */
+  activeSubagents: SubagentListEntry[]
 
   /** Load the history tail page of a session and project it into nodes. */
   loadHistory: (sessionId: SessionId) => Promise<void>
   /** Prepend the next older history page (Load older at the top of the stream). */
   loadOlderHistory: (sessionId: SessionId) => Promise<void>
+  /** Fetch the subagent catalog of one session into activeSubagents. */
+  loadSubagents: (sessionId: SessionId) => Promise<void>
+  /** Interrupt one continuable child of the active session, then refresh. */
+  stopSubagent: (childSessionId: SessionId) => Promise<void>
   /** Fold one mux frame into conversation state (the frozen projector entry). */
   applyMuxFrame: (frame: MuxFrame) => void
   /** Append an error node (host/agent-error, rpc failures surfaced inline). */
@@ -272,6 +288,8 @@ export const createConversationSlice: StateCreator<AppStore, [], [], Conversatio
   contextBreakdown: null,
   lastTurnMs: null,
   loadingOlder: false,
+  activeJobs: [],
+  activeSubagents: [],
 
   loadHistory: async (sessionId) => {
     const page = await rpc<HistoryResult>('session.history', { sessionId })
@@ -312,6 +330,25 @@ export const createConversationSlice: StateCreator<AppStore, [], [], Conversatio
     } finally {
       set({ loadingOlder: false })
     }
+  },
+
+  loadSubagents: async (sessionId) => {
+    const catalog = await rpc<SubagentCatalog>('subagent.list', { parentSessionId: sessionId })
+    // A session switch may have happened while the call was in flight.
+    if (get().activeSessionId === sessionId) set({ activeSubagents: catalog.entries })
+  },
+
+  stopSubagent: async (childSessionId) => {
+    const parentSessionId = get().activeSessionId
+    if (parentSessionId === null) return
+    // The receipt only acknowledges admission; the refreshed catalog reports
+    // the actual activity flip to 'inactive'.
+    await rpc<SubagentInterruptReceipt>('subagent.interrupt', {
+      parentSessionId,
+      childSessionId,
+      mode: 'continuable',
+    })
+    await get().loadSubagents(parentSessionId)
   },
 
   applyMuxFrame: (frame) => {
@@ -364,6 +401,10 @@ export const createConversationSlice: StateCreator<AppStore, [], [], Conversatio
         }
         break
       }
+      case 'session/jobs':
+        // Whole-set snapshot after every registry commit (higher-wins on host).
+        set({ activeJobs: frame.jobs })
+        break
       // approval/question/queue frames are routed to their own slices.
       default:
         break
@@ -394,6 +435,8 @@ export const createConversationSlice: StateCreator<AppStore, [], [], Conversatio
       contextBreakdown: null,
       lastTurnMs: null,
       loadingOlder: false,
+      activeJobs: [],
+      activeSubagents: [],
     })
   },
 })

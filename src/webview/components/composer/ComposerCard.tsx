@@ -25,6 +25,7 @@ import { PermissionSelect } from './PermissionSelect'
 import { QueueDock } from './QueueDock'
 import { SendStopButton } from './SendStopButton'
 import { StatsLine } from './StatsLine'
+import { SubagentDock } from './SubagentDock'
 import { TodoPanel } from './TodoPanel'
 import './composer.css'
 
@@ -226,6 +227,7 @@ export function ComposerCard(): JSX.Element {
         onRemove={async (id) => updateQueueItem(id, { kind: 'remove' })}
         onSteer={async (id) => updateQueueItem(id, { kind: 'steer' })}
       />
+      <SubagentDock />
       <TodoPanel todos={todos} />
       <div className={`composer-card${dragActive ? ' drag-active' : ''}`} data-composer-card>
         <OverlayHost />

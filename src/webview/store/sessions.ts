@@ -55,12 +55,16 @@ export const createSessionsSlice: StateCreator<AppStore, [], [], SessionsSlice> 
     const markRead = get().sessions.map((s) => (s.sessionId === id ? { ...s, unread: false } : s))
     if (get().activeSessionId === id) {
       set({ sessions: markRead })
+      // Refresh the subagent catalog even on re-select (children may have settled).
+      void get().loadSubagents(id).catch(() => undefined)
       return
     }
     set({ activeSessionId: id, sessions: markRead })
     get().clearConversation()
     get().clearOverlay()
     await Promise.all([get().loadHistory(id), get().loadModels(id)])
+    // Fire-and-forget: hosts without the subagent domain reject, which is fine.
+    void get().loadSubagents(id).catch(() => undefined)
   },
 
   newChat: async () => {

@@ -61,3 +61,9 @@
 
 ### 08-15 14:05
 - 新建对话去重：当前会话仍为空（blank）时点新建不再生成新空会话，直接复用当前；补上了 blank 标志的翻转——live 事件流首帧到达即把该会话 blank 置 false（原先 blank 只在 session-added 时写入，发完消息仍残留 true）。Playwright 探针验证：空白会话连点两次新建只多一行；发过消息后再点新建才真的建新会话。
+
+### 08-15 15:50
+- subagent 可停止：新增 SubagentDock 停靠条（QueueDock 旁），列出当前会话的子代理——continuable 且运行中的显示"停止"按钮（subagent.interrupt，回包后刷新目录）；one-shot/已结束只读。后台任务（session/jobs 帧，原先被丢弃）渲染只读状态行（协议不支持手动停止，停止权属模型侧 job_kill，title 已注明）。
+- store：conversation slice 新增 activeJobs/activeSubagents + loadSubagents/stopSubagent；selectSession 触发目录加载。mock 补 subagent.list/interrupt 与 session/jobs 帧。
+- 验证：typecheck + 15 单测 + 全部 verify 脚本 + 新增 verify-subagent 全绿；Playwright 截图确认停止按钮点击后状态翻转。
+- 插件图标对齐 DeepSeek 鲸鱼品牌（resources/icon.svg 换鲸鱼 currentColor 版供 activity bar；新增 256px PNG 供 marketplace，package.json icon 字段已配）。
