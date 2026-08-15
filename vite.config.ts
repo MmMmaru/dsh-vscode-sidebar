@@ -7,6 +7,10 @@ import react from '@vitejs/plugin-react'
 export default defineConfig({
   plugins: [react()],
   root: 'src/webview',
+  define: {
+    // Lib mode does not apply Vite's NODE_ENV define; markdown deps reference it.
+    'process.env.NODE_ENV': '"production"',
+  },
   build: {
     outDir: '../../media',
     emptyOutDir: true,

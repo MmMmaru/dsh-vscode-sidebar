@@ -33,7 +33,11 @@ export function App(): JSX.Element {
       {activeSessionId === null ? (
         <section className="region region-conversation" data-region="ConversationView">
           <div className="empty-hero">
-            <div className="empty-hero-icon">🐋</div>
+            <div className="empty-hero-icon">
+              <svg width="22" height="22" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round">
+                <path d="M2 3.5A1.5 1.5 0 0 1 3.5 2h9A1.5 1.5 0 0 1 14 3.5v6a1.5 1.5 0 0 1-1.5 1.5H6l-3.2 2.4a.5.5 0 0 1-.8-.4z" />
+              </svg>
+            </div>
             <div>{initialized ? '选择或新建一个会话' : '加载中…'}</div>
           </div>
         </section>

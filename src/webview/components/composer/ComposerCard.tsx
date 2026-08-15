@@ -95,6 +95,9 @@ export function ComposerCard(): JSX.Element {
   const selectModel = useAppStore((s) => s.selectModel)
   const setPermissionMode = useAppStore((s) => s.setPermissionMode)
   const updateQueueItem = useAppStore((s) => s.updateQueueItem)
+  const pendingApproval = useAppStore((s) => s.pendingApproval)
+  const pendingQuestion = useAppStore((s) => s.pendingQuestion)
+  const planReview = useAppStore((s) => s.planReview)
 
   const [draft, setDraft] = useState('')
   const [attachments, setAttachments] = useState<Attachment[]>([])
@@ -107,6 +110,8 @@ export function ComposerCard(): JSX.Element {
   const running = turnStatus === 'running'
   const noSession = activeSessionId === null
   const canSend = !noSession && (draft.trim() !== '' || attachments.length > 0)
+  // Takeover semantics: a pending overlay replaces the whole input area.
+  const overlayActive = pendingApproval !== null || pendingQuestion !== null || planReview !== null
   // 128k context-window estimate for the occupancy ring (no capacity projection on the wire yet).
   const usedPct = stats === null ? 0 : (stats.inputTokens / 128_000) * 100
   const turns = nodes.filter((n) => n.kind === 'user-message').length
@@ -228,49 +233,53 @@ export function ComposerCard(): JSX.Element {
       <TodoPanel todos={todos} />
       <div className={`composer-card${dragActive ? ' drag-active' : ''}`} data-composer-card>
         <OverlayHost />
-        <AttachmentRail items={attachments} onRemove={removeAttachment} />
-        <ComposerInput
-          value={draft}
-          onChange={setDraft}
-          onSend={send}
-          running={running}
-          disabled={noSession}
-          sessionId={activeSessionId}
-          onPasteFiles={intakeFiles}
-        />
-        <div className="composer-toolbar">
-          <div className="composer-tools">
-            <button
-              type="button"
-              className="composer-chip composer-add"
-              aria-label="添加图片附件"
-              title="添加图片附件"
+        {!overlayActive && (
+          <>
+            <AttachmentRail items={attachments} onRemove={removeAttachment} />
+            <ComposerInput
+              value={draft}
+              onChange={setDraft}
+              onSend={send}
+              running={running}
               disabled={noSession}
-              onClick={() => fileInputRef.current?.click()}
-            >
-              <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden>
-                <path d="M8 2v12M2 8h12" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
-              </svg>
-            </button>
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept={IMAGE_LIMITS.mediaTypes.join(',')}
-              multiple
-              hidden
-              onChange={(e) => {
-                intakeFiles([...(e.target.files ?? [])])
-                e.target.value = '' // re-picking the same file must re-fire change
-              }}
+              sessionId={activeSessionId}
+              onPasteFiles={intakeFiles}
             />
-            <PermissionSelect value={permissionMode} onChange={setPermissionMode} />
-          </div>
-          <div className="composer-trailing">
-            <ModelSelect models={models} selected={selectedModel} onSelect={selectModel} />
-            <ContextMeter usedPct={usedPct} />
-            <SendStopButton running={running} canSend={canSend} onSend={send} onStop={() => void cancel()} />
-          </div>
-        </div>
+            <div className="composer-toolbar">
+              <div className="composer-tools">
+                <button
+                  type="button"
+                  className="composer-chip composer-add"
+                  aria-label="添加图片附件"
+                  title="添加图片附件"
+                  disabled={noSession}
+                  onClick={() => fileInputRef.current?.click()}
+                >
+                  <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden>
+                    <path d="M8 2v12M2 8h12" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+                  </svg>
+                </button>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept={IMAGE_LIMITS.mediaTypes.join(',')}
+                  multiple
+                  hidden
+                  onChange={(e) => {
+                    intakeFiles([...(e.target.files ?? [])])
+                    e.target.value = '' // re-picking the same file must re-fire change
+                  }}
+                />
+                <PermissionSelect value={permissionMode} onChange={setPermissionMode} />
+              </div>
+              <div className="composer-trailing">
+                <ModelSelect models={models} selected={selectedModel} onSelect={selectModel} />
+                <ContextMeter usedPct={usedPct} />
+                <SendStopButton running={running} canSend={canSend} onSend={send} onStop={() => void cancel()} />
+              </div>
+            </div>
+          </>
+        )}
         {toast !== null && (
           <div key={toast.seq} className="composer-toast" role="status">{toast.text}</div>
         )}

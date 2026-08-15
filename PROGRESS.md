@@ -1,16 +1,20 @@
-# PROGRESS
+# 进展记录
 
-### 08-15 03:40
-- Webview 契约骨架（W2-W6 并行基座）完成：`types.ts` 视图模型全集（ConversationNode 八种 kind + SessionMeta/ApprovalRequest/QuestionRequest/PlanReviewState/QueuedMessage/ModelInfo/Attachment/GoalState/TurnStats/PermissionMode）、`mock/bridge.ts`（30 条假会话 + demo 会话脚本化事件流：历史含 reasoning/tool-call/todo，prompt 触发 文本→tool/call→审批→提问→收尾）、`bridge.ts` 门面（`?mock` / `VITE_DSH_MOCK=1` / `globalThis.__DSH_MOCK__` 三开关）、zustand slice 模式 store（index + sessions/conversation/composer/overlay/settings 六文件）、App.tsx 三层布局壳 + host-status 横幅 + SettingsPanel 模态、四个占位组件（props 契约按 ARCHITECTURE 5.3）、styles/base.css（三层高度分配 + --vscode-* token）。
-- 契约修订（已同步 ARCHITECTURE.md）：①§3 新增 `respond` 消息（approval/question 应答；MuxFrame 不带 rpcId，webview 用 approvalId/sessionId 关联，**扩展侧 dispatch 未实现，W5/W7 前置**）；②§5.2 改 slice 模式、事件路由集中在 initialize() 扇出；③forkSession 参数 messageId→atSeq、deleteSession 经 workspace.archiveSession、selectModel 补 provider。
-- api.ts 改动：acquireVsCodeApi/window 监听加守卫（mock/node 环境安全）、新增 BridgeClient 接口与 respondApproval/respondQuestion。
-- 验证：typecheck 双 tsconfig 零错误；npm run build 全绿；新增 `npm run verify:mock`（.temp/verify-mock.tsx，node 直跑 store+mock 全链路断言 + SSR 壳渲染）通过。注意：zustand v5 SSR 快照走 getInitialState()，SSR 只验结构，数据断言在 store 层。
+### 08-15 03:00
+- 完成需求对齐与立项文档：`docs/PRD.md`（产品需求）、`docs/ARCHITECTURE.md`（模块划分 + 函数输入输出）、`docs/PLAN.md`（W0–W7 并行实施大纲）。
+- 关键决策：后端复用 dsh Web Host（HTTP RPC + mux/host 两条 WS），插件只做界面；无 workspace 概念，按 cwd 归属会话；本地 VSIX 使用。
 
-### 08-15 02:30
-- W0+W1 完成：VSCode 扩展脚手架（esbuild 宿主侧 + Vite webview 侧）、vendored 协议类型（deepseek-harness commit 47f9438）、HostManager/DshClient/Bridge/SidebarProvider 全实现。
-- 单测 10 个全过（node:test，fake host 覆盖端口顺延、rpc id 配对、错误传播、审批/提问应答、断线重连）。
-- 真实 dsh 冒烟通过（.temp/smoke.ts）：host.describe / session.list / session.create 成功，收到 host/session-added 与 mux session/projection 帧；杀 host 后客户端报 down，HostManager spawn 重启后指数退避重连恢复 ready。
-- 关键发现：npm 发布的 @deepseek-ai/dsh@0.1.0-rc.6 的 host.describe 自报版本为 "0.0.1"（非包版本），checkVersion 兼容前缀设为 ['0.1.0-rc.', '0.0.1']。
-- WS 事件流真实路径为 /api/events.mux 与 /api/events.host（点分式），已修正 ARCHITECTURE.md 第 1 节。
-- bridge 契约新增 command 消息（宿主→webview，工具栏命令转发），已同步 ARCHITECTURE.md 第 3 节。
-- npx 冷启动拉起 dsh 约 4.5 分钟，spawn 就绪超时设为 600s。
+### 08-15 04:30
+- W0+W1：扩展脚手架（esbuild + vite 双构建）+ 宿主侧三连（host-manager 探测/拉起 dsh、dsh-client RPC+WS+断线重连、bridge 消息桥）。协议类型 vendored 自 deepseek-harness@47f9438。对真实 dsh 冒烟通过（host.describe / session.list / 杀 host 重连）。
+- webview 契约骨架：types.ts 视图模型、mock bridge（30 假会话 + 脚本化演示流）、zustand 五 slice、App 三层壳。
+
+### 08-15 06:30
+- W2–W6 并行开发（4 个子代理 + worktree 隔离）并全部合并：
+  - W2 会话列表（状态点/相对时间/View all/搜索/重命名/删除/Fork）
+  - W3 对话区（Markdown 两阶段渲染、Think 折叠行、六种工具卡片、滚动跟随、Load older）
+  - W4 输入区（键盘仲裁、附件三来源、权限风险确认、两级模型菜单、队列 Dock、Todo、统计行）
+  - W5 接管面板（审批/提问/Plan 评审整块替换输入区）+ 扩展宿主侧 respond 应答链路补全
+  - W6 设置面板（通用/模型/插件/预设四区块，provider 编辑 + 凭证写入）
+- 质量门：15 单测 + verify:mock / verify:w3 / verify:composer / verify:overlay / verify:w6 全绿。
+- 截图自验（Playwright headless，375×907）：首页/对话/审批接管/设置四张，结构与参考截图一致；修复审批时输入区未隐藏、空态 emoji 豆腐块两处视觉问题。无 root 环境用 `apt-get download` + `dpkg -x` + `LD_LIBRARY_PATH` 解决 chromium 缺库（.temp/libs/）。
+- 端到端真实 DeepSeek 验证通过：自动拉起 dsh host → 建会话 → 发「你好」→ 收到模型完整回复（.temp/e2e-deepseek.ts，E2E OK）。
