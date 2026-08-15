@@ -3,7 +3,8 @@
  * Lets W2-W6 develop without a dsh host: 30 fake sessions, one demo session
  * with a scripted history (reasoning + tool call + todos) and a scripted live
  * stream (prompt -> text -> tool call -> approval -> question -> done), plus a
- * two-provider model catalog and minimal settings namespaces.
+ * two-provider model catalog and the settings/credentials/agentPreset surface
+ * (namespaces, custom providers, credential states, preset roster).
  * Selection: bridge.ts picks this module for `?mock` / VITE_DSH_MOCK=1.
  */
 
@@ -181,21 +182,179 @@ const MODELS: SessionModels = {
   failures: [],
 }
 
-const PROVIDERS: ConfigurableProviderView[] = [
+// ---------------------------------------------------------------------------
+// Settings / credentials / agent-preset fake data (W6)
+// ---------------------------------------------------------------------------
+
+/** One catalog route known to the mock adapter (shipped, not user-declared). */
+const BASE_PROVIDERS: ConfigurableProviderView[] = [
   { provider: 'deepseek-official', displayName: 'DeepSeek Official', settingsNs: 'llm-deepseek', settingsPath: [], active: true },
   { provider: 'openai', displayName: 'OpenAI', settingsNs: 'llm-openai', settingsPath: [], active: true },
 ]
 
+/** Credential state store; refs follow the `<ROUTE>_API_KEY` convention. */
+const credentialStore = new Map<string, { configured: boolean; source?: string }>([
+  ['DEEPSEEK_OFFICIAL_API_KEY', { configured: true, source: 'file' }],
+])
+
+/** Wire view of one preset row served by agentPreset.list. */
+export interface MockAgentPresetEntry {
+  id: string
+  trust: 'system' | 'user'
+  isDefault: boolean
+  name?: string
+  description?: string
+  broken?: string
+}
+
+const PRESETS: MockAgentPresetEntry[] = [
+  { id: 'standard', trust: 'system', isDefault: true, name: '标准模式', description: '通用编码助手，默认启用全部核心插件。' },
+  { id: 'read-only', trust: 'system', isDefault: false, name: '只读分析', description: '不带写工具的代码阅读与问答预设。' },
+  { id: 'my-lab', trust: 'user', isDefault: false, description: '本地实验预设。', broken: '引用了未安装的插件 lab-tools' },
+]
+
+/**
+ * Deep-merge a settings.update patch into a plain section object.
+ * @param target - section object mutated in place.
+ * @param patch - patch object; nested plain objects merge recursively.
+ */
+function mergePatch(target: Record<string, unknown>, patch: Record<string, unknown>): void {
+  for (const [key, value] of Object.entries(patch)) {
+    const prev = target[key]
+    if (
+      typeof value === 'object' && value !== null && !Array.isArray(value)
+      && typeof prev === 'object' && prev !== null && !Array.isArray(prev)
+    ) {
+      mergePatch(prev as Record<string, unknown>, value as Record<string, unknown>)
+    } else {
+      target[key] = value
+    }
+  }
+}
+
+/** Read the value at a dot-free path inside a plain object. */
+function pathGet(source: unknown, path: string[]): unknown {
+  let node = source
+  for (const key of path) {
+    if (typeof node !== 'object' || node === null) return undefined
+    node = (node as Record<string, unknown>)[key]
+  }
+  return node
+}
+
+/** Set or unset a path inside a plain object, creating/removing as needed. */
+function pathApply(source: Record<string, unknown>, op: { op: 'set' | 'unset'; path: string[]; value?: unknown }): void {
+  if (op.path.length === 0) return
+  let node: Record<string, unknown> = source
+  for (const key of op.path.slice(0, -1)) {
+    const next = node[key]
+    if (typeof next !== 'object' || next === null || Array.isArray(next)) {
+      if (op.op === 'unset') return
+      node[key] = {}
+    }
+    node = node[key] as Record<string, unknown>
+  }
+  const leaf = op.path[op.path.length - 1] as string
+  if (op.op === 'set') node[leaf] = op.value
+  else delete node[leaf]
+}
+
+/** The pi-ai custom-provider section: keys are hand-declared route ids. */
+const piAiSection: Record<string, unknown> = {}
+
 const namespaces = new Map<string, SettingsNamespaceView>([
   ['llm-deepseek', {
     ns: 'llm-deepseek',
-    schema: {},
+    schema: { type: 'object', meta: { description: 'DeepSeek 官方端点配置' } },
     value: { baseURL: 'https://api.deepseek.com' },
+    applies: 'live',
+    secrets: [{ path: ['apiKey'], set: true }],
+    revision: 1,
+  }],
+  ['llm-openai', {
+    ns: 'llm-openai',
+    schema: { type: 'object', meta: { description: 'OpenAI 端点配置' } },
+    value: {},
     applies: 'live',
     secrets: [{ path: ['apiKey'], set: false }],
     revision: 1,
   }],
+  ['llm-pi-ai', {
+    ns: 'llm-pi-ai',
+    schema: { type: 'object', meta: { description: 'OpenAI 兼容端点（自定义提供方）' } },
+    value: piAiSection,
+    applies: 'live',
+    secrets: [],
+    revision: 1,
+  }],
+  ['ui-theme', {
+    ns: 'ui-theme',
+    schema: { type: 'object', meta: { description: '外观偏好' } },
+    value: { preference: 'system' },
+    applies: 'live',
+    secrets: [],
+    revision: 1,
+  }],
+  ['locale', {
+    ns: 'locale',
+    schema: { type: 'object', meta: { description: '语言偏好' } },
+    value: { preference: 'zh' },
+    applies: 'live',
+    secrets: [],
+    revision: 1,
+  }],
+  ['ui-conversation', {
+    ns: 'ui-conversation',
+    schema: { type: 'object', meta: { description: '对话输入偏好' } },
+    value: { busyEnter: 'queue' },
+    applies: 'live',
+    secrets: [],
+    revision: 1,
+  }],
+  ['permission', {
+    ns: 'permission',
+    schema: { type: 'object', meta: { description: '权限预设' } },
+    value: { defaultPreset: 'workspace-write' },
+    applies: 'live',
+    secrets: [],
+    revision: 1,
+  }],
+  ['agent-presets', {
+    ns: 'agent-presets',
+    schema: { type: 'object', meta: { description: 'Agent 预设默认值' } },
+    value: { default: 'standard' },
+    applies: 'live',
+    secrets: [],
+    revision: 1,
+  }],
+  ['plugin-web-search', {
+    ns: 'plugin-web-search',
+    schema: { type: 'object', meta: { description: '网页搜索插件：引擎、结果数与超时。' } },
+    value: { engine: 'bing', maxResults: 5 },
+    applies: 'restart',
+    secrets: [{ path: ['apiKey'], set: false }],
+    revision: 1,
+  }],
 ])
+
+/** Configurable provider directory: shipped routes plus pi-ai declarations. */
+function llmProviders(): ConfigurableProviderView[] {
+  const declared = Object.keys(piAiSection).map((id) => {
+    const profile = piAiSection[id] as { displayName?: unknown }
+    return {
+      provider: id,
+      displayName: typeof profile.displayName === 'string' ? profile.displayName : id,
+      settingsNs: 'llm-pi-ai',
+      settingsPath: [id],
+      active: credentialStore.get(`${id.toUpperCase().replace(/[^A-Z0-9]+/g, '_')}_API_KEY`)?.configured === true,
+      declared: true as const,
+    }
+  })
+  return [...BASE_PROVIDERS, ...declared]
+}
+
+/** Settings/credentials/agentPreset call log, for .temp verification scripts. */
+export const mockSettingsRpcLog: Array<{ method: string; params: Record<string, unknown> }> = []
 
 // ---------------------------------------------------------------------------
 // Listener plumbing
@@ -314,6 +473,9 @@ function waitInit(): Promise<InitPayload> {
 function rpc<T = unknown>(method: string, params?: unknown): Promise<T> {
   const p = (params ?? {}) as Record<string, unknown>
   const respond = (value: unknown): Promise<T> => Promise.resolve(value as T)
+  if (/^(settings|credentials|agentPreset)\./.test(method)) {
+    mockSettingsRpcLog.push({ method, params: p })
+  }
   switch (method) {
     case 'session.list': {
       const items: SessionSummary[] = sessions
@@ -387,20 +549,74 @@ function rpc<T = unknown>(method: string, params?: unknown): Promise<T> {
     }
     case 'settings.describe':
       return respond({ writable: true, hasDocument: true, namespaces: [...namespaces.values()] })
-    case 'settings.update':
-    case 'settings.replace':
+    case 'settings.update': {
+      const ns = namespaces.get(String(p['ns']))
+      if (!ns) return Promise.reject(new Error(`mock bridge: unknown settings ns ${String(p['ns'])}`))
+      const value = structuredClone(ns.value ?? {}) as Record<string, unknown>
+      mergePatch(value, (p['patch'] ?? {}) as Record<string, unknown>)
+      const updated: SettingsNamespaceView = { ...ns, value, user: value, revision: ns.revision + 1 }
+      namespaces.set(ns.ns, updated)
+      return respond(updated)
+    }
+    case 'settings.replace': {
+      const ns = namespaces.get(String(p['ns']))
+      if (!ns) return Promise.reject(new Error(`mock bridge: unknown settings ns ${String(p['ns'])}`))
+      const updated: SettingsNamespaceView = {
+        ...ns,
+        value: structuredClone(p['section'] ?? {}),
+        user: structuredClone(p['section'] ?? {}),
+        revision: ns.revision + 1,
+      }
+      namespaces.set(ns.ns, updated)
+      return respond(updated)
+    }
     case 'settings.mutate': {
       const ns = namespaces.get(String(p['ns']))
-      if (ns) namespaces.set(ns.ns, { ...ns, revision: ns.revision + 1 })
-      return respond(namespaces.get(String(p['ns'])))
+      if (!ns) return Promise.reject(new Error(`mock bridge: unknown settings ns ${String(p['ns'])}`))
+      const value = structuredClone(ns.value ?? {}) as Record<string, unknown>
+      for (const op of (p['ops'] ?? []) as Array<{ op: 'set' | 'unset'; path: string[]; value?: unknown }>) {
+        pathApply(value, op)
+      }
+      // The pi-ai section object is the declaration registry; mutate it too so
+      // llm.providers reflects added/removed custom providers.
+      if (ns.ns === 'llm-pi-ai') {
+        for (const key of Object.keys(piAiSection)) delete piAiSection[key]
+        Object.assign(piAiSection, value)
+      }
+      const updated: SettingsNamespaceView = { ...ns, value, user: value, revision: ns.revision + 1 }
+      namespaces.set(ns.ns, updated)
+      return respond(updated)
     }
     case 'llm.providers':
-      return respond({ providers: PROVIDERS })
+      return respond({ providers: llmProviders() })
     case 'llm.models':
       return respond({ groups: MODELS.groups, failures: [] })
-    case 'credentials.set':
-    case 'credentials.unset':
+    case 'credentials.describe': {
+      const refs = (p['refs'] ?? []) as string[]
+      const credentials: Record<string, { configured: boolean; source?: string; writable: boolean }> = {}
+      for (const ref of refs) {
+        const state = credentialStore.get(ref)
+        credentials[ref] = { configured: state?.configured === true, ...(state?.source === undefined ? {} : { source: state.source }), writable: true }
+      }
+      return respond({ credentials })
+    }
+    case 'credentials.set': {
+      const ref = String(p['ref'])
+      credentialStore.set(ref, { configured: true, source: 'file' })
       return respond({})
+    }
+    case 'credentials.unset': {
+      credentialStore.delete(String(p['ref']))
+      return respond({})
+    }
+    case 'agentPreset.list': {
+      const defaultId = pathGet(namespaces.get('agent-presets')?.value, ['default'])
+      return respond({
+        presets: PRESETS.map((preset) => ({ ...preset, isDefault: preset.id === defaultId })),
+        authorable: true,
+        hasDocument: false,
+      })
+    }
     default:
       return Promise.reject(new Error(`mock bridge: unhandled rpc method ${method}`))
   }

@@ -1,0 +1,467 @@
+/*
+ * Settings panel styles (W6). The modal is adapted to the narrow (~360px)
+ * sidebar: it fills nearly the whole webview, the nav rail is a slim column of
+ * icon + label cells, and the content column scrolls. Tokens come from
+ * styles/base.css (--dsh-*, consuming --vscode-*).
+ *
+ * Note: base.css carries placeholder chrome (.settings-modal/.settings-card);
+ * this file replaces it with .settings-overlay/.settings-dialog and never
+ * renders the old classes. The `.region` dashed placeholder borders are not
+ * used by this panel.
+ */
+
+.settings-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 10;
+}
+
+.settings-mask {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.4);
+}
+
+.settings-dialog {
+  position: absolute;
+  inset: 4px;
+  display: flex;
+  overflow: hidden;
+  background: var(--dsh-bg-raised);
+  border: 1px solid var(--dsh-border);
+  border-radius: var(--dsh-radius);
+}
+
+/* --- nav rail --- */
+
+.settings-nav {
+  flex: none;
+  width: 84px;
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid var(--dsh-border);
+  padding: 6px 4px;
+  gap: 2px;
+}
+
+.settings-nav-title {
+  padding: 4px 8px 8px;
+  font-weight: 600;
+}
+
+.settings-nav-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.settings-nav-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  padding: 7px 2px;
+  font-size: 0.92em;
+  color: var(--dsh-fg);
+  background: transparent;
+  border-radius: var(--dsh-radius);
+}
+
+.settings-nav-cell:hover {
+  background: var(--vscode-list-hoverBackground, rgba(255, 255, 255, 0.06));
+}
+
+.settings-nav-cell-active,
+.settings-nav-cell-active:hover {
+  background: var(--vscode-list-activeSelectionBackground, rgba(0, 127, 212, 0.25));
+}
+
+/* --- content column --- */
+
+.settings-content {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.settings-content-header {
+  flex: none;
+  display: flex;
+  justify-content: flex-end;
+  padding: 4px;
+}
+
+.settings-close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  color: var(--dsh-fg-muted);
+  background: transparent;
+}
+
+.settings-close:hover {
+  color: var(--dsh-fg);
+  background: var(--vscode-list-hoverBackground, rgba(255, 255, 255, 0.06));
+}
+
+.settings-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 0 12px 12px;
+}
+
+.settings-section {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.settings-section-title {
+  margin: 0;
+  font-size: 1.1em;
+}
+
+.settings-section-intro {
+  margin: 0;
+  color: var(--dsh-fg-muted);
+}
+
+.settings-notice {
+  margin: 0;
+  color: var(--dsh-warning);
+}
+
+.settings-saved {
+  margin: 0;
+  color: var(--dsh-ok);
+}
+
+.settings-error {
+  margin: 4px 0 0;
+  color: var(--dsh-danger);
+  word-break: break-word;
+}
+
+.settings-empty {
+  margin: 0;
+  color: var(--dsh-fg-muted);
+}
+
+/* --- fields and segmented options (General) --- */
+
+.settings-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.settings-field-label {
+  font-weight: 600;
+}
+
+.settings-field-desc {
+  color: var(--dsh-fg-muted);
+  font-size: 0.9em;
+}
+
+.settings-segment {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.settings-segment-item {
+  padding: 4px 10px;
+  color: var(--dsh-fg);
+  background: var(--dsh-bg);
+  border: 1px solid var(--dsh-border);
+}
+
+.settings-segment-item:hover {
+  border-color: var(--dsh-accent);
+}
+
+.settings-segment-item-active,
+.settings-segment-item-active:hover {
+  border-color: var(--dsh-accent);
+  background: var(--vscode-list-activeSelectionBackground, rgba(0, 127, 212, 0.25));
+}
+
+.settings-input {
+  width: 100%;
+  font: inherit;
+  color: var(--dsh-fg);
+  background: var(--vscode-input-background, #3c3c3c);
+  border: 1px solid var(--vscode-input-border, var(--dsh-border));
+  border-radius: var(--dsh-radius);
+  padding: 5px 8px;
+}
+
+/* --- buttons --- */
+
+.settings-btn {
+  padding: 5px 12px;
+  color: var(--dsh-fg);
+  background: var(--dsh-bg);
+  border: 1px solid var(--dsh-border);
+}
+
+.settings-btn:hover:not(:disabled) {
+  border-color: var(--dsh-accent);
+}
+
+.settings-btn-primary {
+  color: var(--vscode-button-foreground, #ffffff);
+  background: var(--vscode-button-background, #0e639c);
+  border-color: transparent;
+}
+
+.settings-btn-primary:hover:not(:disabled) {
+  background: var(--vscode-button-hoverBackground, #1177bb);
+}
+
+.settings-btn-danger {
+  color: var(--dsh-danger);
+}
+
+.settings-btn-danger:hover:not(:disabled) {
+  border-color: var(--dsh-danger);
+}
+
+.settings-btn-small {
+  padding: 2px 8px;
+  font-size: 0.92em;
+}
+
+/* --- provider rows and editor cards (Models) --- */
+
+.settings-provider-list,
+.settings-plugin-list,
+.settings-preset-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.settings-provider-card,
+.settings-plugin-card,
+.settings-preset-card {
+  border: 1px solid var(--dsh-border);
+  border-radius: var(--dsh-radius);
+  padding: 8px;
+}
+
+.settings-provider-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  min-width: 0;
+}
+
+.settings-provider-identity {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.settings-provider-name {
+  font-weight: 600;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.settings-provider-actions {
+  flex: none;
+  display: flex;
+  gap: 4px;
+}
+
+.settings-dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+.settings-dot-ok {
+  background: var(--dsh-ok);
+}
+
+.settings-dot-missing {
+  background: var(--dsh-fg-muted);
+}
+
+.settings-tag {
+  flex: none;
+  padding: 0 5px;
+  font-size: 0.85em;
+  color: var(--dsh-fg-muted);
+  border: 1px solid var(--dsh-border);
+  border-radius: 4px;
+}
+
+.settings-tag-user {
+  color: var(--dsh-warning);
+  border-color: var(--dsh-warning);
+}
+
+.settings-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--dsh-border);
+}
+
+.settings-editor-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.settings-add-block {
+  margin-top: 2px;
+}
+
+.settings-add-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.settings-add-actions .settings-btn {
+  flex: 1 1 0;
+}
+
+/* --- plugin cards --- */
+
+.settings-plugin-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.settings-plugin-name {
+  font-weight: 600;
+  word-break: break-all;
+}
+
+.settings-plugin-desc {
+  margin: 4px 0 0;
+  color: var(--dsh-fg-muted);
+  word-break: break-word;
+}
+
+/* --- preset rows --- */
+
+.settings-preset-card {
+  padding: 0;
+}
+
+.settings-preset-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  width: 100%;
+  padding: 8px;
+  text-align: left;
+  color: var(--dsh-fg);
+  background: transparent;
+  border-radius: var(--dsh-radius);
+}
+
+.settings-preset-row:hover:not(:disabled) {
+  background: var(--vscode-list-hoverBackground, rgba(255, 255, 255, 0.06));
+}
+
+.settings-preset-row-active,
+.settings-preset-row-active:hover:not(:disabled) {
+  background: var(--vscode-list-activeSelectionBackground, rgba(0, 127, 212, 0.25));
+}
+
+.settings-radio {
+  flex: none;
+  width: 12px;
+  height: 12px;
+  margin-top: 2px;
+  border: 1px solid var(--dsh-fg-muted);
+  border-radius: 50%;
+}
+
+.settings-radio-on {
+  border-color: var(--dsh-accent);
+  background: radial-gradient(circle, var(--dsh-accent) 0 4px, transparent 5px);
+}
+
+.settings-preset-identity {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.settings-preset-name {
+  font-weight: 600;
+}
+
+.settings-preset-id {
+  color: var(--dsh-fg-muted);
+  font-weight: 400;
+}
+
+.settings-preset-desc {
+  color: var(--dsh-fg-muted);
+  font-size: 0.92em;
+  word-break: break-word;
+}
+
+/* --- confirm modal --- */
+
+.settings-confirm-mask {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.4);
+}
+
+.settings-confirm {
+  width: min(320px, calc(100vw - 32px));
+  background: var(--dsh-bg-raised);
+  border: 1px solid var(--dsh-border);
+  border-radius: var(--dsh-radius);
+  padding: 12px;
+}
+
+.settings-confirm-title {
+  font-weight: 600;
+  word-break: break-word;
+}
+
+.settings-confirm-desc {
+  margin: 8px 0 0;
+  color: var(--dsh-fg-muted);
+  word-break: break-word;
+}
+
+.settings-confirm-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+  margin-top: 12px;
+}
