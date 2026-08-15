@@ -269,7 +269,7 @@ export function ComposerInput({
         value={value}
         rows={MIN_ROWS}
         disabled={disabled}
-        placeholder={disabled ? '先选择一个会话' : running ? 'Do anything（运行中，发送将进入队列）' : 'Do anything'}
+        placeholder={running ? 'Do anything（运行中，发送将进入队列）' : 'Do anything'}
         aria-label="消息输入"
         onChange={onChangeInput}
         onKeyDown={onKeyDown}

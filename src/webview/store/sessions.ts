@@ -60,6 +60,12 @@ export const createSessionsSlice: StateCreator<AppStore, [], [], SessionsSlice> 
     const { sessionId } = await rpc<{ sessionId: SessionId }>('session.create', { cwd: get().cwd })
     // The host/session-added frame also inserts the row; applyHostFrame dedupes.
     await get().selectSession(sessionId)
+    // A model chosen before the session existed is applied now.
+    const pending = get().pendingModelSelection
+    if (pending !== null) {
+      set({ pendingModelSelection: null })
+      await get().selectModel(pending.provider, pending.model, pending.reasoningEffort)
+    }
   },
 
   renameSession: async (id, title) => {

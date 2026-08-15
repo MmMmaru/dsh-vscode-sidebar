@@ -37,6 +37,7 @@ export function ContextMeter({ usedPct }: ContextMeterProps): JSX.Element {
           transform="rotate(-90 7 7)"
         />
       </svg>
+      <span className="context-meter-pct">{pct}%</span>
     </span>
   )
 }

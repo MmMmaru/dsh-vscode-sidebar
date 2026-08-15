@@ -108,8 +108,9 @@ export function ComposerCard(): JSX.Element {
   const dragDepthRef = useRef(0)
 
   const running = turnStatus === 'running'
-  const noSession = activeSessionId === null
-  const canSend = !noSession && (draft.trim() !== '' || attachments.length > 0)
+  // Sending without a session auto-creates one (sendPrompt handles it), so the
+  // input is always usable once the host is up.
+  const canSend = draft.trim() !== '' || attachments.length > 0
   // Takeover semantics: a pending overlay replaces the whole input area.
   const overlayActive = pendingApproval !== null || pendingQuestion !== null || planReview !== null
   // 128k context-window estimate for the occupancy ring (no capacity projection on the wire yet).
@@ -241,7 +242,7 @@ export function ComposerCard(): JSX.Element {
               onChange={setDraft}
               onSend={send}
               running={running}
-              disabled={noSession}
+              disabled={false}
               sessionId={activeSessionId}
               onPasteFiles={intakeFiles}
             />
@@ -252,7 +253,6 @@ export function ComposerCard(): JSX.Element {
                   className="composer-chip composer-add"
                   aria-label="添加图片附件"
                   title="添加图片附件"
-                  disabled={noSession}
                   onClick={() => fileInputRef.current?.click()}
                 >
                   <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden>

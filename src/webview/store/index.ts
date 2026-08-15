@@ -68,6 +68,8 @@ export const useAppStore = create<AppStore>()((...a) => {
       const init = await waitInit()
       useAppStore.setState({ cwd: init.cwd, hostVersion: init.hostVersion, initialized: true, hostStatus: 'ready' })
       get().initSessions(init.sessions, init.cwd)
+      // Populate the model selector even before any session is selected.
+      void get().loadGlobalModels().catch(() => undefined)
     },
 
     ...createSessionsSlice(...a),

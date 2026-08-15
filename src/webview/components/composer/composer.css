@@ -380,6 +380,13 @@
 .context-meter {
   display: inline-flex;
   align-items: center;
+  gap: 3px;
+}
+
+.context-meter-pct {
+  font-size: 0.75em;
+  color: var(--dsh-fg-muted);
+  font-variant-numeric: tabular-nums;
 }
 
 .context-meter-track {
