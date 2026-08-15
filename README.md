@@ -16,6 +16,12 @@ vibe coded by **kimi k3 & GPT 5.6 & deepseek v4**.
   </tr>
 </table>
 
+## 安装
+### vscode 插件
+[vscode 插件](https://marketplace.visualstudio.com/items?itemName=XuRongsheng.dsh-vscode-sidebar)
+### Github repo
+[Github repo](https://github.com/MmMmaru/dsh-vscode-sidebar)
+
 ## 功能支持
 
 ### 会话管理（上层栏）
@@ -81,6 +87,8 @@ code --install-extension dist/dsh-vscode-sidebar-*.vsix
 
 ## 待支持
 目前正在让插件美观易用，无限接近与codex extention(bushi)
+欢迎issue & PR
+
 - [ ] 附件已支持上传展示，多模态模型外的图片理解取决于后端模型能力  
 - [ ] Goal 条、Trajectory 视图、onboarding 引导（对齐网页版，见 docs/PRD.md）  
 - [ ] subagent管理栏  
