@@ -1,0 +1,180 @@
+/*
+ * Chat list region styles (W2). Compact rows aligned with the reference
+ * screenshot: title left, relative time right, icon buttons top-right.
+ */
+
+.chat-list {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding: 2px 4px;
+}
+
+.chat-list-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 8px 4px;
+}
+
+.chat-list-title {
+  font-size: 0.85em;
+  color: var(--dsh-fg-muted);
+}
+
+.chat-list-actions {
+  display: inline-flex;
+  gap: 2px;
+}
+
+.icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  background: transparent;
+  color: var(--dsh-fg-muted);
+  border-radius: var(--dsh-radius);
+}
+
+.icon-btn:hover {
+  background: var(--vscode-list-hoverBackground, rgba(255, 255, 255, 0.08));
+  color: var(--dsh-fg);
+}
+
+.icon-btn-active {
+  color: var(--dsh-accent);
+}
+
+.icon {
+  width: 15px;
+  height: 15px;
+}
+
+.chat-list-search {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 2px 8px 4px;
+  padding: 2px 8px;
+  border: 1px solid var(--dsh-border);
+  border-radius: var(--dsh-radius);
+  color: var(--dsh-fg-muted);
+}
+
+.chat-list-search input {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: var(--dsh-fg);
+  font: inherit;
+  padding: 3px 0;
+}
+
+.session-list {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.session-row {
+  position: relative;
+  padding: 6px 8px;
+  font-size: 0.95em;
+}
+
+.session-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.session-time {
+  flex: none;
+  font-size: 0.8em;
+  color: var(--dsh-fg-muted);
+}
+
+.session-menu-trigger {
+  flex: none;
+  display: none;
+  align-items: center;
+  color: var(--dsh-fg-muted);
+  padding: 0 2px;
+}
+
+.session-row:hover .session-menu-trigger {
+  display: inline-flex;
+}
+
+.session-row:hover .session-time {
+  display: none;
+}
+
+.session-menu {
+  position: absolute;
+  right: 8px;
+  top: 100%;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  min-width: 120px;
+  padding: 4px;
+  background: var(--dsh-bg-raised);
+  border: 1px solid var(--dsh-border);
+  border-radius: var(--dsh-radius);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.35);
+}
+
+.session-menu button {
+  background: transparent;
+  color: var(--dsh-fg);
+  text-align: left;
+  padding: 5px 8px;
+  border-radius: 4px;
+}
+
+.session-menu button:hover {
+  background: var(--vscode-list-hoverBackground, rgba(255, 255, 255, 0.08));
+}
+
+.session-menu-danger {
+  color: var(--dsh-danger) !important;
+}
+
+.session-row-editing {
+  padding: 4px 8px;
+}
+
+.session-row-editing input {
+  width: 100%;
+  font: inherit;
+  color: var(--dsh-fg);
+  background: var(--vscode-input-background, #3c3c3c);
+  border: 1px solid var(--dsh-accent);
+  border-radius: 4px;
+  padding: 4px 6px;
+  outline: none;
+}
+
+.status-dot-waiting {
+  background: var(--dsh-warning);
+}
+
+.chat-list-viewall {
+  flex: none;
+  background: transparent;
+  color: var(--dsh-fg-muted);
+  text-align: left;
+  padding: 4px 10px 6px;
+  font-size: 0.85em;
+}
+
+.chat-list-viewall:hover {
+  color: var(--dsh-fg);
+}
