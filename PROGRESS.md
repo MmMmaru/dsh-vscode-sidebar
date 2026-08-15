@@ -58,3 +58,6 @@
 
 ### 08-15 13:40
 - 模型自动选型：web 端的"记住上次模型"本就在 host 端（session.selectModel 会把选择存为部署级默认 agent-default-model，新会话 session.models.current 直接带回）。插件补的是无会话首页：启动时调 host.describe 取回默认 provider/model 预选到模型芯片（已选/待定选择不覆盖），发送时沿用既有 pendingModelSelection 链路。mock 补 host.describe 处理器。真实 host 验证新会话 current 即上次模型（deepseek-v4-flash）。
+
+### 08-15 14:05
+- 新建对话去重：当前会话仍为空（blank）时点新建不再生成新空会话，直接复用当前；补上了 blank 标志的翻转——live 事件流首帧到达即把该会话 blank 置 false（原先 blank 只在 session-added 时写入，发完消息仍残留 true）。Playwright 探针验证：空白会话连点两次新建只多一行；发过消息后再点新建才真的建新会话。

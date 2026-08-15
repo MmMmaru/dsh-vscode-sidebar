@@ -23,7 +23,7 @@ export interface SessionsSlice {
   initSessions: (all: SessionMeta[], cwd: string) => void
   /** Select a session: load its history, models and queue snapshot. */
   selectSession: (id: SessionId) => Promise<void>
-  /** Create a blank session and select it. */
+  /** Create a blank session and select it; a still-blank active session is reused. */
   newChat: () => Promise<void>
   renameSession: (id: SessionId, title: string) => Promise<void>
   /**
@@ -64,6 +64,11 @@ export const createSessionsSlice: StateCreator<AppStore, [], [], SessionsSlice> 
   },
 
   newChat: async () => {
+    // Reuse the active session when it is still blank instead of minting
+    // another empty one (matches dsh web's blank-session reuse).
+    const activeId = get().activeSessionId
+    const active = get().sessions.find((s) => s.sessionId === activeId)
+    if (active !== undefined && active.blank === true) return
     // Group the session under the per-root workspace so the dsh web UI can
     // manage it. workspace.create is idempotent per canonical path; if the
     // host predates workspaces, fall back to a plain cwd-scoped create.
@@ -152,14 +157,24 @@ export const createSessionsSlice: StateCreator<AppStore, [], [], SessionsSlice> 
   },
 
   applyProjectionFrame: (frame) => {
-    // Any live turn ending marks the session unread (blue dot), including the
-    // active one; selecting the session clears it. History pages arrive via
-    // RPC, not the event stream, so old turns never hit this.
-    if (frame.type === 'session/event' && frame.event.type === 'turn/end') {
-      set({
-        sessions: get().sessions.map((s) =>
-          s.sessionId === frame.sessionId ? { ...s, unread: true } : s),
-      })
+    if (frame.type === 'session/event') {
+      // The first live event flips the row off its blank state (blank is only
+      // set at session-added, so content must clear it here).
+      if (get().sessions.some((s) => s.sessionId === frame.sessionId && s.blank)) {
+        set({
+          sessions: get().sessions.map((s) =>
+            s.sessionId === frame.sessionId ? { ...s, blank: false } : s),
+        })
+      }
+      // Any live turn ending marks the session unread (blue dot), including the
+      // active one; selecting the session clears it. History pages arrive via
+      // RPC, not the event stream, so old turns never hit this.
+      if (frame.event.type === 'turn/end') {
+        set({
+          sessions: get().sessions.map((s) =>
+            s.sessionId === frame.sessionId ? { ...s, unread: true } : s),
+        })
+      }
       return
     }
     if (frame.type !== 'session/projection') return
