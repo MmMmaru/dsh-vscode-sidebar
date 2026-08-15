@@ -92,6 +92,7 @@
     "@types/react-dom": "^19.0.0",
     "@types/vscode": "^1.95.0",
     "@vitejs/plugin-react": "^5.0.0",
+    "@vscode/vsce": "^3.9.2",
     "esbuild": "^0.25.0",
     "playwright": "^1.62.1",
     "react": "^19.0.0",

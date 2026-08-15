@@ -1,0 +1,13 @@
+# Extension is fully bundled (dist/extension.js + media/*); ship only runtime assets.
+.temp
+src
+tests
+docs
+node_modules
+.vscode
+**/*.map
+*.vsix
+tsconfig.json
+tsconfig.webview.json
+vite.config.ts
+esbuild.config.mjs
