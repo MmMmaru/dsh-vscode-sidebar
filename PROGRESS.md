@@ -18,3 +18,11 @@
 - 质量门：15 单测 + verify:mock / verify:w3 / verify:composer / verify:overlay / verify:w6 全绿。
 - 截图自验（Playwright headless，375×907）：首页/对话/审批接管/设置四张，结构与参考截图一致；修复审批时输入区未隐藏、空态 emoji 豆腐块两处视觉问题。无 root 环境用 `apt-get download` + `dpkg -x` + `LD_LIBRARY_PATH` 解决 chromium 缺库（.temp/libs/）。
 - 端到端真实 DeepSeek 验证通过：自动拉起 dsh host → 建会话 → 发「你好」→ 收到模型完整回复（.temp/e2e-deepseek.ts，E2E OK）。
+
+### 08-15 08:30
+- 修复真实环境三连问题（根因均为"无活动会话"状态）：
+  - 输入框无会话时禁用 → 改为随时可输入，发送时自动创建会话（Codex 式）
+  - 模型选择器无会话时无数据 → 初始化即加载全局 llm.models 目录；无会话时选择先暂存，建会话后自动应用
+  - ContextMeter 0% 时只剩一个空心环 → 环旁增加百分比文本
+- 打包链路：@vscode/vsce + .vscodeignore，VSIX 从 8.78MB 瘦身到 189KB。
+- 回归：15 单测 + verify:mock + verify:composer（新增无会话发送/全局模型目录断言）全绿；截图复验通过。
