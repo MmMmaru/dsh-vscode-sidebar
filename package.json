@@ -82,6 +82,7 @@
     "smoke": "node esbuild.config.mjs --smoke && node .temp/smoke-dist/smoke.mjs",
     "verify:mock": "esbuild .temp/verify-mock.tsx --bundle --platform=node --format=esm --jsx=automatic --outfile=.temp/verify-mock.mjs --log-level=warning && node .temp/verify-mock.mjs",
     "verify:overlay": "esbuild .temp/verify-w5-overlay.tsx --bundle --platform=node --format=esm --jsx=automatic --outfile=.temp/verify-w5-overlay.mjs --log-level=warning && node .temp/verify-w5-overlay.mjs",
+    "verify:w6": "esbuild .temp/verify-w6-settings.tsx --bundle --platform=node --format=esm --jsx=automatic --outfile=.temp/verify-w6-settings.mjs --log-level=warning && node .temp/verify-w6-settings.mjs",
     "watch": "node esbuild.config.mjs --watch",
     "package": "vsce package"
   },
