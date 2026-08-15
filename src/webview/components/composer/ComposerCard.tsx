@@ -84,6 +84,11 @@ function fileToAttachment(file: File): Promise<Attachment> {
 export function ComposerCard(): JSX.Element {
   const activeSessionId = useAppStore((s) => s.activeSessionId)
   const turnStatus = useAppStore((s) => s.turnStatus)
+  // The host's per-session running flag: survives history reloads, unlike the
+  // event-driven turnStatus which resets to idle on every selectSession.
+  const sessionRunning = useAppStore(
+    (s) => s.sessions.find((meta) => meta.sessionId === s.activeSessionId)?.running === true,
+  )
   const queue = useAppStore((s) => s.queue)
   const todos = useAppStore((s) => s.todos)
   const models = useAppStore((s) => s.models)
@@ -106,7 +111,7 @@ export function ComposerCard(): JSX.Element {
   const fileInputRef = useRef<HTMLInputElement | null>(null)
   const dragDepthRef = useRef(0)
 
-  const running = turnStatus === 'running'
+  const running = turnStatus === 'running' || sessionRunning
   // Sending without a session auto-creates one (sendPrompt handles it), so the
   // input is always usable once the host is up.
   const canSend = draft.trim() !== '' || attachments.length > 0

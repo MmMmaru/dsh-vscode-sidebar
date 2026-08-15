@@ -67,3 +67,6 @@
 - store：conversation slice 新增 activeJobs/activeSubagents + loadSubagents/stopSubagent；selectSession 触发目录加载。mock 补 subagent.list/interrupt 与 session/jobs 帧。
 - 验证：typecheck + 15 单测 + 全部 verify 脚本 + 新增 verify-subagent 全绿；Playwright 截图确认停止按钮点击后状态翻转。
 - 插件图标对齐 DeepSeek 鲸鱼品牌（resources/icon.svg 换鲸鱼 currentColor 版供 activity bar；新增 256px PNG 供 marketplace，package.json icon 字段已配）。
+
+### 08-15 16:20
+- 修复"返回运行中的会话找不到停止按钮"：ComposerCard 的 running 原先只看事件驱动的 turnStatus，而 loadHistory 无条件重置为 idle。现在 running = turnStatus==='running' || 会话元数据的 running 标志（host/session-status 推送，重装/切换后仍准确）。Playwright 验证：进入运行中会话主按钮显示"停止生成"。
