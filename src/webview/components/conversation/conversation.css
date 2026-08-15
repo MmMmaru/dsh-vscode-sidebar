@@ -123,6 +123,38 @@
   color: var(--dsh-fg-muted);
 }
 
+/* --- Assistant message actions --- */
+
+.msg-assistant {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.msg-actions {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+}
+
+.msg-action {
+  display: inline-flex;
+  align-items: center;
+  background: transparent;
+  border: none;
+  color: var(--dsh-fg-muted);
+  padding: 2px 4px;
+  font-size: 0.75em;
+}
+
+.msg-action:hover {
+  color: var(--dsh-fg);
+}
+
+.msg-action-copied {
+  font-size: 0.85em;
+}
+
 /* --- Assistant markdown --- */
 
 .md-body {

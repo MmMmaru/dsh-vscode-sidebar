@@ -10,6 +10,12 @@
 
 import type { AttachmentId, MessageId, SessionId, WorkspaceId } from './brand'
 import type { ContentBlock, ImageAttachmentLimits, ImageAttachmentRef, ImageMediaType } from './llm'
+import type {
+  ContextBreakdownProjection,
+  ContextPressureProjection,
+  SessionStatsProjection,
+  TokenUsageProjection,
+} from './projections'
 import type { SessionEvent } from './session'
 import type { ToolEventView } from './events'
 
@@ -30,6 +36,14 @@ export interface SessionProjectionValues {
   title?: string
   sessionListMetadata?: SessionListMetadata
   imageLimits?: ImageAttachmentLimits
+  /** Whole-log turn/step counts and wall times (session-stats unit). */
+  sessionStats?: SessionStatsProjection
+  /** Provider-reported usage across the durable log (token-meter unit). */
+  tokenUsage?: TokenUsageProjection
+  /** Approximate context occupancy (token-meter unit). */
+  contextPressure?: ContextPressureProjection
+  /** Heuristic context composition (token-meter unit). */
+  contextBreakdown?: ContextBreakdownProjection
   [key: string]: unknown
 }
 

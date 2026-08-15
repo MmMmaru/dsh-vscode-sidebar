@@ -39,10 +39,11 @@ function Icon(props: { name: 'clock' | 'gear' | 'pencil' | 'dots' | 'search' }):
         <path d="M8 4.5V8l2.5 1.5" />
       </>
     ),
+    // Classic cog: lucide "settings" outline (24px grid) scaled by 2/3 to the 16px grid.
     gear: (
       <>
-        <circle cx="8" cy="8" r="2.2" />
-        <path d="M8 1.8v1.7M8 12.5v1.7M1.8 8h1.7M12.5 8h1.7M3.6 3.6l1.2 1.2M11.2 11.2l1.2 1.2M12.4 3.6l-1.2 1.2M4.8 11.2l-1.2 1.2" />
+        <path d="M8.15 1.33h-.29a1.33 1.33 0 0 0-1.33 1.33v.12a1.33 1.33 0 0 1-.67 1.15l-.29.17a1.33 1.33 0 0 1-1.33 0l-.1-.05a1.33 1.33 0 0 0-1.82.49l-.15.25a1.33 1.33 0 0 0 .49 1.82l.1.07a1.33 1.33 0 0 1 .67 1.15v.34a1.33 1.33 0 0 1-.67 1.16l-.1.06a1.33 1.33 0 0 0-.49 1.82l.15.25a1.33 1.33 0 0 0 1.82.49l.1-.05a1.33 1.33 0 0 1 1.33 0l.29.17a1.33 1.33 0 0 1 .67 1.15V13.33a1.33 1.33 0 0 0 1.33 1.33h.29a1.33 1.33 0 0 0 1.33-1.33v-.12a1.33 1.33 0 0 1 .67-1.15l.29-.17a1.33 1.33 0 0 1 1.33 0l.1.05a1.33 1.33 0 0 0 1.82-.49l.15-.26a1.33 1.33 0 0 0-.49-1.82l-.1-.05a1.33 1.33 0 0 1-.67-1.16v-.33a1.33 1.33 0 0 1 .67-1.16l.1-.06a1.33 1.33 0 0 0 .49-1.82l-.15-.25a1.33 1.33 0 0 0-1.82-.49l-.1.05a1.33 1.33 0 0 1-1.33 0l-.29-.17a1.33 1.33 0 0 1-.67-1.15V2.67a1.33 1.33 0 0 0-1.33-1.33z" />
+        <circle cx="8" cy="8" r="2" />
       </>
     ),
     pencil: (
@@ -66,8 +67,8 @@ function Icon(props: { name: 'clock' | 'gear' | 'pencil' | 'dots' | 'search' }):
   )
 }
 
-/** One session row with its hover "⋯" menu. */
-function SessionRow(props: { session: SessionMeta; waitingSessionId: SessionId | null }): JSX.Element {
+/** One session row with its hover "⋯" menu. `onSelected` lets a host layer (the history dropdown) close itself on pick. */
+function SessionRow(props: { session: SessionMeta; waitingSessionId: SessionId | null; onSelected?: () => void }): JSX.Element {
   const { session } = props
   const activeSessionId = useAppStore((s) => s.activeSessionId)
   const selectSession = useAppStore((s) => s.selectSession)
@@ -120,7 +121,10 @@ function SessionRow(props: { session: SessionMeta; waitingSessionId: SessionId |
       <button
         type="button"
         className={`session-row${active ? ' session-row-active' : ''}`}
-        onClick={() => void selectSession(session.sessionId)}
+        onClick={() => {
+          void selectSession(session.sessionId)
+          props.onSelected?.()
+        }}
         title={title}
       >
         <span className={dotClass(session, props.waitingSessionId)} />
@@ -263,7 +267,12 @@ export function ChatListPanel(): JSX.Element {
           </div>
           <ul className="session-list chat-list-dropdown-list">
             {filtered.map((s) => (
-              <SessionRow key={s.sessionId} session={s} waitingSessionId={waitingSessionId} />
+              <SessionRow
+                key={s.sessionId}
+                session={s}
+                waitingSessionId={waitingSessionId}
+                onSelected={() => setExpanded(false)}
+              />
             ))}
             {filtered.length === 0 && <li className="chat-list-empty">无匹配会话</li>}
           </ul>

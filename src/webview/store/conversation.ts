@@ -10,6 +10,12 @@ import type { StateCreator } from 'zustand'
 import type { CallId, SessionId } from '../../extension/protocol/brand'
 import type { MuxFrame, ToolEventView } from '../../extension/protocol/events'
 import type { ContentBlock, TokenUsage } from '../../extension/protocol/llm'
+import type {
+  ContextBreakdownProjection,
+  ContextPressureProjection,
+  SessionStatsProjection,
+  TokenUsageProjection,
+} from '../../extension/protocol/projections'
 import type { SessionEvent } from '../../extension/protocol/session'
 import type { SessionRpc } from '../../extension/protocol/sessions'
 import { rpc } from '../bridge'
@@ -40,6 +46,14 @@ export interface ConversationSlice {
   todos: TodoItem[]
   /** Accumulated token usage of the current/last turn. */
   stats: TurnStats | null
+  /** Durable whole-log stats projection (sessionStats key), drives StatsLine. */
+  sessionStats: SessionStatsProjection | null
+  /** Durable token-billing projection (tokenUsage key), drives StatsLine. */
+  tokenUsage: TokenUsageProjection | null
+  /** Context occupancy projection (contextPressure key), drives ContextMeter. */
+  contextPressure: ContextPressureProjection | null
+  /** Heuristic context composition (contextBreakdown key), ContextMeter tooltip. */
+  contextBreakdown: ContextBreakdownProjection | null
   /** Wall time of the last completed turn in ms (drives the turn-tail stats row). */
   lastTurnMs: number | null
   /** True while a Load-older page request is in flight. */
@@ -252,13 +266,32 @@ export const createConversationSlice: StateCreator<AppStore, [], [], Conversatio
   turnStartedAt: null,
   todos: [],
   stats: null,
+  sessionStats: null,
+  tokenUsage: null,
+  contextPressure: null,
+  contextBreakdown: null,
   lastTurnMs: null,
   loadingOlder: false,
 
   loadHistory: async (sessionId) => {
     const page = await rpc<HistoryResult>('session.history', { sessionId })
     const { nodes, stats, todos, lastTurnMs } = projectPage(page.events)
-    set({ nodes, stats, todos, lastTurnMs, hasMoreHistory: page.hasMore, turnStatus: 'idle', turnStartedAt: null })
+    // The tail page carries the projection baseline (one consistent cut);
+    // a key absent from values means the capability is absent on the host.
+    const values = page.projections?.values
+    set({
+      nodes,
+      stats,
+      todos,
+      lastTurnMs,
+      hasMoreHistory: page.hasMore,
+      turnStatus: 'idle',
+      turnStartedAt: null,
+      sessionStats: values?.sessionStats ?? null,
+      tokenUsage: values?.tokenUsage ?? null,
+      contextPressure: values?.contextPressure ?? null,
+      contextBreakdown: values?.contextBreakdown ?? null,
+    })
   },
 
   loadOlderHistory: async (sessionId) => {
@@ -273,7 +306,8 @@ export const createConversationSlice: StateCreator<AppStore, [], [], Conversatio
         nodes: [...older.nodes, ...get().nodes],
         hasMoreHistory: page.hasMore,
         // Earlier pages only prepend content; stats/todos/lastTurnMs describe
-        // the latest turn and stay owned by the tail page.
+        // the latest turn and the four projections stay owned by the tail
+        // page's baseline plus live session/projection frames.
       })
     } finally {
       set({ loadingOlder: false })
@@ -309,8 +343,28 @@ export const createConversationSlice: StateCreator<AppStore, [], [], Conversatio
         }
         break
       }
-      // session/projection frames are routed to the sessions slice (titles),
-      // approval/question/queue frames to their own slices.
+      case 'session/projection': {
+        // Whole-value projection updates (higher-seq-wins on the host); fan
+        // out by key. The title key stays owned by the sessions slice.
+        switch (frame.key) {
+          case 'sessionStats':
+            set({ sessionStats: frame.value as SessionStatsProjection })
+            break
+          case 'tokenUsage':
+            set({ tokenUsage: frame.value as TokenUsageProjection })
+            break
+          case 'contextPressure':
+            set({ contextPressure: frame.value as ContextPressureProjection })
+            break
+          case 'contextBreakdown':
+            set({ contextBreakdown: frame.value as ContextBreakdownProjection })
+            break
+          default:
+            break
+        }
+        break
+      }
+      // approval/question/queue frames are routed to their own slices.
       default:
         break
     }
@@ -334,6 +388,10 @@ export const createConversationSlice: StateCreator<AppStore, [], [], Conversatio
       turnStartedAt: null,
       todos: [],
       stats: null,
+      sessionStats: null,
+      tokenUsage: null,
+      contextPressure: null,
+      contextBreakdown: null,
       lastTurnMs: null,
       loadingOlder: false,
     })

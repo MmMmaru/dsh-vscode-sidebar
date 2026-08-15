@@ -3,10 +3,13 @@
  * screenshot: title left, relative time right, icon buttons top-right.
  */
 
-.chat-list {
+/* Double class beats base.css `.region-chat-list` (overflow:hidden + max-height:30%)
+ * regardless of bundle order: the absolute history dropdown must overlay the
+ * regions below instead of being clipped to the section box (which killed its
+ * scrollbar). */
+.region-chat-list.chat-list {
   display: flex;
   flex-direction: column;
-  /* visible so the absolute history dropdown can overlay the regions below */
   overflow: visible;
   padding: 2px 4px;
   position: relative;
@@ -33,6 +36,8 @@
   flex: 1 1 auto;
   min-height: 0;
   overflow-y: auto;
+  /* keep wheel scroll inside the list instead of chaining to the conversation region behind */
+  overscroll-behavior: contain;
 }
 
 .chat-list-empty {

@@ -91,8 +91,13 @@ const UI_PREF_BINDINGS: {
   permissionMode: {
     ns: 'permission',
     field: 'defaultPreset',
-    toWire: (v) => v,
-    fromWire: (v) => (v === 'read-only' || v === 'workspace-write' || v === 'full-access' ? v : undefined),
+    // Protocol enum mismatch: the UI names the top tier 'full-access' while the
+    // wire preset enum (upstream permission-presets) is
+    // 'read-only' | 'workspace-write' | 'danger-full-access'. Map at the wire
+    // boundary so the host never sees the UI-only spelling.
+    toWire: (v) => (v === 'full-access' ? 'danger-full-access' : v),
+    fromWire: (v) =>
+      v === 'read-only' || v === 'workspace-write' ? v : v === 'danger-full-access' || v === 'full-access' ? 'full-access' : undefined,
   },
 }
 

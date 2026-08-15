@@ -11,8 +11,7 @@ import { useLayoutEffect, useRef, useState, type JSX } from 'react'
 import type { SessionId } from '../../../extension/protocol/brand'
 import { useAppStore } from '../../store'
 import type { CompactionNode, ContextInjectionNode, ConversationNode, ErrorNode, RetryNode } from '../../types'
-import { MarkdownBlock } from './MarkdownBlock'
-import { MessageBubble } from './MessageBubble'
+import { AssistantBubble, MessageBubble } from './MessageBubble'
 import { ReasoningRow } from './ReasoningRow'
 import { ToolCallRow } from './ToolCallRow'
 import { formatDuration, TurnStatusLine } from './TurnStatusLine'
@@ -80,7 +79,7 @@ export function NodeView(props: { node: ConversationNode }): JSX.Element {
     case 'user-message':
       return <MessageBubble node={node} />
     case 'assistant-text':
-      return <MarkdownBlock text={node.text} streaming={node.streaming} />
+      return <AssistantBubble node={node} />
     case 'reasoning':
       return <ReasoningRow node={node} />
     case 'tool-call':

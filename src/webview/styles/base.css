@@ -28,7 +28,8 @@ body {
   margin: 0;
   padding: 0;
   font-family: var(--vscode-font-family);
-  font-size: var(--vscode-font-size);
+  /* Base font: floor at 14px (VSCode default 13px reads too small). */
+  font-size: max(var(--vscode-font-size), 14px);
   color: var(--dsh-fg);
   background: var(--dsh-bg);
 }

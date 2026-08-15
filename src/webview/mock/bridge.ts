@@ -1,10 +1,12 @@
 /**
  * Mock bridge client (implements the BridgeClient surface of ../api.ts).
  * Lets W2-W6 develop without a dsh host: 30 fake sessions, one demo session
- * with a scripted history (reasoning + tool call + todos) and a scripted live
- * stream (prompt -> text -> tool call -> approval -> question -> done), plus a
- * two-provider model catalog and the settings/credentials/agentPreset surface
- * (namespaces, custom providers, credential states, preset roster).
+ * with a scripted history (reasoning + tool call + todos), a four-key
+ * projection baseline (sessionStats/tokenUsage/contextPressure/contextBreakdown)
+ * and a scripted live stream (prompt -> text -> tool call -> approval ->
+ * question -> done), plus a two-provider model catalog and the
+ * settings/credentials/agentPreset surface (namespaces, custom providers,
+ * credential states, preset roster).
  * Selection: bridge.ts picks this module for `?mock` / VITE_DSH_MOCK=1.
  */
 
@@ -16,6 +18,12 @@ import type {
   MuxFrame,
   QueuedInboxItem,
 } from '../../extension/protocol/events'
+import type {
+  ContextBreakdownProjection,
+  ContextPressureProjection,
+  SessionStatsProjection,
+  TokenUsageProjection,
+} from '../../extension/protocol/projections'
 import type { SessionEvent } from '../../extension/protocol/session'
 import type { HistoryEntry, QueueAction, SessionModels, SessionSummary } from '../../extension/protocol/sessions'
 import type { SkillEntry } from '../../extension/protocol/views'
@@ -74,6 +82,39 @@ function buildSessions(): SessionMeta[] {
 
 const sessions: SessionMeta[] = buildSessions()
 const archived = new Set<SessionId>()
+
+/**
+ * Projection baseline served with the demo session's history tail page. The
+ * figures are chosen so StatsLine reads
+ * `1 turns · 17 steps | LLM 2m24s · Tool call 0.3s | TTFT avg 2.2s · 112 tok/s
+ * | Cache hit 92% | Input 509K tok · Output 12K tok` and ContextMeter sits at
+ * 45% of a 128K window.
+ */
+const DEMO_PROJECTIONS: {
+  sessionStats: SessionStatsProjection
+  tokenUsage: TokenUsageProjection
+  contextPressure: ContextPressureProjection
+  contextBreakdown: ContextBreakdownProjection
+} = {
+  sessionStats: {
+    turns: 1,
+    steps: 17,
+    llmMs: 144_000,
+    toolMs: 300,
+    ttftMs: 2_200,
+    ttftSteps: 1,
+    decodeMs: 10_000,
+    decodeTokens: 1_120,
+  },
+  tokenUsage: {
+    uncachedInputTokens: 24_720,
+    outputTokens: 12_000,
+    cacheReadTokens: 468_280,
+    cacheWriteTokens: 16_000,
+  },
+  contextPressure: { pressureTokens: 57_600, projectedTokens: 57_600, contextWindow: 128_000 },
+  contextBreakdown: { systemTokens: 12_800, toolsTokens: 8_600, messageTokens: 36_200 },
+}
 
 let seq = 100
 
@@ -456,6 +497,18 @@ function runDemoStream(sessionId: SessionId, text: string): void {
     event: ev('tool/call', { turn: 2, step: 1, callId, name: 'bash', arguments: '{"command":"npm run build"}' }),
     view: { for: 'call', view: { card: 'terminal', title: 'npm run build', cwd: MOCK_CWD } },
   }, 600)
+  // Live projection frame: context pressure grows as the turn proceeds.
+  emit('mux', {
+    type: 'session/projection',
+    sessionId,
+    key: 'contextPressure',
+    value: {
+      pressureTokens: 64_500,
+      projectedTokens: 64_500,
+      contextWindow: 128_000,
+    } satisfies ContextPressureProjection,
+    seq,
+  }, 700)
   const approvalId = `ap-${seq}` as ApprovalRequestId
   pendingScriptedApproval = { sessionId, approvalId, callId }
   emit('mux', { type: 'approval/requested', sessionId, approvalId, toolName: 'bash', callId, reason: '需要执行构建命令 npm run build' }, 900)
@@ -537,8 +590,13 @@ function rpc<T = unknown>(method: string, params?: unknown): Promise<T> {
       return respond({ sessionId })
     }
     case 'session.history': {
-      const events: HistoryEntry[] = p['sessionId'] === DEMO_SESSION_ID ? demoHistory().map((event) => ({ event })) : []
-      return respond({ events, hasMore: false, projections: { asOfSeq: seq, values: {} } })
+      const isDemo = p['sessionId'] === DEMO_SESSION_ID
+      const events: HistoryEntry[] = isDemo ? demoHistory().map((event) => ({ event })) : []
+      return respond({
+        events,
+        hasMore: false,
+        projections: { asOfSeq: seq, values: isDemo ? { ...DEMO_PROJECTIONS } : {} },
+      })
     }
     case 'session.models':
       return respond(MODELS)
@@ -729,6 +787,19 @@ function respondQuestion(sessionId: SessionId, answers: AskUserQuestionAnswerIte
       usage: { inputTokens: 900, outputTokens: 48 },
     }),
   }, 300)
+  // Live projection frame: the durable token-usage total absorbs the turn.
+  emit('mux', {
+    type: 'session/projection',
+    sessionId,
+    key: 'tokenUsage',
+    value: {
+      uncachedInputTokens: 25_620,
+      outputTokens: 12_048,
+      cacheReadTokens: 468_280,
+      cacheWriteTokens: 16_000,
+    } satisfies TokenUsageProjection,
+    seq,
+  }, 400)
   emit('mux', { type: 'session/event', sessionId, event: ev('turn/end', { turn: 2, reason: { kind: 'completed' } }) }, 500)
   return Promise.resolve()
 }

@@ -85,8 +85,6 @@ export function ComposerCard(): JSX.Element {
   const turnStatus = useAppStore((s) => s.turnStatus)
   const queue = useAppStore((s) => s.queue)
   const todos = useAppStore((s) => s.todos)
-  const stats = useAppStore((s) => s.stats)
-  const nodes = useAppStore((s) => s.nodes)
   const models = useAppStore((s) => s.models)
   const selectedModel = useAppStore((s) => s.selectedModel)
   const permissionMode = useAppStore((s) => s.permissionMode)
@@ -113,9 +111,6 @@ export function ComposerCard(): JSX.Element {
   const canSend = draft.trim() !== '' || attachments.length > 0
   // Takeover semantics: a pending overlay replaces the whole input area.
   const overlayActive = pendingApproval !== null || pendingQuestion !== null || planReview !== null
-  // 128k context-window estimate for the occupancy ring (no capacity projection on the wire yet).
-  const usedPct = stats === null ? 0 : (stats.inputTokens / 128_000) * 100
-  const turns = nodes.filter((n) => n.kind === 'user-message').length
 
   const showToast = useCallback((text: string) => {
     toastSeq.current += 1
@@ -274,7 +269,7 @@ export function ComposerCard(): JSX.Element {
               </div>
               <div className="composer-trailing">
                 <ModelSelect models={models} selected={selectedModel} onSelect={selectModel} />
-                <ContextMeter usedPct={usedPct} />
+                <ContextMeter />
                 <SendStopButton running={running} canSend={canSend} onSend={send} onStop={() => void cancel()} />
               </div>
             </div>
@@ -285,7 +280,7 @@ export function ComposerCard(): JSX.Element {
         )}
         {dragActive && <div className="composer-drop-overlay">松开以添加图片</div>}
       </div>
-      <StatsLine stats={stats} turns={turns} />
+      <StatsLine />
     </section>
   )
 }

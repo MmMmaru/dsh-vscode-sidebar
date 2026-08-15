@@ -1,30 +1,58 @@
 /**
  * ContextMeter (owned by W4): the 14px context-occupancy ring beside the send
- * button. The percentage is estimated from store.stats.inputTokens against a
- * 128k context window (the wire carries no capacity projection yet — see the
- * W4 report's contract-defect notes).
- * Contract: ARCHITECTURE.md section 5.3 ({ usedPct }).
+ * button, fed by the store's contextPressure projection. The numerator is
+ * `projectedTokens` — the provider sample carried forward over the surface's
+ * movement since — falling back to the bare `pressureTokens` sample; both
+ * token fields and the capacity are independent last-wins projection fields,
+ * so this is a reference figure rather than an exact measurement. Renders
+ * nothing until a token figure and the route capacity are both known. When
+ * the contextBreakdown projection is present, its heuristic composition goes
+ * to the title tooltip.
+ * Contract: ARCHITECTURE.md section 5.3 — no props, reads the store slices.
  */
 
 import type { JSX } from 'react'
+import type {
+  ContextBreakdownProjection,
+  ContextPressureProjection,
+} from '../../../extension/protocol/projections'
+import { useAppStore } from '../../store'
+import { formatTokens } from './StatsLine'
 
 /** Ring geometry: 14px viewBox, 2px stroke (same as the dsh web ContextMeter). */
 const RADIUS = 5.5
 const CIRCUMFERENCE = 2 * Math.PI * RADIUS
 
-export interface ContextMeterProps {
-  /** 0-100; clamped defensively. */
-  usedPct: number
+/**
+ * Approximate context occupancy percent with the TUI's integer rounding and
+ * upper clamp.
+ * @param pressure - the session's context-pressure projection value.
+ * @returns 0-100 occupancy, or null until a token figure and capacity are known.
+ */
+export function contextOccupancy(pressure: ContextPressureProjection | null): number | null {
+  const usedTokens = pressure?.projectedTokens ?? pressure?.pressureTokens
+  if (usedTokens === undefined || pressure?.contextWindow === undefined) return null
+  return Math.min(100, Math.round(usedTokens / pressure.contextWindow * 100))
 }
 
-export function ContextMeter({ usedPct }: ContextMeterProps): JSX.Element {
-  const pct = Math.max(0, Math.min(100, Math.round(usedPct)))
+/** Title tooltip: the occupancy line plus the heuristic breakdown when served. */
+function meterTitle(pct: number, breakdown: ContextBreakdownProjection | null): string {
+  const head = `上下文已用 ${pct}%`
+  if (breakdown === null) return head
+  return `${head}\n系统提示 ~${formatTokens(breakdown.systemTokens)} · 工具 ~${formatTokens(breakdown.toolsTokens)} · 对话 ~${formatTokens(breakdown.messageTokens)}`
+}
+
+export function ContextMeter(): JSX.Element | null {
+  const pressure = useAppStore((s) => s.contextPressure)
+  const breakdown = useAppStore((s) => s.contextBreakdown)
+  const pct = contextOccupancy(pressure)
+  if (pct === null) return null
   return (
     <span
       className="context-meter"
       role="img"
       aria-label={`上下文已用 ${pct}%`}
-      title={`上下文已用 ${pct}%（按 128k 窗口估算）`}
+      title={meterTitle(pct, breakdown)}
     >
       <svg viewBox="0 0 14 14" width="14" height="14" aria-hidden>
         <circle className="context-meter-track" cx="7" cy="7" r={RADIUS} />

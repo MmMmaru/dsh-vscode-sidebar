@@ -30,3 +30,11 @@
 ### 08-15 09:10
 - 历史会话改为下拉层交互：时钟按钮/View all 展开带搜索的浮层，点外部或 Esc 收起（原先是常驻展开态）。
 - 截图验证：展开/搜索过滤/外部点击收起三态通过；VSIX 重打 189.92KB。
+
+### 08-15 11:37
+- StatsLine/ContextMeter 对齐 web 端投影数据源：新增 protocol/projections.ts 四个投影类型；conversation store 安装 history tail 投影基线并消费 session/projection 直播帧；StatsLine 输出完整统计行（turns/steps、LLM/Tool 耗时、TTFT/tok·s、Cache hit、Input/Output），ContextMeter 按 contextWindow 设置计算占用、缺数据不渲染。
+- 设置图标换成经典齿轮；历史下拉选中会话自动收起；修复下拉滚动失效（根因：base.css .region-chat-list 的 overflow:hidden 打包后压过 chat-list.css，改用双类选择器提优先级）。
+- assistant 消息末尾新增操作行：复制（1.5s 已复制反馈）+ fork（session.fork 带 atSeq 锚点，streaming 时隐藏）。
+- 修复设置保存失败：wire 枚举 'danger-full-access' ↔ UI 内部 'full-access' 在 settings.ts 绑定层双向映射。
+- 整体字号调大：base.css 基准抬到 max(vscode字号, 14px)，em 相对层级自动等比上调。
+- 回归：typecheck + 15 单测 + verify:mock + verify:composer 全绿；真实 DeepSeek e2e 通过；截图复验通过；VSIX 重打 191.76KB。
