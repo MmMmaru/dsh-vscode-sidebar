@@ -3,14 +3,44 @@
  * placeholder .overlay-strip look (base.css keeps its own copy for other
  * placeholders; these classes win for overlay components and never touch
  * base.css). All colors consume the shared --dsh-* tokens / --vscode-* theme.
+ * Visual treatment follows the dsh web client's Modal (dimmed + blurred mask,
+ * raised card with shadow) and the VSCode native modal feel.
  */
 
+/* Full-webview mask behind the takeover card: dims and blurs the conversation
+   while a decision is pending. pointer-events: none keeps it purely visual —
+   it never steals clicks or scrolls from the content underneath. */
+.ovl-mask {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  pointer-events: none;
+  background: color-mix(in srgb, var(--dsh-bg) 55%, transparent);
+  backdrop-filter: blur(3px);
+  animation: ovl-fade 160ms ease-out;
+}
+
+@keyframes ovl-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
 .ovl-card {
+  position: relative;
+  z-index: 41; /* above .ovl-mask (no ancestor creates a stacking context) */
   margin-bottom: var(--dsh-gap);
-  border: 1px solid var(--dsh-border);
+  border: 1px solid var(--vscode-widget-border, var(--dsh-border));
   border-radius: var(--dsh-radius);
   background: var(--dsh-bg-raised);
+  box-shadow: 0 4px 16px var(--vscode-widget-shadow, rgba(0, 0, 0, 0.36));
   overflow: hidden;
+  animation: ovl-enter 160ms ease-out;
+}
+
+/* Entrance: fade in with a slight rise, kept small on purpose. */
+@keyframes ovl-enter {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 
 /* Amber top strip shared by the approval and plan-review cards. */
@@ -54,6 +84,7 @@
 .ovl-headline {
   font-size: 1.05em;
   font-weight: 600;
+  line-height: 1.4;
   white-space: pre-wrap;
   word-break: break-word;
 }
@@ -95,6 +126,7 @@
   margin: 0;
   font-size: 1.05em;
   font-weight: 600;
+  line-height: 1.35;
   white-space: pre-wrap;
   word-break: break-word;
 }
@@ -106,6 +138,7 @@
 .ovl-detail {
   color: var(--dsh-fg-muted);
   font-size: 0.9em;
+  line-height: 1.5;
   white-space: pre-wrap;
   word-break: break-word;
 }
@@ -130,6 +163,7 @@
   border: 1px solid var(--dsh-border);
   border-radius: var(--dsh-radius);
   cursor: pointer;
+  transition: background-color 120ms ease-out, border-color 120ms ease-out;
 }
 
 .ovl-option:hover {
@@ -301,6 +335,30 @@
 
 .ovl-btn {
   white-space: nowrap;
+  transition: background-color 120ms ease-out, color 120ms ease-out,
+    border-color 120ms ease-out, transform 80ms ease-out;
+}
+
+/* Shared press feedback: a restrained 1px dip. */
+.ovl-btn:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+/* Primary hover: base.css has no button:hover rule, so supply it here. */
+.ovl-btn-primary:hover:not(:disabled) {
+  background: var(--vscode-button-hoverBackground, var(--vscode-button-background, #0e639c));
+}
+
+/* Danger variant: semantic red for destructive decisions (Refuse / 拒绝). */
+.ovl-btn-danger {
+  color: var(--dsh-danger);
+  background: transparent;
+  border: 1px solid color-mix(in srgb, var(--dsh-danger) 45%, transparent);
+}
+
+.ovl-btn-danger:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--dsh-danger) 12%, transparent);
+  border-color: color-mix(in srgb, var(--dsh-danger) 70%, transparent);
 }
 
 .ovl-btn-outline {
@@ -311,6 +369,7 @@
 
 .ovl-btn-outline:hover:not(:disabled) {
   background: var(--vscode-list-hoverBackground, rgba(255, 255, 255, 0.06));
+  border-color: var(--dsh-fg-muted);
 }
 
 .ovl-btn-ghost {

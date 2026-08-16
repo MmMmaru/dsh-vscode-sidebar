@@ -1,4 +1,9 @@
 # Extension is fully bundled (dist/extension.js + media/*); ship only runtime assets.
+# README screenshots resolve to the GitHub repository (repository field in
+# package.json), so the local artifacts/ copies stay out of the VSIX.
+artifacts
+PROGRESS.md
+.gitignore
 .temp
 src
 tests

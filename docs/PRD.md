@@ -1,7 +1,5 @@
 # VSCode DeepSeek Harness 插件（Sidebar）PRD
 
-![首页界面](<png/屏幕截图 2026-08-15 000731.png>)
-
 ## 1. 背景与目标
 
 为 deepseek-harness（dsh）开发一个 Codex 风格的 VSCode 插件，主界面位于侧边栏。

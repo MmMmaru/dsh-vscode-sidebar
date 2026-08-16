@@ -16,7 +16,39 @@ vibe coded by **kimi k3 & GPT 5.6 & deepseek v4**.
   </tr>
 </table>
 
+## 核心原理
+```text
+[VSCode Webview: React UI（会话/对话/审批/设置）]
+        │ postMessage 桥协议 (shared/bridge.ts)
+        ▼
+[Bridge + SidebarProvider]  ◄── 广播 mux/host 事件帧、host-status
+        │ 透传 rpc / respond
+        ▼
+[DshClient（extension 进程, Node ≥22）]
+   │                              │                         │
+   │ POST /api/<method>          │ POST /api/respond       │ WS /api/events.mux
+   │ (session.create 等 unary)   │ (审批/提问应答)         │ + /api/events.host
+   ▼                              ▼                         ▼
+[HostManager: 探测 127.0.0.1:3080..3089 → 无则 spawn `dsh web`]  (只连 loopback)
+        │ spawn / 复用 / 版本检查
+        ▼
+[dsh web host 进程]
+  [webserver: createServer + 'upgrade' 分发]  ── /api/* 请求、WS 升级
+        │
+  [client-connection: isTrustedApiRequest 信任门 → toFetchHandler / WebSocketDownlinks]
+        │
+  [ApiProxy (apiproxy 包)]
+    ├─ unary: session.*/workspace.*/settings.*/preset.*/llm.* → 执行业务
+    ├─ respond: 按 rpcId 结算 pending 的审批/提问
+    └─ events: 订阅 ctx 事件总线，把 session/event 等转成 MuxFrame/HostFrame
+        │ ctx.on('session/event') 等
+        ▼
+[Session / Agent / workspace 注册表（harness 核心）]
+```
 ## 安装
+### dsh插件
+确保dsh已经安装
+`npx @deepseek-ai/dsh web`
 ### vscode 插件
 [vscode 插件](https://marketplace.visualstudio.com/items?itemName=XuRongsheng.dsh-vscode-sidebar)
 ### Github repo
@@ -89,10 +121,4 @@ code --install-extension dist/dsh-vscode-sidebar-*.vsix
 目前正在让插件美观易用，无限接近与codex extention(bushi)
 欢迎issue & PR
 
-- [ ] 附件已支持上传展示，多模态模型外的图片理解取决于后端模型能力  
-- [ ] Goal 条、Trajectory 视图、onboarding 引导（对齐网页版，见 docs/PRD.md）  
-- [ ] subagent管理栏  
-- [ ] 优化目前悬浮窗口效果  
-- [ ] 优化markdown解析字体效果，对齐codex style  
-- [ ] /命令支持，在斜杠后提示命令输入
-- [ ] 优化任务并行数字显示，目前不美观。 
+[TODO](docs/TODO.md)
