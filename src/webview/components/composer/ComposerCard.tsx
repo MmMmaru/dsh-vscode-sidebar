@@ -230,6 +230,29 @@ export function ComposerCard(): JSX.Element {
     })
   }
 
+  // Esc interrupt, document-wide: with a running turn and no popup/menu/overlay
+  // owning Escape, the key cancels the turn (same action as the stop button).
+  // The textarea handles its own Escape (popup dismiss → cancel) and menus /
+  // dialogs / inputs keep their own Escape semantics, so those targets skip.
+  useEffect(() => {
+    if (!running) return
+    const onKeyDown = (e: KeyboardEvent): void => {
+      if (e.key !== 'Escape') return
+      if (overlayActive) return
+      if (document.querySelector('.composer-suggest') !== null) return
+      const target = e.target
+      if (
+        target instanceof Element &&
+        target.closest('input, textarea, .composer-menu, .composer-dialog-backdrop, .model-select, .permission-select')
+      ) {
+        return
+      }
+      void cancel()
+    }
+    document.addEventListener('keydown', onKeyDown)
+    return () => document.removeEventListener('keydown', onKeyDown)
+  }, [running, overlayActive, cancel])
+
   const send = (): void => {
     if (!canSend) return
     const text = draft.trim()
@@ -270,6 +293,7 @@ export function ComposerCard(): JSX.Element {
               value={draft}
               onChange={setDraft}
               onSend={send}
+              onStop={() => void cancel()}
               running={running}
               disabled={false}
               sessionId={activeSessionId}
@@ -280,6 +304,7 @@ export function ComposerCard(): JSX.Element {
                 <button
                   type="button"
                   className="composer-chip composer-add"
+                  data-composer-tool="attach"
                   aria-label="添加图片附件"
                   title="添加图片附件"
                   onClick={() => fileInputRef.current?.click()}
@@ -302,6 +327,7 @@ export function ComposerCard(): JSX.Element {
                 <button
                   type="button"
                   className={`composer-chip composer-add${ideContextEnabled ? ' composer-chip-active' : ''}`}
+                  data-composer-tool="ide"
                   aria-label={ideContextEnabled ? '关闭 IDE 上下文注入' : '开启 IDE 上下文注入'}
                   title="IDE 上下文注入：发送时自动附加选中内容/当前文件（模型可见，对话里只显示提示）"
                   onClick={() => setIdeContextEnabled(!ideContextEnabled)}

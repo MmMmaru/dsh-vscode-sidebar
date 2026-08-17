@@ -2,10 +2,14 @@
  * ComposerInput (owned by W4): the auto-growing multiline textarea of the
  * composer card. Keyboard contract (PRD 3.3, aligned with the dsh web
  * InputBar): Enter sends, Shift+Enter breaks the line, IME-composition Enter
- * never sends, held-down Enter does not machine-gun sends. Typing `/` at the
- * head of the draft opens skill suggestions (skill.list RPC), `@` opens file
- * reference suggestions (static mock list). Pasted image files are handed to
- * the owning card through onPasteFiles.
+ * never sends, held-down Enter does not machine-gun sends, Escape dismisses
+ * the suggestion popup first and otherwise interrupts the running turn
+ * (same action as the stop button). Typing `/` at the head of the draft opens
+ * slash suggestions — the host slash commands (/goal, /compact, /plan, which
+ * the host executes instead of sending to the model) followed by the session's
+ * skill catalog (skill.list RPC) — and `@` opens file reference suggestions
+ * (static mock list). Pasted image files are handed to the owning card
+ * through onPasteFiles.
  * Contract: ARCHITECTURE.md section 5.3 ({ value, onChange, onSend, running }).
  */
 
@@ -31,9 +35,33 @@ const MOCK_FILES: readonly string[] = [
   'README.md',
 ]
 
+/**
+ * Host slash commands: sending a prompt whose content is exactly one text
+ * block starting with `/` makes the HOST execute the command through its
+ * command registry (it never reaches the model). Names/descriptions mirror
+ * the harness command packages (goal: command-goal, compact: command-compact,
+ * plan: plan-mode). The sidebar lists them so the `/` popup can prompt them.
+ */
+export interface SlashCommand {
+  name: string
+  description: string
+  /** Usage hint (the host command's input hint), appended after the description. */
+  hint?: string
+}
+
+export const BUILTIN_COMMANDS: readonly SlashCommand[] = [
+  {
+    name: 'goal',
+    description: '设置或查看长期任务目标',
+    hint: '<目标>|clear|edit|pause|resume',
+  },
+  { name: 'compact', description: '压缩较早的对话历史' },
+  { name: 'plan', description: '进入或退出计划模式', hint: 'off|消息' },
+]
+
 /** One suggestion popup state: what trigger opened it and where the token starts. */
 export interface SuggestionState {
-  kind: 'skill' | 'mention'
+  kind: 'command' | 'mention'
   /** Index in the draft where the trigger char (`/` or `@`) sits. */
   start: number
   /** Text typed after the trigger char, used to filter. */
@@ -42,8 +70,8 @@ export interface SuggestionState {
 
 /**
  * Detect a live suggestion trigger from the draft and caret position.
- * Skills: draft starts with `/` and the caret sits inside the first token.
- * Mentions: an `@` directly before the caret starts a token without spaces.
+ * Slash commands: draft starts with `/` and the caret sits inside the first
+ * token. Mentions: an `@` directly before the caret starts a token without spaces.
  * @param value - current draft text.
  * @param caret - selection start (collapsed caret) in the draft.
  * @returns the trigger description, or null when no suggestion applies.
@@ -52,7 +80,7 @@ export function detectSuggestion(value: string, caret: number): SuggestionState 
   const before = value.slice(0, caret)
   if (value.startsWith('/')) {
     const head = /^\/([\w-]*)$/.exec(before)
-    if (head !== null) return { kind: 'skill', start: 0, query: head[1] ?? '' }
+    if (head !== null) return { kind: 'command', start: 0, query: head[1] ?? '' }
   }
   const mention = /(?:^|\s)@([^\s@]*)$/.exec(before)
   if (mention !== null) {
@@ -60,6 +88,15 @@ export function detectSuggestion(value: string, caret: number): SuggestionState 
     return { kind: 'mention', start: caret - query.length - 1, query }
   }
   return null
+}
+
+/** Case-insensitive prefix/substring filter for built-in slash commands. */
+export function filterCommands(commands: readonly SlashCommand[], query: string): SlashCommand[] {
+  const q = query.toLowerCase()
+  if (q === '') return [...commands]
+  return commands.filter(
+    (c) => c.name.toLowerCase().includes(q) || c.description.toLowerCase().includes(q),
+  )
 }
 
 /** Case-insensitive prefix/substring filter for skill suggestions. */
@@ -76,6 +113,17 @@ export function filterFiles(files: readonly string[], query: string): string[] {
   const q = query.toLowerCase()
   if (q === '') return [...files]
   return files.filter((f) => f.toLowerCase().includes(q))
+}
+
+/**
+ * Escape-key arbitration, extracted pure for verification: the suggestion
+ * popup owns Escape first; with no popup a running turn is interrupted.
+ * @returns 'close-popup' | 'cancel' | 'ignore'.
+ */
+export function resolveEscape(popupOpen: boolean, running: boolean): 'close-popup' | 'cancel' | 'ignore' {
+  if (popupOpen) return 'close-popup'
+  if (running) return 'cancel'
+  return 'ignore'
 }
 
 /**
@@ -102,15 +150,26 @@ export function applySuggestion(
   suggestion: SuggestionState,
   picked: string,
 ): { value: string; caret: number } {
-  const insert = suggestion.kind === 'skill' ? `/${picked} ` : `@${picked} `
+  const insert = suggestion.kind === 'command' ? `/${picked} ` : `@${picked} `
   const next = value.slice(0, suggestion.start) + insert + value.slice(caret)
   return { value: next, caret: suggestion.start + insert.length }
+}
+
+/** One row of the suggestion popup, regardless of trigger kind. */
+export interface SuggestItem {
+  kind: 'command' | 'skill' | 'file'
+  key: string
+  /** Bare name/path; the trigger prefix (`/` or `@`) is added at render time. */
+  label: string
+  description?: string
 }
 
 export interface ComposerInputProps {
   value: string
   onChange: (value: string) => void
   onSend: () => void
+  /** Interrupt the running turn (Escape, same action as the stop button). */
+  onStop: () => void
   running: boolean
   /** No active session: the box stays visible but read-only. */
   disabled: boolean
@@ -120,7 +179,7 @@ export interface ComposerInputProps {
 }
 
 export function ComposerInput({
-  value, onChange, onSend, running, disabled, sessionId, onPasteFiles,
+  value, onChange, onSend, onStop, running, disabled, sessionId, onPasteFiles,
 }: ComposerInputProps): JSX.Element {
   const textareaRef = useRef<HTMLTextAreaElement | null>(null)
   /** IME guard ref: outlives renders; cleared one tick late for Safari's ordering. */
@@ -141,11 +200,28 @@ export function ComposerInput({
     return () => { stale = true }
   }, [sessionId])
 
-  const items = useMemo<readonly (SkillEntry | string)[]>(() => {
+  // Slash popup rows: built-in host commands first, then the session's skill
+  // catalog (both filtered by the token query), then mention files.
+  const items = useMemo<readonly SuggestItem[]>(() => {
     if (suggestion === null) return []
-    return suggestion.kind === 'skill'
-      ? filterSkills(skills, suggestion.query).slice(0, 8)
-      : filterFiles(MOCK_FILES, suggestion.query).slice(0, 8)
+    if (suggestion.kind === 'mention') {
+      return filterFiles(MOCK_FILES, suggestion.query)
+        .slice(0, 8)
+        .map((f) => ({ kind: 'file' as const, key: f, label: f }))
+    }
+    const commands = filterCommands(BUILTIN_COMMANDS, suggestion.query).map((c) => ({
+      kind: 'command' as const,
+      key: c.name,
+      label: c.name,
+      description: c.hint === undefined ? c.description : `${c.description} · ${c.hint}`,
+    }))
+    const skillItems = filterSkills(skills, suggestion.query).map((s) => ({
+      kind: 'skill' as const,
+      key: s.name,
+      label: s.name,
+      description: s.description,
+    }))
+    return [...commands, ...skillItems].slice(0, 8)
   }, [suggestion, skills])
   const popupOpen = suggestion !== null && items.length > 0
 
@@ -166,12 +242,11 @@ export function ComposerInput({
     setHighlight(0)
   }
 
-  const pick = (item: SkillEntry | string): void => {
+  const pick = (item: SuggestItem): void => {
     if (suggestion === null) return
     const el = textareaRef.current
     const caret = el?.selectionStart ?? value.length
-    const picked = typeof item === 'string' ? item : item.name
-    const next = applySuggestion(value, caret, suggestion, picked)
+    const next = applySuggestion(value, caret, suggestion, item.label)
     onChange(next.value)
     closePopup()
     requestAnimationFrame(() => {
@@ -190,11 +265,6 @@ export function ComposerInput({
         setHighlight((h) => (h + (e.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length)
         return
       }
-      if (e.key === 'Escape') {
-        e.preventDefault()
-        closePopup()
-        return
-      }
       if (e.key === 'Tab' || (e.key === 'Enter' && !e.shiftKey && !composing)) {
         e.preventDefault()
         const item = items[Math.min(highlight, items.length - 1)]
@@ -202,6 +272,13 @@ export function ComposerInput({
         return
       }
     } else if (e.key === 'Escape') {
+      // Esc interrupt: with no popup to dismiss, Escape stops the running turn.
+      e.preventDefault()
+      if (resolveEscape(false, running) === 'cancel') onStop()
+      return
+    }
+    if (e.key === 'Escape') {
+      e.preventDefault()
       closePopup()
       return
     }
@@ -243,24 +320,23 @@ export function ComposerInput({
     <div className="composer-input-wrap">
       {popupOpen && (
         <ul className="composer-suggest" role="listbox" data-suggest={suggestion?.kind}>
-          {items.map((item, i) => {
-            const key = typeof item === 'string' ? item : item.name
-            const label = suggestion?.kind === 'skill' ? `/${key}` : `@${key}`
-            const desc = typeof item === 'string' ? undefined : item.description
-            return (
-              <li key={key} role="option" aria-selected={i === highlight}>
-                <button
-                  type="button"
-                  className={`composer-suggest-item${i === highlight ? ' active' : ''}`}
-                  onMouseEnter={() => setHighlight(i)}
-                  onClick={() => pick(item)}
-                >
-                  <span className="composer-suggest-label">{label}</span>
-                  {desc !== undefined && <span className="composer-suggest-desc">{desc}</span>}
-                </button>
-              </li>
-            )
-          })}
+          {items.map((item, i) => (
+            <li key={item.key} role="option" aria-selected={i === highlight}>
+              <button
+                type="button"
+                className={`composer-suggest-item${i === highlight ? ' active' : ''}`}
+                onMouseEnter={() => setHighlight(i)}
+                onClick={() => pick(item)}
+              >
+                <span className="composer-suggest-label">
+                  {suggestion?.kind === 'mention' ? `@${item.label}` : `/${item.label}`}
+                </span>
+                {item.description !== undefined && (
+                  <span className="composer-suggest-desc">{item.description}</span>
+                )}
+              </button>
+            </li>
+          ))}
         </ul>
       )}
       <textarea

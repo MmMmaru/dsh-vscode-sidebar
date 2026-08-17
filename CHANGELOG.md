@@ -23,7 +23,7 @@
 - **提问/审批接管增强**：pending 接管按会话记录——后台会话的提问也点亮琥珀等待点，
   切走再切回原会话面板不丢
 - **测试体系**：Playwright 浏览器 E2E 套件（真实扩展宿主代码跑在 Node + 真实隔离 dsh host，
-  12 用例覆盖全部回归 + 真实模型对话闭环）；详见 `.agents/skills/dsh-vscode-e2e`
+  14 用例覆盖全部回归（含 Goal 条真实 host 域）+ 真实模型对话闭环）；详见 `.agents/skills/dsh-vscode-e2e`
 
 ### 修复
 

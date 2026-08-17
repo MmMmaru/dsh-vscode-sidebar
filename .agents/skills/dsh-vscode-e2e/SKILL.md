@@ -34,6 +34,7 @@ tests/e2e/
   harness.ts            # host 生命周期 + 静态服务 + WS 桥 + 控制 API（--e2e 打包）
   e2e.spec.ts           # 主用例：五条修复回归 + 核心对话闭环 + IDE 自动注入
   switch-repro.spec.ts  # 提问切换/重放/真实应答闭环（含 live 模型用例）
+  goal.spec.ts           # Goal 条真实 host 域（baseline 渲染/暂停恢复/编辑/清除）
 playwright.config.ts    # workers=1、串行、失败截图/trace 到 .temp/e2e-artifacts
 esbuild.config.mjs      # --e2e 目标：打包 harness + 生成 harness.d.mts（类型重导出）
 ```
@@ -77,6 +78,7 @@ const test = base.extend<{}, { harness: Harness }>({
 | `harness.pageUrl` | 页面地址（http 服务 + /ws 桥同端口） |
 | `harness.workspacePath` / `foreignPath` | 当前工作区路径 / 外部目录（隔离测试用） |
 | `createSession(cwd, title?)` | 真实 RPC 建会话（可改名） |
+| `rpc(method, params?)` | 真实 host RPC 透传（如 goal.create） |
 | `emitMux(frame, rpcId?)` / `emitHost(frame)` | 注入帧（走真实分发路径） |
 | `setActiveEditor(editor \| null)` | 设置 stub 活动编辑器（IDE 注入测试） |
 | `errorNotifications()` | 扩展宿主经 stub 记录的错误通知 |

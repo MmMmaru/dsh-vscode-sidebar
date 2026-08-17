@@ -43,6 +43,8 @@ export interface Harness {
   ensureWarm(): Promise<void>
   /** Create a real session via host RPC, optionally renamed. */
   createSession(cwd: string, title?: string): Promise<SessionId>
+  /** Passthrough host RPC (e.g. goal.create before the page loads). */
+  rpc: <T = unknown>(method: string, params?: unknown) => Promise<T>
   /** Inject one mux frame through the client's real dispatch path. */
   emitMux(frame: MuxFrame, rpcId?: string): void
   /** Inject one host frame through the client's real dispatch path. */
@@ -239,6 +241,10 @@ export async function startHarness(): Promise<Harness> {
       const { sessionId } = await client.rpc<{ sessionId: SessionId }>('session.create', { cwd })
       if (title !== undefined) await client.rpc('session.rename', { sessionId, title })
       return sessionId
+    },
+    rpc: async <T = unknown>(method: string, params?: unknown): Promise<T> => {
+      await ensureWarm()
+      return client.rpc<T>(method, params)
     },
     emitMux: (frame, rpcId) => client.emitMuxFrame(frame, rpcId as RpcId | undefined),
     emitHost: (frame) => client.emitHostFrame(frame),

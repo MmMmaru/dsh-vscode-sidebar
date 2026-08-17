@@ -1,5 +1,9 @@
 # 进展记录
 
+### 08-17 Goal 条补 E2E 覆盖（收尾勾选）
+- 新增 `tests/e2e/goal.spec.ts` 2 用例（真实 host goal 域，无模型调用）：① baseline 渲染（进行中 + objective）→ 真实 goal.pause RPC → 投影帧 → 已暂停 → resume 恢复；② 行内编辑（goal.edit → 新 objective 生效）→ 清除（goal.clear → 投影 tombstone → 条消失）。harness 增 `rpc` 透传。
+- 全套 E2E 14/14 绿（48.7s）；TODO 的 Goal 条勾回 [x]；CHANGELOG 0.0.3 用例数更新；skill 增 goal.spec 与 rpc API 说明。
+
 ### 08-17 IDE 注入改为隐藏式 + 开关
 - **注入内容不进用户气泡**：模型照收完整 prompt，气泡由 `findIdeBlock` 剥离 `### 选中代码（…）`/`### 文件：…`/`### 当前文件：…` 块，另渲染一条 `ide：…` context-injection 提示行（可展开看路径）。
 - **上下文按钮改为开关**：IDE 芯片菜单（插入选中内容/当前文件）移除，变为 `ideContextEnabled` 开关（composer-chip-active 高亮，localStorage `dsh.settings.ideContextEnabled` 持久化——webview 隐藏重建后保留，默认开）；`sendPrompt` 关闭时不注入。`dsh.insertSelection`/`dsh.insertActiveFile` 命令保留（手动插入走 draft，发送后同样被剥离+提示行）。
