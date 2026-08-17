@@ -67,6 +67,9 @@ Marketplace → 若指定了 `patch/minor/major` 会自动 bump `package.json` �
 | 打包体积告警（media/main.js 700KB+） | 只是 warning，可忽略；vsce 提示可配 `extensionKind` 等 |
 | 装新 VSIX 后视图还是旧行为 | 扩展窗口未重载：`Developer: Reload Window`；或旧版本目录残留（检查
   `~/.vscode-server/extensions/` 下是否有同名不同 publisher 的旧扩展抢视图 id，删掉） |
+| 发布中途被打断（Ctrl+C） | Marketplace **没有半发布状态**（上传是原子的，打断=没传），线上无需清理；
+  但 `vsce publish patch/minor/major` 在打断前可能已完成本地版本 bump + git 提交 + tag。
+  回退（未 push 时安全）：`git reset --hard <发布前提交>` + `git tag -d v<版本>`；或保留版本号直接重发 |
 | 想要撤销发布 | `npx vsce unpublish XuRongSheng.dsh-vscode-sidebar`（会删除扩展页） |
 
 ## 4. 发版清单（快速核对）
