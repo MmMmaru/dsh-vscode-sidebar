@@ -1,5 +1,10 @@
 # 进展记录
 
+### 08-17 窄宽度断点按实测重标定（全显示 560px → 460px）
+- 用户反馈"需要很宽才能全部显示，中间空白大"。实测发现真实工具栏内容宽度远小于初版估算：mock 内容 ~400px；真实环境（Full access + "DeepSeek V4 Flash · Max" + 上下文环）含卡片边距 ~467px。初版断点 560 按最坏估算设得太保守。
+- 重标定：chip 内边距 8→6、工具间距 6→4、工具栏间距 8→6；断点 560/480/430/380/320 → **460/360/320/280/240**；窄面板（≤480px）上下文环只留图标、百分比移入 title（省 31px，保住 460 断点零裁切）。
+- 验证：mock 19 档宽度 + 真实宿主 7 档宽度 + 注入 contextPressure 投影的有环场景（461px 零裁切、无挤压、无溢出）全过；e2e 冒烟（composer-commands + goal）4 用例绿。CHANGELOG 0.0.4 条目更新；VSIX 重打并同步安装目录。
+
 ### 08-17 TODO 三项收尾（斜杠命令 / Esc 打断 / 窄宽度缩放）
 - **斜杠命令提示**：输入区键入 `/` 弹出建议——内置宿主命令 `/goal`（`<目标>|clear|edit|pause|resume`）、`/compact`、`/plan`（描述与 hint 对齐 harness 命令包）优先，其后跟会话技能名（skill.list）；输入中过滤（filterCommands）、Enter/Tab 选中、Esc 关闭；`detectSuggestion` 斜杠 kind 由 'skill' 更名 'command'，建议行统一为 SuggestItem 结构。**关键集成点**：`sendPrompt` 对 `/`-开头行跳过 IDE 上下文注入（否则注入块使宿主按 unknown-command 拒绝整行）；宿主命令注册表（安装的 0.1.0-rc.6 尚无）支持时原生执行、旧宿主按普通消息交给模型——E2E 按版本无关断言。
 - **Esc 打断**：`ComposerInput` 无弹层时 Esc → onStop（新增 `resolveEscape` 纯函数：弹层优先 → 运行中 cancel → 否则忽略）；`ComposerCard` 文档级监听兜底（running && 无 overlay && 无 suggest 弹层 && target 不在 input/textarea/菜单/对话框/选择器内 → `session.cancel`），模型/权限菜单、风险确认框、Goal 行内编辑的 Esc 语义不受影响。
