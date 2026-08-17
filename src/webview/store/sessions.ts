@@ -33,6 +33,8 @@ export interface SessionsSlice {
   deleteSession: (id: SessionId) => Promise<void>
   /** Fork a session, optionally at a specific event seq (protocol: session.fork atSeq). */
   forkSession: (id: SessionId, atSeq?: number) => Promise<void>
+  /** Bump a session's updatedAt and move it to the top of the list. */
+  touchSession: (id: SessionId, at?: number) => void
   /** Host-frame handler: keeps the list in sync with host stream pushes. */
   applyHostFrame: (frame: HostFrame) => void
   /** Projection-frame handler: title updates ride session/projection mux frames. */
@@ -61,7 +63,8 @@ export const createSessionsSlice: StateCreator<AppStore, [], [], SessionsSlice> 
     }
     set({ activeSessionId: id, sessions: markRead })
     get().clearConversation()
-    get().clearOverlay()
+    // Surface any takeover the newly active session was waiting on.
+    get().refreshActiveOverlay()
     await Promise.all([get().loadHistory(id), get().loadModels(id)])
     // Fire-and-forget: hosts without the subagent domain reject, which is fine.
     void get().loadSubagents(id).catch(() => undefined)
@@ -105,7 +108,11 @@ export const createSessionsSlice: StateCreator<AppStore, [], [], SessionsSlice> 
   deleteSession: async (id) => {
     await rpc('workspace.archiveSession', { sessionId: id })
     set({ sessions: get().sessions.filter((s) => s.sessionId !== id) })
-    if (get().activeSessionId === id) set({ activeSessionId: null })
+    if (get().activeSessionId === id) {
+      get().resetGoal()
+      set({ activeSessionId: null })
+      get().refreshActiveOverlay()
+    }
   },
 
   forkSession: async (id, atSeq) => {
@@ -113,9 +120,20 @@ export const createSessionsSlice: StateCreator<AppStore, [], [], SessionsSlice> 
     await get().selectSession(sessionId)
   },
 
+  touchSession: (id, at) => {
+    const now = at ?? Date.now()
+    const touched = get().sessions.map((s) => (s.sessionId === id && now > s.updatedAt ? { ...s, updatedAt: now } : s))
+    if (touched.every((s, i) => s === get().sessions[i])) return
+    touched.sort((a, b) => b.updatedAt - a.updatedAt)
+    set({ sessions: touched })
+  },
+
   applyHostFrame: (frame) => {
     switch (frame.type) {
       case 'host/session-added': {
+        // Cross-workspace isolation: the host broadcasts every window's
+        // session additions; only rows of the current workspace enter the list.
+        if (frame.cwd !== undefined && frame.cwd !== get().cwd) return
         if (get().sessions.some((s) => s.sessionId === frame.sessionId)) return
         const meta: SessionMeta = {
           sessionId: frame.sessionId,
@@ -132,6 +150,11 @@ export const createSessionsSlice: StateCreator<AppStore, [], [], SessionsSlice> 
       }
       case 'host/session-removed':
         set({ sessions: get().sessions.filter((s) => s.sessionId !== frame.sessionId) })
+        if (get().activeSessionId === frame.sessionId) {
+          get().resetGoal()
+          set({ activeSessionId: null })
+          get().refreshActiveOverlay()
+        }
         break
       case 'host/session-status': {
         // A running -> idle transition marks the session unread (blue dot),
@@ -162,6 +185,11 @@ export const createSessionsSlice: StateCreator<AppStore, [], [], SessionsSlice> 
 
   applyProjectionFrame: (frame) => {
     if (frame.type === 'session/event') {
+      // A human prompt moves its session to the top of the list (the host's
+      // updatedAt semantics: the later of creation and last human prompt).
+      if (frame.event.type === 'user/message') {
+        get().touchSession(frame.sessionId, frame.event.time)
+      }
       // The first live event flips the row off its blank state (blank is only
       // set at session-added, so content must clear it here).
       if (get().sessions.some((s) => s.sessionId === frame.sessionId && s.blank)) {

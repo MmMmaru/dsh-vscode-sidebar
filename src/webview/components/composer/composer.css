@@ -178,6 +178,13 @@
   padding: 3px 6px;
 }
 
+/* --- IDE context injection toggle chip --- */
+
+.composer-chip-active {
+  background: var(--vscode-list-hoverBackground, rgba(255, 255, 255, 0.06));
+  color: var(--dsh-fg);
+}
+
 .composer-chip-label {
   overflow: hidden;
   text-overflow: ellipsis;

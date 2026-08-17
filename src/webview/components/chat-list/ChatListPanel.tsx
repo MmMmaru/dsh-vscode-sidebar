@@ -8,9 +8,10 @@
  * Contract: no props — reads the sessions slice (ARCHITECTURE.md section 5.3).
  */
 
-import { useEffect, useRef, useState, type JSX } from 'react'
+import { useEffect, useMemo, useRef, useState, type JSX } from 'react'
 import type { SessionId } from '../../../extension/protocol/brand'
 import { useAppStore } from '../../store'
+import { waitingSessionId as firstWaitingSessionId } from '../../store/overlay'
 import type { SessionMeta } from '../../types'
 import './chat-list.css'
 
@@ -188,15 +189,16 @@ export function ChatListPanel(): JSX.Element {
   const activeSessionId = useAppStore((s) => s.activeSessionId)
   const newChat = useAppStore((s) => s.newChat)
   const openSettings = useAppStore((s) => s.openSettings)
-  const pendingApproval = useAppStore((s) => s.pendingApproval)
-  const pendingQuestion = useAppStore((s) => s.pendingQuestion)
+  const overlayBySession = useAppStore((s) => s.overlayBySession)
   const [expanded, setExpanded] = useState(false)
   const [query, setQuery] = useState('')
   const [debounced, setDebounced] = useState('')
   const panelRef = useRef<HTMLElement>(null)
 
-  // The session holding the pending overlay drives the amber "waiting" dot.
-  const waitingSessionId = pendingApproval?.sessionId ?? pendingQuestion?.sessionId ?? null
+  // The session holding a pending overlay drives the amber "waiting" dot —
+  // any session, not just the active one (frames for background sessions are
+  // recorded per-session; the takeover panel renders only when selected).
+  const waiting = useMemo(() => firstWaitingSessionId(overlayBySession), [overlayBySession])
 
   // 250ms debounce for the search box.
   useEffect(() => {
@@ -264,7 +266,7 @@ export function ChatListPanel(): JSX.Element {
         <>
           <ul className="session-list">
             {visible.map((s) => (
-              <SessionRow key={s.sessionId} session={s} waitingSessionId={waitingSessionId} />
+              <SessionRow key={s.sessionId} session={s} waitingSessionId={waiting} />
             ))}
           </ul>
           {filtered.length > 5 && (
@@ -290,7 +292,7 @@ export function ChatListPanel(): JSX.Element {
               <SessionRow
                 key={s.sessionId}
                 session={s}
-                waitingSessionId={waitingSessionId}
+                waitingSessionId={waiting}
                 onSelected={() => setExpanded(false)}
               />
             ))}

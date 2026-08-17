@@ -15,6 +15,7 @@ import type { HostStatus } from '../../shared/bridge'
 import { onCommand, onEvent, onHostStatus, waitInit } from '../bridge'
 import { createComposerSlice, type ComposerSlice } from './composer'
 import { createConversationSlice, type ConversationSlice } from './conversation'
+import { createGoalSlice, type GoalSlice } from './goal'
 import { createOverlaySlice, type OverlaySlice } from './overlay'
 import { createSessionsSlice, type SessionsSlice } from './sessions'
 import { createSettingsSlice, type SettingsSlice } from './settings'
@@ -33,8 +34,8 @@ export interface RootSlice {
   initialize: () => Promise<void>
 }
 
-/** The full store: root slice + the five workflow-owned slices. */
-export type AppStore = RootSlice & SessionsSlice & ConversationSlice & ComposerSlice & OverlaySlice & SettingsSlice
+/** The full store: root slice + the six workflow-owned slices. */
+export type AppStore = RootSlice & SessionsSlice & ConversationSlice & ComposerSlice & OverlaySlice & SettingsSlice & GoalSlice
 
 export const useAppStore = create<AppStore>()((...a) => {
   const [, get] = a
@@ -68,6 +69,19 @@ export const useAppStore = create<AppStore>()((...a) => {
       const init = await waitInit()
       useAppStore.setState({ cwd: init.cwd, hostVersion: init.hostVersion, initialized: true, hostStatus: 'ready' })
       get().initSessions(init.sessions, init.cwd)
+      // Replay answerable overlays that arrived while the webview was hidden
+      // (a disposed sidebar webview is re-resolved on show): select the
+      // session holding the pending question/approval, then install the state
+      // so the takeover panel re-appears and the stuck session can be answered.
+      const overlays = init.pendingOverlays ?? []
+      const firstOverlay = overlays[0]
+      if (overlays.length > 0 && firstOverlay !== undefined) {
+        const target = overlays.find((o) => o.kind === 'question') ?? firstOverlay
+        if (useAppStore.getState().sessions.some((s) => s.sessionId === target.frame.sessionId)) {
+          await get().selectSession(target.frame.sessionId)
+        }
+        get().applyOverlays(overlays)
+      }
       // Populate the model selector even before any session is selected.
       void get().loadGlobalModels().catch(() => undefined)
       // Preselect the last used model (saved host-side as the default).
@@ -81,5 +95,6 @@ export const useAppStore = create<AppStore>()((...a) => {
     ...createComposerSlice(...a),
     ...createOverlaySlice(...a),
     ...createSettingsSlice(...a),
+    ...createGoalSlice(...a),
   }
 })

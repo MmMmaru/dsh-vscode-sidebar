@@ -35,10 +35,44 @@ import type {
   ToolCallNode,
   TurnStats,
   TurnStatus,
+  UserMessageNode,
 } from '../types'
 import type { AppStore } from './index'
 
 type HistoryResult = SessionRpc['session.history']['value']
+
+/** Parsed IDE-context block appended to a prompt (selection or file path). */
+export interface IdeBlockHint {
+  /** Compact display label, e.g. `选中代码（/work/src/a.ts）`. */
+  label: string
+  /** The source path parsed from the block, when present. */
+  path?: string
+}
+
+/**
+ * Split an IDE-context block off the end of a prompt text. The block markers
+ * (`### 选中代码（`, `### 文件：`, `### 当前文件：`) are produced by the
+ * send-time injection and the manual insert commands; the model receives the
+ * full text but the user bubble shows only `clean` (with a hint row instead).
+ * @param text - message text possibly carrying a trailing IDE block.
+ * @returns the clean text plus the parsed hint (null when no block).
+ */
+export function findIdeBlock(text: string): { clean: string; hint: IdeBlockHint | null } {
+  const match = /\n\n### (?:选中代码（|文件：|当前文件：)/.exec(text)
+  if (match === null) return { clean: text, hint: null }
+  const block = text.slice(match.index + 2)
+  const clean = text.slice(0, match.index)
+  const selection = /^### 选中代码（([^）]*)）/.exec(block)
+  const filePath = /^### (?:文件|当前文件)：(.+)/.exec(block)
+  if (selection !== null) {
+    return { clean, hint: { label: `选中代码（${selection[1]}）`, path: selection[1] } }
+  }
+  if (filePath !== null) {
+    const path = filePath[1]?.trim() ?? ''
+    return { clean, hint: path === '' ? null : { label: `当前文件：${path}`, path } }
+  }
+  return { clean, hint: null }
+}
 
 /** State + actions owned by the conversation workflow. */
 export interface ConversationSlice {
@@ -176,15 +210,40 @@ function projectEvent(nodes: ConversationNode[], event: SessionEvent, view?: Too
         ]
       }
       if (msg.source.kind !== 'user') return nodes // tool results arrive via tool/result
+      // IDE context blocks (auto-injected selection / current-file path) are
+      // part of the prompt the model sees but are NOT shown in the user
+      // bubble — they collapse into a compact context-injection hint row.
+      const visible: ContentBlock[] = []
+      let hint: IdeBlockHint | null = null
+      for (const block of msg.content) {
+        if (block.type !== 'text' && block.type !== 'image') continue
+        if (block.type === 'text') {
+          const split = findIdeBlock(block.text)
+          if (split.clean !== '') visible.push({ ...block, text: split.clean })
+          if (split.hint !== null) hint = split.hint
+        } else {
+          visible.push(block)
+        }
+      }
+      const userNode: UserMessageNode = {
+        id: `e${event.seq}`,
+        kind: 'user-message',
+        seq: event.seq,
+        time: event.time,
+        messageId: msg.id,
+        blocks: visible,
+      }
+      if (hint === null) return [...nodes, userNode]
       return [
         ...nodes,
+        userNode,
         {
-          id: `e${event.seq}`,
-          kind: 'user-message',
+          id: `e${event.seq}-ctx`,
+          kind: 'context-injection',
           seq: event.seq,
           time: event.time,
-          messageId: msg.id,
-          blocks: msg.content.filter((b) => b.type === 'text' || b.type === 'image'),
+          plugin: `ide：${hint.label}`,
+          text: hint.path ?? hint.label,
         },
       ]
     }
@@ -253,17 +312,21 @@ function projectPage(entries: HistoryResult['events']): {
   stats: TurnStats | null
   todos: TodoItem[]
   lastTurnMs: number | null
+  /** Start time of the newest turn that has not ended yet (a running turn). */
+  runningSince: number | null
 } {
   let nodes: ConversationNode[] = []
   let stats: TurnStats | null = null
   let todos: TodoItem[] = []
   let lastTurnMs: number | null = null
   const turnStarts = new Map<number, number>()
+  const endedTurns = new Set<number>()
   for (const entry of entries) {
     nodes = projectEvent(nodes, entry.event, entry.view)
     const event = entry.event
     if (event.type === 'turn/start') turnStarts.set(event.data.turn, event.time)
     if (event.type === 'turn/end') {
+      endedTurns.add(event.data.turn)
       const start = turnStarts.get(event.data.turn)
       if (start !== undefined) lastTurnMs = Math.max(0, event.time - start)
     }
@@ -272,7 +335,14 @@ function projectPage(entries: HistoryResult['events']): {
     }
     if (event.type === 'todo/write') todos = event.data.todos
   }
-  return { nodes, stats, todos, lastTurnMs }
+  // The tail page folds the live log, so a session running in the background
+  // carries its open turn's turn/start here — that time resumes the elapsed
+  // clock when the user re-enters the session (no turn/end yet).
+  let runningSince: number | null = null
+  for (const [turn, start] of turnStarts) {
+    if (!endedTurns.has(turn) && (runningSince === null || start > runningSince)) runningSince = start
+  }
+  return { nodes, stats, todos, lastTurnMs, runningSince }
 }
 
 export const createConversationSlice: StateCreator<AppStore, [], [], ConversationSlice> = (set, get) => ({
@@ -293,18 +363,28 @@ export const createConversationSlice: StateCreator<AppStore, [], [], Conversatio
 
   loadHistory: async (sessionId) => {
     const page = await rpc<HistoryResult>('session.history', { sessionId })
-    const { nodes, stats, todos, lastTurnMs } = projectPage(page.events)
+    // A session switch may have happened while the page was in flight; a stale
+    // page must not overwrite the current session's nodes or projections.
+    if (get().activeSessionId !== sessionId) return
+    const { nodes, stats, todos, lastTurnMs, runningSince } = projectPage(page.events)
     // The tail page carries the projection baseline (one consistent cut);
     // a key absent from values means the capability is absent on the host.
     const values = page.projections?.values
+    get().applyGoalHistory(sessionId, values)
+    // A session running in the background when we enter it: the open turn's
+    // turn/start (from the tail page) resumes turnStatus and the elapsed clock
+    // instead of resetting to idle — the stop button already rides the session
+    // metadata running flag (PROGRESS 08-15 16:20), this restores the timer.
+    const sessionRunning = get().sessions.find((s) => s.sessionId === sessionId)?.running === true
+    const resumed = sessionRunning && runningSince !== null
     set({
       nodes,
       stats,
       todos,
       lastTurnMs,
       hasMoreHistory: page.hasMore,
-      turnStatus: 'idle',
-      turnStartedAt: null,
+      turnStatus: resumed ? 'running' : 'idle',
+      turnStartedAt: resumed ? runningSince : null,
       sessionStats: values?.sessionStats ?? null,
       tokenUsage: values?.tokenUsage ?? null,
       contextPressure: values?.contextPressure ?? null,
@@ -381,6 +461,7 @@ export const createConversationSlice: StateCreator<AppStore, [], [], Conversatio
         break
       }
       case 'session/projection': {
+        get().applyGoalMuxFrame(frame)
         // Whole-value projection updates (higher-seq-wins on the host); fan
         // out by key. The title key stays owned by the sessions slice.
         switch (frame.key) {
@@ -422,6 +503,7 @@ export const createConversationSlice: StateCreator<AppStore, [], [], Conversatio
   },
 
   clearConversation: () => {
+    get().resetGoal()
     set({
       nodes: [],
       hasMoreHistory: false,

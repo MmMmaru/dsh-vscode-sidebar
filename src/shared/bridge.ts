@@ -11,6 +11,19 @@ import type { AskUserQuestionAnswerItem, MuxFrame, HostFrame } from '../extensio
 /** Host lifecycle states pushed to the webview. */
 export type HostStatus = 'starting' | 'ready' | 'down'
 
+/** What IDE content a `requestIdeContent` / `ide-content` message carries. */
+export type IdeContentKind = 'selection' | 'active-file'
+
+/**
+ * Replayed answerable-frame facts: the extension host retains pending
+ * approval/question frames while no webview is attached (a hidden sidebar
+ * webview is disposed and re-resolved later), and hands them back in the init
+ * payload so the takeover panel can re-appear after switching back.
+ */
+export type PendingOverlayReplay =
+  | { kind: 'approval'; frame: Extract<MuxFrame, { type: 'approval/requested' }> }
+  | { kind: 'question'; frame: Extract<MuxFrame, { type: 'question/requested' }> }
+
 /**
  * UI-facing session list row (SessionMeta of ARCHITECTURE.md section 5.4).
  * Derived from the vendored SessionSummary by the bridge: `title` is read from
@@ -42,6 +55,29 @@ export interface InitPayload {
   hostVersion: string
   /** Full session list; the webview filters by `cwd`. */
   sessions: SessionMeta[]
+  /**
+   * Answerable frames that arrived while no webview was attached (sidebar
+   * hidden = webview disposed). Replayed so the takeover panel re-appears.
+   */
+  pendingOverlays?: PendingOverlayReplay[]
+}
+
+/** Payload of the `ide-content` message answering `ide-request`. */
+export interface IdeContentPayload {
+  kind: IdeContentKind
+  /** The editor text (selection, or the whole document for `active-file`). */
+  text: string
+  /** Absolute path of the source document, when one was read. */
+  path?: string
+  /** Human-readable failure (no active editor, empty selection); text absent. */
+  error?: string
+  /** True when the payload came from a non-empty editor selection ('selection'
+   * falls back to the whole document when the selection is empty). Drives the
+   * send-time auto-injection: only real selections are auto-attached. */
+  fromSelection?: boolean
+  /** Correlation id echoing the `ide-request`; absent for toolbar-command
+   * pushes (fire-and-forget subscribers). */
+  id?: string
 }
 
 /** Messages the webview sends to the extension host. */
@@ -60,6 +96,10 @@ export type WebviewMessage =
    */
   | { type: 'respond'; kind: 'approval'; approvalId: ApprovalRequestId; decision: 'allow-once' | 'refuse' }
   | { type: 'respond'; kind: 'question'; sessionId: SessionId; answers: AskUserQuestionAnswerItem[] }
+  /** Ask the extension host for IDE content (selection / active file). An
+   * `id` turns the push into a request/response pair (send-time auto-inject);
+   * without it the answer fans out to the fire-and-forget subscribers. */
+  | { type: 'ide-request'; kind: IdeContentKind; id?: string }
 
 /** Messages the extension host sends to the webview. */
 export type ExtensionMessage =
@@ -76,3 +116,8 @@ export type ExtensionMessage =
    * the W1 commands; the webview store owns the actual behavior).
    */
   | { type: 'command'; command: 'newChat' | 'openSettings' }
+  /**
+   * IDE content answering an `ide-request` (or a toolbar command): the
+   * extension reads the active editor and posts the text back here.
+   */
+  | ({ type: 'ide-content' } & IdeContentPayload)

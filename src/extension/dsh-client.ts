@@ -213,6 +213,32 @@ export class DshClient {
     throw new Error(`unknown or already-resolved question for session: ${sessionId}`)
   }
 
+  /**
+   * Test hook (E2E): emit one mux frame through the exact same dispatch path
+   * as a WebSocket frame — pending-request tracking (`trackPending`, so the
+   * respond correlation works) plus the listener fan-out — with the frame
+   * sourced from test code instead of the wire. Interface-aligned by design:
+   * consumers (Bridge/OverlayRetention/webview) cannot tell the source apart.
+   * @param frame - the mux frame to dispatch.
+   * @param rpcId - optional rpcId for answerable frames; a synthetic id is
+   * minted when omitted (answering then hits the real host, which rejects the
+   * unknown rpcId — expected for injected frames).
+   */
+  emitMuxFrame(frame: MuxFrame, rpcId?: RpcId): void {
+    const id = rpcId ?? RpcId(crypto.randomUUID())
+    this.trackPending(id, frame)
+    for (const cb of this.muxListeners) cb(frame)
+  }
+
+  /**
+   * Test hook (E2E): emit one host frame through the same listener fan-out as
+   * a WebSocket host frame, sourced from test code instead of the wire.
+   * @param frame - the host frame to dispatch.
+   */
+  emitHostFrame(frame: HostFrame): void {
+    for (const cb of this.hostListeners) cb(frame)
+  }
+
   /** Close both sockets, stop reconnecting, and drop pending state. */
   async dispose(): Promise<void> {
     this.disposed = true

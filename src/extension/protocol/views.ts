@@ -4,12 +4,14 @@
  * Sources:
  *   packages/host/apiproxy/src/api/jobs.ts       (JobView)
  *   packages/host/apiproxy/src/api/workspace.ts  (WorkspaceView)
- *   packages/host/apiproxy/src/api/goals.ts      (GoalRef)
  *   packages/host/apiproxy/src/api/skills.ts     (SkillEntry)
- * Browser-safe view types for the jobs/workspace/goals/skills domains.
+ * Browser-safe view types for the jobs/workspace/skills domains. GoalRef moved
+ * to ./goals (the goal domain's home) and re-exported here for existing importers.
  */
 
-import type { GoalId, JobId, SessionId, WorkspaceId } from './brand'
+import type { JobId, SessionId, WorkspaceId } from './brand'
+
+export type { GoalRef } from './goals'
 
 /**
  * One background job as the client sees it. The registry's live records never
@@ -45,12 +47,6 @@ export interface WorkspaceView {
   createdAt: string
   /** ISO-8601 last-mutation instant. */
   updatedAt: string
-}
-
-/** Compare-and-set identity for one exact goal revision. */
-export interface GoalRef {
-  readonly id: GoalId
-  readonly revision: number
 }
 
 /** Skill catalog row (wire projection of the host SkillSummary). */

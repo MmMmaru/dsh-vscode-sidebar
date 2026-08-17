@@ -14,12 +14,15 @@
 import { useCallback, useEffect, useRef, useState, type JSX } from 'react'
 import type { MessageId } from '../../../extension/protocol/brand'
 import type { ImageMediaType } from '../../../extension/protocol/llm'
+import { onIdeContent } from '../../bridge'
+import { formatIdeInsert } from '../../ide-insert'
 import { useAppStore } from '../../store'
 import type { Attachment } from '../../types'
 import { OverlayHost } from '../overlay/OverlayHost'
 import { AttachmentRail } from './AttachmentRail'
 import { ComposerInput } from './ComposerInput'
 import { ContextMeter } from './ContextMeter'
+import { GoalBar } from './GoalBar'
 import { ModelSelect } from './ModelSelect'
 import { PermissionSelect } from './PermissionSelect'
 import { QueueDock } from './QueueDock'
@@ -94,6 +97,8 @@ export function ComposerCard(): JSX.Element {
   const models = useAppStore((s) => s.models)
   const selectedModel = useAppStore((s) => s.selectedModel)
   const permissionMode = useAppStore((s) => s.permissionMode)
+  const ideContextEnabled = useAppStore((s) => s.ideContextEnabled)
+  const setIdeContextEnabled = useAppStore((s) => s.setIdeContextEnabled)
   const sendPrompt = useAppStore((s) => s.sendPrompt)
   const cancel = useAppStore((s) => s.cancel)
   const selectModel = useAppStore((s) => s.selectModel)
@@ -102,6 +107,11 @@ export function ComposerCard(): JSX.Element {
   const pendingApproval = useAppStore((s) => s.pendingApproval)
   const pendingQuestion = useAppStore((s) => s.pendingQuestion)
   const planReview = useAppStore((s) => s.planReview)
+  const goal = useAppStore((s) => s.goal)
+  const editGoal = useAppStore((s) => s.editGoal)
+  const pauseGoal = useAppStore((s) => s.pauseGoal)
+  const resumeGoal = useAppStore((s) => s.resumeGoal)
+  const clearGoal = useAppStore((s) => s.clearGoal)
 
   const [draft, setDraft] = useState('')
   const [attachments, setAttachments] = useState<Attachment[]>([])
@@ -122,6 +132,22 @@ export function ComposerCard(): JSX.Element {
     toastSeq.current += 1
     setToast({ seq: toastSeq.current, text })
   }, [])
+
+  // IDE context via the dsh.insert* commands: the extension host reads the
+  // active editor and posts `ide-content`; failures surface as a toast,
+  // successes append to the draft as a formatted code block.
+  useEffect(() => {
+    return onIdeContent((content) => {
+      if (content.error !== undefined) {
+        showToast(content.error)
+        return
+      }
+      setDraft((cur) => {
+        const block = formatIdeInsert(content.kind, content.text, content.path)
+        return cur.trim() === '' ? block : `${cur}\n\n${block}`
+      })
+    })
+  }, [showToast])
 
   // Toast hold-then-fade cycle.
   useEffect(() => {
@@ -234,6 +260,7 @@ export function ComposerCard(): JSX.Element {
       />
       <SubagentDock />
       <TodoPanel todos={todos} />
+      <GoalBar goal={goal} onEdit={editGoal} onPause={pauseGoal} onResume={resumeGoal} onClear={clearGoal} />
       <div className={`composer-card${dragActive ? ' drag-active' : ''}`} data-composer-card>
         <OverlayHost />
         {!overlayActive && (
@@ -272,6 +299,17 @@ export function ComposerCard(): JSX.Element {
                     e.target.value = '' // re-picking the same file must re-fire change
                   }}
                 />
+                <button
+                  type="button"
+                  className={`composer-chip composer-add${ideContextEnabled ? ' composer-chip-active' : ''}`}
+                  aria-label={ideContextEnabled ? '关闭 IDE 上下文注入' : '开启 IDE 上下文注入'}
+                  title="IDE 上下文注入：发送时自动附加选中内容/当前文件（模型可见，对话里只显示提示）"
+                  onClick={() => setIdeContextEnabled(!ideContextEnabled)}
+                >
+                  <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden>
+                    <path d="M5.5 4 2 8l3.5 4M10.5 4 14 8l-3.5 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                </button>
                 <PermissionSelect value={permissionMode} onChange={setPermissionMode} />
               </div>
               <div className="composer-trailing">

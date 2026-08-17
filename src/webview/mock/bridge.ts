@@ -10,7 +10,7 @@
  * Selection: bridge.ts picks this module for `?mock` / VITE_DSH_MOCK=1.
  */
 
-import type { ApprovalRequestId, CallId, JobId, MessageId, SessionId, WorkspaceId } from '../../extension/protocol/brand'
+import type { ApprovalRequestId, CallId, GoalId, JobId, MessageId, SessionId, WorkspaceId } from '../../extension/protocol/brand'
 import type {
   AskUserQuestionAnswerItem,
   AskUserQuestionItem,
@@ -27,9 +27,10 @@ import type {
 import type { SessionEvent } from '../../extension/protocol/session'
 import type { HistoryEntry, QueueAction, SessionModels, SessionSummary } from '../../extension/protocol/sessions'
 import type { JobView, SkillEntry } from '../../extension/protocol/views'
+import type { GoalProjection, GoalRef } from '../../extension/protocol/goals'
 import type { SettingsNamespaceView } from '../../extension/protocol/settings'
 import type { ConfigurableProviderView } from '../../extension/protocol/settings'
-import type { HostStatus, InitPayload, SessionMeta } from '../../shared/bridge'
+import type { HostStatus, IdeContentKind, IdeContentPayload, InitPayload, SessionMeta } from '../../shared/bridge'
 import type { BridgeClient } from '../api'
 
 // ---------------------------------------------------------------------------
@@ -260,6 +261,40 @@ let demoSubagentStopped = false
 /** The scripted background job emitted with the demo live stream. */
 let demoJob: JobView | null = null
 
+/** Demo goal served with the demo session's history baseline. */
+const DEMO_GOAL: GoalProjection = {
+  goal: {
+    id: 'goal-demo' as GoalId,
+    revision: 1,
+    objective: '完成侧边栏 Goal 条联调',
+    phase: 'active',
+    maxGoalRounds: 4,
+  },
+  roundsStarted: 1,
+  createdAt: Date.now() - 60_000,
+  updatedAt: Date.now() - 10_000,
+}
+
+/** Per-session goal projection store (the real host owns one goal per session). */
+const goalStore = new Map<SessionId, GoalProjection | null>([[DEMO_SESSION_ID, DEMO_GOAL]])
+
+/**
+ * Test hook: substitute the scripted history of a session (e.g. a session
+ * with an open turn, to verify running-turn resume). Consumed by
+ * `session.history` before the demo-scripted fallback.
+ */
+export const mockHistoryOverrides = new Map<SessionId, HistoryEntry[]>()
+
+/** Read one session's current goal projection, `null` when none exists. */
+function currentGoal(sessionId: SessionId): GoalProjection | null {
+  return goalStore.get(sessionId) ?? null
+}
+
+/** Emit the mock's current goal whole-value projection for one session. */
+function emitGoal(sessionId: SessionId): void {
+  emit('mux', { type: 'session/projection', sessionId, key: 'goal', value: currentGoal(sessionId), seq })
+}
+
 /** Push the authoritative session/queue snapshot for one session. */
 function emitQueue(sessionId: SessionId): void {
   emit('mux', { type: 'session/queue', sessionId, items: queueStore.get(sessionId) ?? [] })
@@ -443,6 +478,8 @@ function llmProviders(): ConfigurableProviderView[] {
 
 /** Settings/credentials/agentPreset call log, for .temp verification scripts. */
 export const mockSettingsRpcLog: Array<{ method: string; params: Record<string, unknown> }> = []
+/** Goal RPC calls captured by durable store tests (no credentials involved). */
+export const mockGoalRpcLog: Array<{ method: string; params: Record<string, unknown> }> = []
 
 // ---------------------------------------------------------------------------
 // Listener plumbing
@@ -452,12 +489,21 @@ type EventListener = (channel: 'mux' | 'host', frame: unknown) => void
 const eventListeners = new Set<EventListener>()
 const statusListeners = new Set<(status: HostStatus) => void>()
 const commandListeners = new Set<(command: 'newChat' | 'openSettings') => void>()
+const ideContentListeners = new Set<(content: IdeContentPayload) => void>()
 
 /** Emit one frame to every event listener, asynchronously (mirrors WS delivery). */
 function emit(channel: 'mux' | 'host', frame: MuxFrame | HostFrame, delayMs = 0): void {
   setTimeout(() => {
     for (const cb of eventListeners) cb(channel, frame)
   }, delayMs)
+}
+
+/**
+ * Test/verification hook: deliver an `ide-content` payload exactly like the
+ * real extension host would after an `ide-request`.
+ */
+export function mockEmitIdeContent(content: IdeContentPayload): void {
+  for (const cb of ideContentListeners) cb(content)
 }
 
 // ---------------------------------------------------------------------------
@@ -581,6 +627,7 @@ function rpc<T = unknown>(method: string, params?: unknown): Promise<T> {
   if (/^(settings|credentials|agentPreset)\./.test(method)) {
     mockSettingsRpcLog.push({ method, params: p })
   }
+  if (method.startsWith('goal.')) mockGoalRpcLog.push({ method, params: { ...p } })
   switch (method) {
     case 'session.list': {
       const items: SessionSummary[] = sessions
@@ -616,13 +663,71 @@ function rpc<T = unknown>(method: string, params?: unknown): Promise<T> {
       return respond({ sessionId })
     }
     case 'session.history': {
-      const isDemo = p['sessionId'] === DEMO_SESSION_ID
-      const events: HistoryEntry[] = isDemo ? demoHistory().map((event) => ({ event })) : []
+      const sessionId = p['sessionId'] as SessionId
+      const override = mockHistoryOverrides.get(sessionId)
+      const events: HistoryEntry[] = override ?? (sessionId === DEMO_SESSION_ID ? demoHistory().map((event) => ({ event })) : [])
       return respond({
         events,
         hasMore: false,
-        projections: { asOfSeq: seq, values: isDemo ? { ...DEMO_PROJECTIONS } : {} },
+        projections: {
+          asOfSeq: seq,
+          values: { ...(sessionId === DEMO_SESSION_ID ? DEMO_PROJECTIONS : {}), goal: currentGoal(sessionId) },
+        },
       })
+    }
+    case 'goal.create': {
+      const sessionId = p['sessionId'] as SessionId
+      const now = Date.now()
+      const goal: GoalProjection = {
+        goal: {
+          id: `goal-${now}` as GoalId,
+          revision: 1,
+          objective: String(p['objective'] ?? ''),
+          phase: 'active',
+          maxGoalRounds: Number(p['maxGoalRounds'] ?? 4),
+        },
+        roundsStarted: 0,
+        createdAt: now,
+        updatedAt: now,
+      }
+      goalStore.set(sessionId, goal)
+      emitGoal(sessionId)
+      return respond({ ref: { id: goal.goal.id, revision: goal.goal.revision } satisfies GoalRef })
+    }
+    case 'goal.edit':
+    case 'goal.pause':
+    case 'goal.resume':
+    case 'goal.complete':
+    case 'goal.clear': {
+      const sessionId = p['sessionId'] as SessionId
+      const ref = p['ref'] as GoalRef
+      const current = currentGoal(sessionId)
+      if (current === null || current.goal.id !== ref.id || current.goal.revision !== ref.revision) {
+        return Promise.reject(new Error('mock goal revision conflict'))
+      }
+      if (method === 'goal.clear') {
+        goalStore.set(sessionId, null)
+        emitGoal(sessionId)
+        return respond({ cleared: true })
+      }
+      const phase = method === 'goal.pause' ? 'paused'
+        : method === 'goal.resume' ? 'active'
+          : method === 'goal.complete' ? 'complete'
+            : current.goal.phase
+      const nextRef: GoalRef = { id: current.goal.id, revision: current.goal.revision + 1 }
+      const next: GoalProjection = {
+        ...current,
+        updatedAt: Date.now(),
+        goal: {
+          ...current.goal,
+          ...nextRef,
+          phase,
+          ...(method === 'goal.edit' ? { objective: String(p['objective'] ?? current.goal.objective) } : {}),
+        },
+      }
+      goalStore.set(sessionId, next)
+      emitGoal(sessionId)
+      return respond({ ref: nextRef })
     }
     case 'session.models':
       return respond(MODELS)
@@ -819,6 +924,23 @@ function onCommand(cb: (command: 'newChat' | 'openSettings') => void): () => voi
   return () => commandListeners.delete(cb)
 }
 
+/** Mock ide-content subscription (deliveries come via mockEmitIdeContent). */
+function onIdeContent(cb: (content: IdeContentPayload) => void): () => void {
+  ideContentListeners.add(cb)
+  return () => ideContentListeners.delete(cb)
+}
+
+/** Mock ide-request: no host side in mock mode, so nothing is emitted. */
+function requestIdeContent(_kind: IdeContentKind): void {
+  // Intentionally empty: tests use mockEmitIdeContent to simulate the host.
+}
+
+/** Mock correlated ide-request: no editor in mock mode, so auto-injection is
+ * skipped (the send path treats the error payload as "nothing to inject"). */
+function fetchIdeContent(kind: IdeContentKind): Promise<IdeContentPayload> {
+  return Promise.resolve({ kind, text: '', error: 'mock: 无编辑器' })
+}
+
 /** Mock approval answer: resolves the scripted pending approval and continues the stream. */
 function respondApproval(approvalId: ApprovalRequestId, decision: 'allow-once' | 'refuse'): Promise<void> {
   if (pendingScriptedApproval?.approvalId !== approvalId) {
@@ -876,5 +998,5 @@ function respondQuestion(sessionId: SessionId, answers: AskUserQuestionAnswerIte
 
 /** The assembled mock client, structurally identical to ../api.ts. */
 export const mockBridge: BridgeClient = {
-  rpc, onEvent, onHostStatus, onCommand, waitInit, respondApproval, respondQuestion,
+  rpc, onEvent, onHostStatus, onCommand, waitInit, respondApproval, respondQuestion, onIdeContent, requestIdeContent, fetchIdeContent,
 }

@@ -1,5 +1,48 @@
 # 进展记录
 
+### 08-17 IDE 注入改为隐藏式 + 开关
+- **注入内容不进用户气泡**：模型照收完整 prompt，气泡由 `findIdeBlock` 剥离 `### 选中代码（…）`/`### 文件：…`/`### 当前文件：…` 块，另渲染一条 `ide：…` context-injection 提示行（可展开看路径）。
+- **上下文按钮改为开关**：IDE 芯片菜单（插入选中内容/当前文件）移除，变为 `ideContextEnabled` 开关（composer-chip-active 高亮，localStorage `dsh.settings.ideContextEnabled` 持久化——webview 隐藏重建后保留，默认开）；`sendPrompt` 关闭时不注入。`dsh.insertSelection`/`dsh.insertActiveFile` 命令保留（手动插入走 draft，发送后同样被剥离+提示行）。
+- 单测 +1（findIdeBlock 三种块剥离/解析）；E2E 改写：芯片插入用例 → 命令路径（harness `emitIdeContent`）+ 新增开关关闭用例；全套 12 用例绿（39.1s）；VSIX 重打并同步已安装扩展目录；skill 同步更新选择器说明。
+
+### 08-17 E2E 技能沉淀
+- 新增 `.agents/skills/dsh-vscode-e2e/SKILL.md`：完整沉淀 Playwright E2E 方案——架构（真实扩展宿主 + 真实隔离 host + vscode stub + 接口对齐钩子）、文件布局、运行方式、harness API 表、写作约定与踩坑清单（retention 清理 / radio role / live 用例 skip 策略 / 会话共享计数等）、新增用例步骤与排障路径。
+
+### 08-17 默认携带当前文件路径
+- 无选区提问时，`enrichWithIdeContext` 把活动编辑器路径以 `### 当前文件：<path>` 轻量块追加进 prompt（模型可用工具自行读内容，避免整文件撑爆上下文）；有选区仍注入选中代码块；两者互斥且草稿已有 IDE 块时跳过。
+- E2E 新增 `asking without a selection attaches the active file path`（空选区 → 只带路径、断言整文件内容未注入）；全套 11 用例绿（33.6s）；VSIX 重打并同步已安装扩展目录。
+
+### 08-17 发送时自动注入 IDE 选中内容 + 真实环境排障
+- **自动注入**：提问时若活动编辑器有非空选区，`sendPrompt` 发送前经相关式 `ide-request(id)` 往返（`fetchIdeContent`，2s 超时）取回选中内容，以「### 选中代码（path）+ 语言围栏」块追加进 prompt；草稿已含 IDE 块（芯片插入）时跳过；无选区/无编辑器/超时静默跳过（best-effort）。`IdeContentPayload` 增 `fromSelection`/`id` 字段；芯片手动插入路径不变。
+- 排障实录：用户报告「切会话回来提问面板消失 + 置顶需重载 + IDE 内容看不见」，实为 **两个扩展注册同一视图 id `dsh.sidebar`**（`deepseek.dsh-vscode-sidebar-0.0.1` 旧代码 + `xurongsheng.dsh-vscode-sidebar-0.0.2` 新代码）——旧扩展先注册视图，新扩展每次激活抛 `View provider for 'dsh.sidebar' already registered` 崩溃（三次重载日志实锤），侧边栏一直由旧代码提供。已删除冲突的 0.0.1 目录并清理 .obsolete。
+- E2E 新增：`asking with an editor selection auto-injects the selected code`（真实 ide-request 往返 + 真实 prompt，断言用户气泡含注入块）；switch-repro.spec 增加注入帧切换、真实提问切换（模型未 ask 则 skip）、真实应答闭环（应答→resolved→agent 继续）三个用例。全套 10 用例绿（26.6s）。
+- E2E 排障：全量跑偶发失败根因是**真实提问用例未应答导致 retention 残留**，下一用例 init 重放旧提问并自动选中旧会话、列表被隐藏——真实提问用例结尾须应答清 retention（注入帧用例补发 question/resolved 同理）。
+- 回归：typecheck + 37 单测 + build + verify:mock 全绿；VSIX 重打并同步已安装扩展目录（重载窗口即生效）。
+
+### 08-16 Playwright E2E 套件（真实扩展宿主 + 真实隔离 dsh host）
+- 架构（与用户 grill 确认）：真实扩展宿主代码（Bridge/DshClient/HostManager/OverlayRetention，`vscode` 模块经 esbuild alias 替换为 `tests/e2e/vscode-stub.ts`）跑在 Node；Playwright 页面加载真实构建产物 `media/main.js`，页面内 acquireVsCodeApi stub 经 WebSocket 与 Node 宿主桥接（消息队列防 ready 早发）；每运行自 spawn 隔离 dsh host（`$DSH_HOME` 临时目录 + 拷贝 ~/.dsh/settings.yaml 与 .credentials.yaml，端口 3200 起探测，结束自清理并删临时目录；**永不触碰 3080**）。
+- 接口对齐的测试钩子：`DshClient.emitMuxFrame(frame, rpcId?)` / `emitHostFrame(frame)` —— 走与 WS 帧完全相同的分发路径（trackPending 登记待应答表 + 监听器扇出），注入源不同但下游无差别；注入帧的应答会被真实 host 以未知 rpcId 拒绝，故测试应答后补发 question/resolved 镜像 host 确认。
+- 用例 6 个（串行，`npm run test:e2e`，9.4s 全绿）：① init 只渲染本工作区会话 ② 真实 host/session-added 外部 cwd 帧不入列 ③ IDE 芯片插入（stub 编辑器选中文本 → 格式化块；无编辑器 → toast）④ 提问面板出现→应答→清除 ⑤ **提问后台重放**（关页面→注入 question/requested→重开页面→init.pendingOverlays 自动选中并重现面板→应答）⑥ 真实模型对话闭环（发送置顶 + 流式文本 + turn 尾统计，结构断言）。
+- 排除项（按讨论）：审批面板（保持 danger-full-access，模型自然触发不可控）、计时时钟（单测已覆盖 runningSince 推导）。
+- 基建：`tests/e2e/{vscode-stub,harness,e2e.spec}.ts`、`playwright.config.ts`（workers=1、失败截图/trace 到 .temp/e2e-artifacts）、esbuild `--e2e` 目标（含 harness.d.mts 声明）、`npm i -D ws @types/ws`。
+- 调试记录：注释内反引号截断模板字符串；spec 相对路径层级（tests/e2e → ../../）；fixture worker 作用域需 `base.extend<{}, {harness}>`；QuestionPanel 选项按钮 role=radio 需 getByRole('radio')；stub activeTextEditor 用 undefined 而非 null（对齐 vscode API）；遗留提问 retention 需测试补发 resolved 清理。
+
+### 08-16 五项 TODO 修复（ide 插入 / 提问重放 / 工作区隔离 / 会话置顶 / 计时恢复）
+- **ide 内容插入**：bridge 协议新增 `ide-request`/`ide-content` 消息；扩展侧读取活动编辑器（选中内容，空选区回退整文件）经 `dsh.insertSelection` / `dsh.insertActiveFile` 命令或输入区 IDE 芯片触发；webview 侧 `ide-insert.ts` 纯函数格式化（来源文件头 + 按扩展名推断语言标签的代码围栏）追加进 draft，错误走 toast。
+- **askuserquestion 后台失效**：根因是侧边栏 webview 隐藏即被 VSCode 销毁、UI 状态全丢，pending 提问帧也不会重发。新增扩展侧 `OverlayRetention`（常驻 client 级订阅记录 approval/question 帧，resolved 帧清除），init payload 携带 `pendingOverlays` 重放；overlay slice 改为按会话记录 `overlayBySession`（后台会话的提问也点亮琥珀等待点），选中会话即派生接管面板，init 重放时自动选中提问会话。
+- **跨工作区会话隔离**：init 时先 `workspace.create({path})` 取 host 规范路径（realpath canon）再过滤 `session.list`；`host/session-added` 帧按 cwd 守卫，其他窗口/工作区新建的会话不再注入列表。
+- **会话置顶**：`touchSession` 更新 updatedAt 并重排序；sendPrompt 成功即置顶，`user/message` 事件用 host 时间再确认。
+- **运行中会话不计时**：`projectPage` 从 history 尾页推导未闭合 turn 的 turn/start（`runningSince`），进入后台运行中会话时恢复 `turnStatus='running'` 与 `turnStartedAt`，计时时钟（TurnStatusLine）恢复走动（停止按钮此前已由会话元数据 running 标志修复）。
+- 回归：typecheck + 37 单测（新增 `tests/todo-fixes.test.ts` 10 例 + `tests/overlay-retention.test.ts` 3 例）+ verify:mock + build 全绿；**未跑 smoke**（其 `fuser -k 3080/tcp` 会误杀本环境 3080 上的 harness 后端，详见会话记录）。
+
+### 08-16 Goal 指示条
+- 参照 deepseek-harness 的 `ui-goal` GoalBar 与 `goal` 域语义，整体重做 Goal 指示条：新增 vendored `protocol/goals.ts`（GoalPhase/GoalRef/GoalSnapshot/GoalProjection）与独立 `store/goal.ts` slice；`views.ts` 的 GoalRef 移到 `goals.ts` 并重导出。
+- 状态只来自 `goal` 投影（history 基线 + mux `session/projection` whole value，带 active-session guard），mutation（edit/pause/resume/clear）只发 RPC、不回填本地状态，错误由 GoalBar 组件级 error 槽显示；修正旧版乐观更新、method 无关 single-flight、goalError 双份、mock 单一 demoGoal 等问题。
+- Composer 上方接入紧凑 GoalBar（进行中/已暂停/已受阻 + 暂停/恢复/编辑/清除 + 行内编辑），图标用内联 SVG 规避 emoji 豆腐块。
+- mock 按会话隔离 goal（Map），支持 create/edit/pause/resume/complete/clear 与 whole-value 投影帧；`session.history` 基线携带 `goal`。
+- 新增 `tests/goal.test.ts`（8 例：投影隔离、CAS 载荷、无乐观更新、失败可见、loadHistory 集成、GoalBar SSR 与编辑交互）+ `react-test-renderer.d.ts`；tsconfig 增 DOM/jsx/vite-client，esbuild 测试 external react-test-renderer。
+- 回归：typecheck + 23 单测 + build（extension 29KB / webview 742KB）全绿。
+
 ### 08-15 03:00
 - 完成需求对齐与立项文档：`docs/PRD.md`（产品需求）、`docs/ARCHITECTURE.md`（模块划分 + 函数输入输出）、`docs/PLAN.md`（W0–W7 并行实施大纲）。
 - 关键决策：后端复用 dsh Web Host（HTTP RPC + mux/host 两条 WS），插件只做界面；无 workspace 概念，按 cwd 归属会话；本地 VSIX 使用。

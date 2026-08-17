@@ -28,3 +28,6 @@ export const onCommand = client.onCommand
 export const waitInit = client.waitInit
 export const respondApproval = client.respondApproval
 export const respondQuestion = client.respondQuestion
+export const onIdeContent = client.onIdeContent
+export const requestIdeContent = client.requestIdeContent
+export const fetchIdeContent = client.fetchIdeContent

@@ -7,7 +7,14 @@
 
 import type { ApprovalRequestId, SessionId } from '../extension/protocol/brand'
 import type { AskUserQuestionAnswerItem } from '../extension/protocol/events'
-import type { ExtensionMessage, HostStatus, InitPayload, WebviewMessage } from '../shared/bridge'
+import type {
+  ExtensionMessage,
+  HostStatus,
+  IdeContentKind,
+  IdeContentPayload,
+  InitPayload,
+  WebviewMessage,
+} from '../shared/bridge'
 
 /** Minimal shape of the VSCode webview API object. */
 interface VsCodeApi {
@@ -45,6 +52,13 @@ export interface BridgeClient {
   respondApproval: (approvalId: ApprovalRequestId, decision: 'allow-once' | 'refuse') => Promise<void>
   /** Answer a pending ask-user question batch. */
   respondQuestion: (sessionId: SessionId, answers: AskUserQuestionAnswerItem[]) => Promise<void>
+  /** Subscribe to `ide-content` deliveries from the extension host. */
+  onIdeContent: (cb: (content: IdeContentPayload) => void) => () => void
+  /** Ask the extension host to read IDE content (selection / active file). */
+  requestIdeContent: (kind: IdeContentKind) => void
+  /** Correlated request/response: resolve with the payload (or an error
+   * payload) once the extension host answers. */
+  fetchIdeContent: (kind: IdeContentKind) => Promise<IdeContentPayload>
 }
 
 interface PendingRpc {
@@ -53,12 +67,18 @@ interface PendingRpc {
 }
 
 const pendingRpcs = new Map<string, PendingRpc>()
+const pendingIde = new Map<string, (content: IdeContentPayload) => void>()
 const eventListeners = new Set<(channel: 'mux' | 'host', frame: unknown) => void>()
 const statusListeners = new Set<(status: HostStatus) => void>()
 const commandListeners = new Set<(command: 'newChat' | 'openSettings') => void>()
+const ideContentListeners = new Set<(content: IdeContentPayload) => void>()
 const initWaiters: Array<(payload: InitPayload) => void> = []
 let initPayload: InitPayload | null = null
 let readySent = false
+
+/** Deadline for a correlated ide-request; the extension host always answers,
+ * this only guards against a wedged message channel. */
+const IDE_REQUEST_TIMEOUT_MS = 2000
 
 // Guarded for non-DOM hosts (mock verification under node).
 if (typeof window !== 'undefined') {
@@ -66,7 +86,12 @@ if (typeof window !== 'undefined') {
     const message = event.data
     switch (message.type) {
       case 'init': {
-        initPayload = { cwd: message.cwd, hostVersion: message.hostVersion, sessions: message.sessions }
+        initPayload = {
+          cwd: message.cwd,
+          hostVersion: message.hostVersion,
+          sessions: message.sessions,
+          pendingOverlays: message.pendingOverlays,
+        }
         for (const waiter of initWaiters.splice(0)) waiter(initPayload)
         break
       }
@@ -87,6 +112,26 @@ if (typeof window !== 'undefined') {
       case 'command':
         for (const cb of commandListeners) cb(message.command)
         break
+      case 'ide-content': {
+        const payload: IdeContentPayload = {
+          kind: message.kind,
+          text: message.text,
+          path: message.path,
+          error: message.error,
+          fromSelection: message.fromSelection,
+        }
+        // Correlated answer (send-time auto-injection) wins over subscribers.
+        if (message.id !== undefined) {
+          const resolve = pendingIde.get(message.id)
+          if (resolve !== undefined) {
+            pendingIde.delete(message.id)
+            resolve(payload)
+            break
+          }
+        }
+        for (const cb of ideContentListeners) cb(payload)
+        break
+      }
     }
   })
 }
@@ -177,4 +222,50 @@ export function respondQuestion(sessionId: SessionId, answers: AskUserQuestionAn
   if (vscode === null) return Promise.reject(new Error('vscode webview API unavailable (use the mock bridge)'))
   vscode.postMessage({ type: 'respond', kind: 'question', sessionId, answers })
   return Promise.resolve()
+}
+
+/**
+ * Subscribe to `ide-content` deliveries (the extension host's answer to an
+ * `ide-request` or to the `dsh.insert*` toolbar commands).
+ * @param cb - receives the content payload (error slot set on failure).
+ * @returns unsubscribe function.
+ */
+export function onIdeContent(cb: (content: IdeContentPayload) => void): () => void {
+  ideContentListeners.add(cb)
+  return () => ideContentListeners.delete(cb)
+}
+
+/**
+ * Ask the extension host to read the active editor (selection / whole
+ * document) and post it back as `ide-content`.
+ * @param kind - what to read; `selection` falls back to the whole document
+ * when the selection is empty.
+ */
+export function requestIdeContent(kind: IdeContentKind): void {
+  if (vscode === null) throw new Error('vscode webview API unavailable (use the mock bridge)')
+  vscode.postMessage({ type: 'ide-request', kind })
+}
+
+/**
+ * Correlated variant of `requestIdeContent`: resolves with the payload once
+ * the extension host answers (the answer echoes the correlation id), or with
+ * an error payload on timeout. Used by the send-time auto-injection so the
+ * prompt can be enriched before `session.prompt` goes out.
+ * @param kind - what to read.
+ * @returns the content payload (error slot set on failure or timeout).
+ */
+export function fetchIdeContent(kind: IdeContentKind): Promise<IdeContentPayload> {
+  if (vscode === null) return Promise.reject(new Error('vscode webview API unavailable (use the mock bridge)'))
+  const id = crypto.randomUUID()
+  return new Promise((resolve) => {
+    pendingIde.set(id, resolve)
+    vscode.postMessage({ type: 'ide-request', kind, id })
+    setTimeout(() => {
+      const resolvePending = pendingIde.get(id)
+      if (resolvePending !== undefined) {
+        pendingIde.delete(id)
+        resolvePending({ kind, text: '', error: 'ide-request 超时' })
+      }
+    }, IDE_REQUEST_TIMEOUT_MS)
+  })
 }

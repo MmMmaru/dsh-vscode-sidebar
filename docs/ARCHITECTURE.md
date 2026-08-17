@@ -68,17 +68,19 @@ Webview → Extension：
 |---|---|---|
 | `ready` | — | webview 挂载完成，请求初始化 |
 | `rpc` | `{ id: string, method: string, params?: unknown }` | 透传 dsh RPC，method 如 `session.list` |
-| `respond` | `{ kind: 'approval', approvalId, decision }` 或 `{ kind: 'question', sessionId, answers }` | 应答 approval/question 请求帧（修订 2 新增）。请求帧是 server-request，应答须 POST /api/respond 并回显帧的 rpcId；但 MuxFrame 不带 rpcId，webview 用 `approvalId`/`sessionId` 关联，由扩展侧从 DshClient 的 pending 表反查 rpcId。**扩展侧分发（Bridge.handleMessage + DshClient 按 approvalId/sessionId 反查）尚未实现，是 W5/W7 的前置任务。** |
+| `respond` | `{ kind: 'approval', approvalId, decision }` 或 `{ kind: 'question', sessionId, answers }` | 应答 approval/question 请求帧（修订 2 新增）。请求帧是 server-request，应答须 POST /api/respond 并回显帧的 rpcId；但 MuxFrame 不带 rpcId，webview 用 `approvalId`/`sessionId` 关联，由扩展侧从 DshClient 的 pending 表反查 rpcId。 |
+| `ide-request` | `{ kind: 'selection' \| 'active-file' }` | 向扩展宿主请求 IDE 内容（活动编辑器选中内容 / 整文件），应答为 `ide-content`（修订 3 新增） |
 
 Extension → Webview：
 
 | type | 载荷 | 说明 |
 |---|---|---|
-| `init` | `{ cwd: string, hostVersion: string, sessions: SessionMeta[] }` | 初始化数据 |
+| `init` | `{ cwd, hostVersion, sessions, pendingOverlays? }` | 初始化数据。`cwd` 为经 `workspace.create` 解析的规范路径（旧 host 回退原始根）；`pendingOverlays` 为侧边栏隐藏期间到达的待应答帧重放（修订 3 新增） |
 | `rpc-result` | `{ id: string, result?: unknown, error?: string }` | RPC 应答 |
 | `event` | `{ channel: 'mux' \| 'host', frame: MuxFrame \| HostFrame }` | dsh 事件流透传 |
 | `host-status` | `{ status: 'starting' \| 'ready' \| 'down' }` | host 生命周期通知 |
 | `command` | `{ command: 'newChat' \| 'openSettings' }` | 工具栏命令转发（W1 新增；store 侧决定行为） |
+| `ide-content` | `{ kind, text, path?, error? }` | 应答 `ide-request`（或 `dsh.insertSelection` / `dsh.insertActiveFile` 命令），携带编辑器文本与来源路径（修订 3 新增） |
 
 ## 4. 扩展宿主侧模块
 
@@ -152,9 +154,23 @@ class Bridge {
 
   /** 绑定一个 webview，接线消息分发。返回 Disposable。 */
   attach(webview: vscode.Webview): vscode.Disposable
+
+  /** 读取活动编辑器内容（选中/整文件）并推给指定 webview（dsh.insert* 命令用）。 */
+  postIdeContent(kind: IdeContentKind, targets: Iterable<vscode.Webview>): void
 }
 ```
-功能：`ready` → 回 `init`；`rpc` → 调 `client.rpc` 后回 `rpc-result`；client 事件 → 推 `event`；host 状态变化 → 推 `host-status`。webview 销毁时清理订阅。
+功能：`ready` → 回 `init`（cwd 先经 `workspace.create` 解析规范路径再过滤 `session.list`，并携带 `pendingOverlays` 重放）；`rpc` → 调 `client.rpc` 后回 `rpc-result`；`ide-request` → 读活动编辑器回 `ide-content`；client 事件 → 推 `event`；host 状态变化 → 推 `host-status`。webview 销毁时清理订阅。
+**OverlayRetention（修订 3）**：构造时注册常驻 client 级 mux 订阅，记录 approval/question 请求帧、按 resolved 帧清除；侧边栏 webview 隐藏即被 VSCode 销毁，重放缓冲保证切回后 pending 接管（askuserquestion）不丢失。
+
+### 4.6 `overlay-retention.ts` — 待应答帧重放缓冲（纯模块，可单测）
+
+```ts
+class OverlayRetention {
+  record(frame: MuxFrame): void      // 记录 requested、清除 resolved
+  replay(): PendingOverlayReplay[]   // 快照为 init 载荷
+  hasPending(): boolean
+}
+```
 
 ### 4.5 `sidebar-provider.ts` — 视图注册
 
@@ -185,27 +201,34 @@ function waitInit(): Promise<InitPayload>
 /** 应答审批 / 提问（经 §3 的 respond 消息；修订 2 新增）。 */
 function respondApproval(approvalId: ApprovalRequestId, decision: 'allow-once' | 'refuse'): Promise<void>
 function respondQuestion(sessionId: SessionId, answers: AskUserQuestionAnswerItem[]): Promise<void>
+
+/** 订阅 IDE 内容推送 / 请求 IDE 内容（修订 3 新增）。 */
+function onIdeContent(cb: (content: IdeContentPayload) => void): () => void
+function requestIdeContent(kind: IdeContentKind): void
 ```
 
 以上函数签名聚合为 `BridgeClient` 接口。`bridge.ts` 是门面：按开关（URL query `?mock`、构建常量 `VITE_DSH_MOCK=1` 或 `globalThis.__DSH_MOCK__`）选择真实实现（api.ts）或 `mock/bridge.ts`（30 条假会话 + 演示会话脚本化事件流 + 模型目录）；**store 与组件只 import 门面**。
 
 ### 5.2 `store/` — 状态管理（zustand，slice 模式）
 
-每个工作流一个 slice 文件（sessions/conversation/composer/overlay/settings），互不越界写别人的字段；`store/index.ts` 合并 slice 并持有根状态（cwd / hostVersion / hostStatus / initialized）与 `initialize()`。事件路由只在 `initialize()` 一处扇出：mux 帧依次投递给 `applyMuxFrame`（W3 会话投影）/ `applyOverlayFrame`（W5 审批提问）/ `applyQueueFrame`（W4 队列）/ `applyProjectionFrame`（W2 标题投影），host 帧投递给 `applyHostFrame`（W2）；slice 自己不订阅 bridge。
+每个工作流一个 slice 文件（sessions/conversation/composer/overlay/settings/goal），互不越界写别人的字段；`store/index.ts` 合并 slice 并持有根状态（cwd / hostVersion / hostStatus / initialized）与 `initialize()`。事件路由只在 `initialize()` 一处扇出：mux 帧依次投递给 `applyMuxFrame`（W3 会话投影，含 goal whole-value）/ `applyOverlayFrame`（W5 审批提问）/ `applyQueueFrame`（W4 队列）/ `applyProjectionFrame`（W2 标题投影），host 帧投递给 `applyHostFrame`（W2）；slice 自己不订阅 bridge。
 
 ```ts
-interface AppStore extends RootSlice, SessionsSlice, ConversationSlice, ComposerSlice, OverlaySlice, SettingsSlice {
+interface AppStore extends RootSlice, SessionsSlice, ConversationSlice, ComposerSlice, OverlaySlice, SettingsSlice, GoalSlice {
   // RootSlice（骨架所有）: cwd, hostVersion, hostStatus, initialized, initialize()
   // SessionsSlice（W2）: sessions, activeSessionId, initSessions, selectSession,
-  //   newChat, renameSession, deleteSession, forkSession, applyHostFrame, applyProjectionFrame
+  //   newChat, renameSession, deleteSession, forkSession, touchSession,
+  //   applyHostFrame, applyProjectionFrame
   // ConversationSlice（W3）: nodes, hasMoreHistory, turnStatus, turnStartedAt,
   //   todos, stats, loadHistory, applyMuxFrame, appendError, clearConversation
   // ComposerSlice（W4）: queue, models, selectedModel, permissionMode,
   //   sendPrompt, cancel, selectModel, setPermissionMode, loadModels, updateQueueItem, applyQueueFrame
-  // OverlaySlice（W5）: pendingApproval, pendingQuestion, planReview,
-  //   applyOverlayFrame, resolveApproval, answerQuestion, clearOverlay
+  // OverlaySlice（W5）: pendingApproval, pendingQuestion, planReview, overlayBySession,
+  //   applyOverlayFrame, applyOverlays, refreshActiveOverlay, resolveApproval, answerQuestion, clearOverlay
   // SettingsSlice（W6）: settingsOpen, namespaces, providers, settingsWritable,
   //   openSettings, closeSettings, loadSettings, updateSettings, setCredential, unsetCredential
+  // GoalSlice（W7）: goal, applyGoalHistory, applyGoalMuxFrame, resetGoal,
+  //   editGoal, pauseGoal, resumeGoal, clearGoal
 }
 ```
 
@@ -220,8 +243,15 @@ selectModel(provider: string, model: string, reasoningEffort?: string): Promise<
 cancel(): Promise<void>
 resolveApproval(decision: 'allow-once' | 'refuse'): Promise<void>
 answerQuestion(answers: AskUserQuestionAnswerItem[]): Promise<void>
+touchSession(id: SessionId, at?: number): void              // 修订 3：更新 updatedAt 并置顶重排序
+applyOverlays(overlays: PendingOverlayReplay[]): void       // 修订 3：安装 init 重放的待应答帧
+refreshActiveOverlay(): void                                // 修订 3：按 overlayBySession 派生活动会话接管面板
 ```
-事件投影器：`applyMuxFrame(frame: MuxFrame): void`（ConversationSlice）—— 把 `session/event` 帧折叠进 `nodes` / `todos` / `stats`（这是 webview 侧最核心的投影函数，单测重点）。`planReview` 由 `pendingQuestion` 中携带 `intent.kind='plan-review'` 的问题派生，批准即回 `approve` 选项标签。
+事件投影器：`applyMuxFrame(frame: MuxFrame): void`（ConversationSlice）—— 把 `session/event` 帧折叠进 `nodes` / `todos` / `stats`（这是 webview 侧最核心的投影函数，单测重点）；history 尾页同时推导未闭合 turn 的 `runningSince`，进入后台运行中会话时恢复 `turnStatus='running'` 与计时时钟（修订 3）。`planReview` 由 `pendingQuestion` 中携带 `intent.kind='plan-review'` 的问题派生，批准即回 `approve` 选项标签。
+
+**overlay 按会话记录（修订 3）**：`overlayBySession` 记录每个会话的 pending approval/question（非活动会话的帧不再被丢弃，驱动会话列表的琥珀等待点）；`pendingApproval`/`pendingQuestion`/`planReview` 只派生活动会话的接管面板。侧边栏隐藏期间到达的帧由扩展侧 OverlayRetention 保留，init 时经 `applyOverlays` 重放并自动选中提问会话。
+
+**跨工作区隔离（修订 3）**：`init` 的 cwd 是经 `workspace.create` 解析的规范路径；`initSessions` 与 `applyHostFrame` 的 `host/session-added` 都按 cwd 过滤/守卫，其他窗口工作区新建的会话不会混入列表。
 
 ### 5.3 组件划分（props 即输入，无返回值，渲染即输出）
 
@@ -254,7 +284,7 @@ answerQuestion(answers: AskUserQuestionAnswerItem[]): Promise<void>
 
 | 组件 | Props | 功能 |
 |---|---|---|
-| `ComposerCard` | — | 圆角卡片容器；pending 时被接管面板替换 |
+| `ComposerCard` | — | 圆角卡片容器；pending 时被接管面板替换；工具行含 IDE 芯片（插入选中内容/当前文件，修订 3） |
 | `ComposerInput` | `{ value, onChange, onSend, running }` | 多行自适应 textarea，Enter/Shift+Enter，`/` 与 `@` 触发建议 |
 | `AttachmentRail` | `{ items: Attachment[], onRemove(id) }` | 缩略图 rail（拖拽/粘贴入口在此） |
 | `PermissionSelect` | `{ value: PermissionMode, onChange }` | Read Only / Workspace Write / Full access（后者弹风险确认） |
@@ -263,7 +293,7 @@ answerQuestion(answers: AskUserQuestionAnswerItem[]): Promise<void>
 | `SendStopButton` | `{ running, canSend, onSend, onStop }` | 主按钮发送/停止翻转 |
 | `QueueDock` | `{ queue, onEdit, onRemove, onSteer }` | 排队消息列表 |
 | `TodoPanel` | `{ todos: TodoItem[] }` | todo 清单（输入框上方） |
-| `GoalBar` | `{ goal: GoalState, onPause, onEdit, onClear }` | 目标状态条 |
+| `GoalBar` | `{ goal: GoalProjection\|null\|undefined, onPause, onResume, onEdit, onClear }` | 目标状态条；complete/absent 隐藏，blocked 经 tooltip 显示原因 |
 | `StatsLine` | `{ stats: TurnStats }` | 输入卡下方统计小字 |
 
 **settings/（设置面板）**
@@ -278,7 +308,9 @@ answerQuestion(answers: AskUserQuestionAnswerItem[]): Promise<void>
 
 ### 5.4 `types.ts` — 视图模型
 
-由协议事件投影而来的 UI 层类型：`ConversationNode`（discriminated union，判别字段为 `kind`：`user-message / assistant-text / reasoning / tool-call / context-injection / compaction / retry / error`，其中 compaction/retry 为 W3 预留节点种类）、`SessionMeta`（桥契约复用 `src/shared/bridge.ts`）、`ApprovalRequest`、`QuestionRequest`、`PlanReviewState`（由 plan-review 提问派生）、`QueuedMessage`、`TodoItem`、`GoalState`、`TurnStats`、`ModelInfo`（provider 分组扁平化）、`Attachment`、`PermissionMode`（UI 自有概念）。协议概念全部从 vendored 类型派生，不自定义后端概念。
+由协议事件投影而来的 UI 层类型：`ConversationNode`（discriminated union，判别字段为 `kind`：`user-message / assistant-text / reasoning / tool-call / context-injection / compaction / retry / error`，其中 compaction/retry 为 W3 预留节点种类）、`SessionMeta`（桥契约复用 `src/shared/bridge.ts`）、`ApprovalRequest`、`QuestionRequest`、`PlanReviewState`（由 plan-review 提问派生）、`QueuedMessage`、`TodoItem`、`GoalProjection`、`TurnStats`、`ModelInfo`（provider 分组扁平化）、`Attachment`、`PermissionMode`（UI 自有概念）。协议概念全部从 vendored 类型派生，不自定义后端概念。
+
+Goal 读取只接受 `session.history` 返回的 `projections.values.goal` 与 mux `session/projection` 的 `key='goal'` whole value（值 `null` 表示清除，key 缺失表示 host 不提供该能力），并带 active-session guard。Goal mutation 只携带当前活动 session 与投影的 `{ id, revision }` 发送 RPC，收到 ack 后**不**回填本地状态——由 host 的 `goal/changed` → `session/projection` 帧作为唯一状态源收敛；失败把错误抛给 GoalBar 的组件级 error 槽，不影响投影。
 
 ## 6. 构建与打包
 

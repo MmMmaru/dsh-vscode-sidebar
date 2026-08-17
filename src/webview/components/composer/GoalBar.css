@@ -1,0 +1,100 @@
+/* GoalBar: compact single-row context strip above the composer card (dsh web
+   GoalBar port). Shares the composer-card radius/tokens so it reads as one
+   family with QueueDock / TodoPanel / SubagentDock. */
+
+.goal-bar {
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 34px;
+  padding: 4px 6px 4px 10px;
+  overflow: hidden;
+  border: 1px solid var(--dsh-border);
+  border-radius: 10px;
+  background: var(--dsh-bg-raised);
+  color: var(--dsh-fg);
+}
+
+.goal-icon {
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+  color: var(--dsh-accent);
+}
+
+.goal-phase {
+  flex: none;
+  font-size: 0.9em;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.goal-objective {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--dsh-fg-muted);
+  font-size: 0.9em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.goal-error {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--dsh-danger);
+  font-size: 0.8em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.goal-actions {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  flex: none;
+}
+
+.goal-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--dsh-fg-muted);
+  cursor: pointer;
+}
+
+.goal-action:hover:not(:disabled) {
+  background: var(--vscode-list-hoverBackground, rgba(255, 255, 255, 0.06));
+  color: var(--dsh-fg);
+}
+
+.goal-action:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.goal-objective-input {
+  flex: 1;
+  min-width: 0;
+  height: 25px;
+  padding: 0 7px;
+  border: 1px solid var(--dsh-border);
+  border-radius: 6px;
+  background: var(--dsh-bg);
+  color: var(--dsh-fg);
+  font: inherit;
+  outline: none;
+}
+
+.goal-objective-input:focus {
+  border-color: var(--dsh-accent);
+}

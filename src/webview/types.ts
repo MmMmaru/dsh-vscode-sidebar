@@ -9,7 +9,6 @@ import type {
   ApprovalRequestId,
   AttachmentId,
   CallId,
-  GoalId,
   MessageId,
   SessionId,
 } from '../extension/protocol/brand'
@@ -220,20 +219,6 @@ export interface ModelInfo {
  * the agent side and is a host-level setting).
  */
 export type PermissionMode = 'read-only' | 'workspace-write' | 'full-access'
-
-/**
- * Goal mode state. Goal reads ride session projections upstream; this is the
- * UI projection of the goal projection unit (P1, refined by W4).
- */
-export interface GoalState {
-  /** Compare-and-set identity of the current revision. */
-  id: GoalId
-  revision: number
-  objective: string
-  status: 'active' | 'paused' | 'completed'
-  round?: number
-  maxRounds?: number
-}
 
 /** Per-turn token accounting, accumulated from `assistant/message` usage. */
 export interface TurnStats {

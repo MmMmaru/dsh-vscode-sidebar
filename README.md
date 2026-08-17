@@ -117,6 +117,18 @@ code --install-extension dist/dsh-vscode-sidebar-*.vsix
 
 或在 VSCode 中"扩展"面板 → `...` → "从 VSIX 安装"。本地使用，不发布插件市场。
 
+## 测试
+
+```bash
+npm test          # 单元测试（node:test，协议/store/扩展宿主纯逻辑）
+npm run test:e2e  # Playwright 浏览器 E2E（真实扩展宿主代码 + 真实隔离 dsh host）
+```
+
+E2E（`tests/e2e/`）：真实扩展宿主代码（Bridge/DshClient/HostManager，vscode 模块经 esbuild alias 替换为 stub）跑在 Node，
+Playwright 页面加载真实构建产物 `media/main.js`，页面与 Node 宿主经 WebSocket 桥接；每个运行自 spawn 一个隔离 dsh host
+（`$DSH_HOME` 临时目录 + 拷贝用户 settings/credentials，端口 3200 起探测空闲，结束自清理；**永不触碰 3080**）。
+覆盖五条 TODO 修复回归（IDE 插入 / 提问后台重放 / 跨工作区隔离 / 发送置顶）+ 真实模型对话闭环（结构断言）。
+
 ## 待支持
 目前正在让插件美观易用，无限接近与codex extention(bushi)
 欢迎issue & PR

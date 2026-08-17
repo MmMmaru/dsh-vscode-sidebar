@@ -16,6 +16,7 @@ import type {
   SessionStatsProjection,
   TokenUsageProjection,
 } from './projections'
+import type { GoalProjection } from './goals'
 import type { SessionEvent } from './session'
 import type { ToolEventView } from './events'
 
@@ -44,6 +45,8 @@ export interface SessionProjectionValues {
   contextPressure?: ContextPressureProjection
   /** Heuristic context composition (token-meter unit). */
   contextBreakdown?: ContextBreakdownProjection
+  /** Current goal projection; null is the durable clear/pre-create tombstone. */
+  goal?: GoalProjection | null
   [key: string]: unknown
 }
 

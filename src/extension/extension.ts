@@ -44,6 +44,16 @@ export function activate(context: vscode.ExtensionContext): void {
       if (target) bridge.postCommand('openSettings', [target])
     }),
     vscode.commands.registerCommand('dsh.openFullPanel', () => openFullPanel(context, bridge)),
+    vscode.commands.registerCommand('dsh.insertSelection', () => {
+      provider.reveal()
+      const target = provider.activeWebview
+      if (target) bridge.postIdeContent('selection', [target])
+    }),
+    vscode.commands.registerCommand('dsh.insertActiveFile', () => {
+      provider.reveal()
+      const target = provider.activeWebview
+      if (target) bridge.postIdeContent('active-file', [target])
+    }),
   )
 }
 

@@ -8,8 +8,16 @@
 import * as vscode from 'vscode'
 import type { DshClient } from './dsh-client'
 import type { HostManager, HostInfo } from './host-manager'
-import type { ExtensionMessage, InitPayload, SessionMeta, WebviewMessage } from '../shared/bridge'
+import type {
+  ExtensionMessage,
+  IdeContentKind,
+  IdeContentPayload,
+  InitPayload,
+  SessionMeta,
+  WebviewMessage,
+} from '../shared/bridge'
 import type { SessionSummary } from './protocol/sessions'
+import { OverlayRetention } from './overlay-retention'
 
 /**
  * Wires one DshClient/HostManager pair to attached webviews: answers `ready`
@@ -19,11 +27,23 @@ import type { SessionSummary } from './protocol/sessions'
 export class Bridge {
   private hostInfo: HostInfo | null = null
   private starting: Promise<void> | null = null
+  /**
+   * Answerable frames per session, retained across webview dispose/re-resolve:
+   * a hidden sidebar webview is destroyed by VSCode and recreated on show, so
+   * its takeover state would be lost without this replay buffer. Fed by a
+   * client-level subscription that outlives every webview attach.
+   */
+  private readonly overlays = new OverlayRetention()
 
   constructor(
     private readonly client: DshClient,
     private readonly host: HostManager,
-  ) {}
+  ) {
+    // Retain answerable frames for the whole bridge lifetime, independent of
+    // any attached webview: a hidden sidebar webview is disposed (and its
+    // attach subscriptions with it), so overlay recording must not ride them.
+    this.client.onMuxEvent((frame) => this.overlays.record(frame))
+  }
 
   /**
    * Bind one webview: subscribe its message port and forward client events.
@@ -53,6 +73,17 @@ export class Bridge {
     for (const webview of targets) this.post(webview, { type: 'command', command })
   }
 
+  /**
+   * Read IDE content (active editor selection / whole document) and push it to
+   * the given webviews, mirroring the webview-initiated `ide-request` path.
+   * @param kind - what to read ('selection' falls back to the whole document
+   * when the selection is empty).
+   * @param targets - webviews to deliver the content to.
+   */
+  postIdeContent(kind: IdeContentKind, targets: Iterable<vscode.Webview>): void {
+    for (const webview of targets) this.handleIdeRequest(webview, kind)
+  }
+
   /** Dispatch one inbound webview message. */
   private async handleMessage(webview: vscode.Webview, message: WebviewMessage): Promise<void> {
     switch (message.type) {
@@ -64,6 +95,9 @@ export class Bridge {
         break
       case 'respond':
         await this.handleRespond(message)
+        break
+      case 'ide-request':
+        this.handleIdeRequest(webview, message.kind, message.id)
         break
     }
   }
@@ -90,11 +124,22 @@ export class Bridge {
     try {
       await this.ensureStarted(webview)
       const description = await this.client.rpc('host.describe', {})
+      // Resolve the canonical workspace path (host-side realpath canon) so the
+      // cwd filter agrees with the host's own workspace grouping; older hosts
+      // without the workspace domain fall back to the raw workspace root.
+      let cwd = this.workspaceCwd()
+      try {
+        const { workspace } = await this.client.rpc<{ workspace: { path: string } }>('workspace.create', { path: cwd })
+        cwd = workspace.path
+      } catch {
+        // Pre-workspace host: keep the raw root for cwd filtering.
+      }
       const list = await this.client.rpc('session.list', {})
       const payload: InitPayload = {
-        cwd: this.workspaceCwd(),
+        cwd,
         hostVersion: description.version,
-        sessions: list.items.map(toSessionMeta),
+        sessions: list.items.filter((s) => s.cwd === undefined || s.cwd === cwd).map(toSessionMeta),
+        pendingOverlays: this.overlays.replay(),
       }
       this.post(webview, { type: 'init', ...payload })
     } catch (error) {
@@ -130,6 +175,36 @@ export class Bridge {
   /** Current workspace root: the session ownership anchor for this plugin. */
   private workspaceCwd(): string {
     return vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? process.cwd()
+  }
+
+  /**
+   * Read the active editor (selection, or the whole document) and post it to
+   * one webview as `ide-content`; failures ride the payload's `error` slot so
+   * the composer can toast them in-place. An `id` (from a request/response
+   * `ide-request`) is echoed so the webview can correlate the answer.
+   */
+  private handleIdeRequest(webview: vscode.Webview, kind: IdeContentKind, id?: string): void {
+    const editor = vscode.window.activeTextEditor
+    const reply = (payload: Omit<IdeContentPayload, 'kind' | 'id'>): void => {
+      this.post(webview, { type: 'ide-content', kind, ...payload, ...(id === undefined ? {} : { id }) })
+    }
+    if (editor === undefined) {
+      reply({ text: '', error: '没有活动的编辑器' })
+      return
+    }
+    const document = editor.document
+    const fromSelection = kind === 'selection' && !editor.selection.isEmpty
+    const selection = fromSelection ? editor.selection : undefined
+    const text = selection === undefined ? document.getText() : document.getText(selection)
+    if (text.trim() === '') {
+      reply({
+        text: '',
+        error: kind === 'selection' ? '选中的内容为空' : '文件内容为空',
+        fromSelection,
+      })
+      return
+    }
+    reply({ text, path: document.uri.fsPath, fromSelection })
   }
 
   /** Best-effort post; a disposed webview rejects and is ignored. */

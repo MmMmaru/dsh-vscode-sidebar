@@ -2,7 +2,7 @@
   "name": "dsh-vscode-sidebar",
   "displayName": "DeepSeek Harness Sidebar",
   "description": "VSCode sidebar client for the DeepSeek harness (dsh) web host",
-  "version": "0.0.2",
+  "version": "0.0.3",
   "publisher": "XuRongSheng",
   "license": "MIT",
   "repository": {
@@ -54,6 +54,16 @@
         "command": "dsh.openFullPanel",
         "title": "Open Full Panel",
         "category": "DSH"
+      },
+      {
+        "command": "dsh.insertSelection",
+        "title": "插入选中内容到对话",
+        "category": "DSH"
+      },
+      {
+        "command": "dsh.insertActiveFile",
+        "title": "插入当前文件到对话",
+        "category": "DSH"
       }
     ],
     "configuration": {
@@ -79,6 +89,7 @@
     ]
   },
   "scripts": {
+    "vscode:prepublish": "npm run build",
     "build": "npm run build:extension && npm run build:webview",
     "build:extension": "node esbuild.config.mjs",
     "build:webview": "vite build",
@@ -88,6 +99,7 @@
     "verify:mock": "esbuild .temp/verify-mock.tsx --bundle --platform=node --format=esm --jsx=automatic --outfile=.temp/verify-mock.mjs --log-level=warning && node .temp/verify-mock.mjs",
     "verify:overlay": "esbuild .temp/verify-w5-overlay.tsx --bundle --platform=node --format=esm --jsx=automatic --outfile=.temp/verify-w5-overlay.mjs --log-level=warning && node .temp/verify-w5-overlay.mjs",
     "verify:w6": "esbuild .temp/verify-w6-settings.tsx --bundle --platform=node --format=esm --jsx=automatic --outfile=.temp/verify-w6-settings.mjs --log-level=warning && node .temp/verify-w6-settings.mjs",
+    "test:e2e": "npm run build:webview && node esbuild.config.mjs --e2e && LD_LIBRARY_PATH=.temp/libs/root/usr/lib/x86_64-linux-gnu playwright test",
     "watch": "node esbuild.config.mjs --watch",
     "package": "vsce package"
   },
@@ -96,6 +108,7 @@
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
     "@types/vscode": "^1.95.0",
+    "@types/ws": "^8.18.1",
     "@vitejs/plugin-react": "^5.0.0",
     "@vscode/vsce": "^3.9.2",
     "esbuild": "^0.25.0",
@@ -104,7 +117,8 @@
     "react-dom": "^19.0.0",
     "react-test-renderer": "^19.2.8",
     "typescript": "^5.9.0",
-    "vite": "^7.0.0"
+    "vite": "^7.0.0",
+    "ws": "^8.21.3"
   },
   "dependencies": {
     "react-markdown": "^10.1.0",
