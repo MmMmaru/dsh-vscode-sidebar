@@ -1,5 +1,12 @@
 # 进展记录
 
+### 08-17 TODO 三项收尾（斜杠命令 / Esc 打断 / 窄宽度缩放）
+- **斜杠命令提示**：输入区键入 `/` 弹出建议——内置宿主命令 `/goal`（`<目标>|clear|edit|pause|resume`）、`/compact`、`/plan`（描述与 hint 对齐 harness 命令包）优先，其后跟会话技能名（skill.list）；输入中过滤（filterCommands）、Enter/Tab 选中、Esc 关闭；`detectSuggestion` 斜杠 kind 由 'skill' 更名 'command'，建议行统一为 SuggestItem 结构。**关键集成点**：`sendPrompt` 对 `/`-开头行跳过 IDE 上下文注入（否则注入块使宿主按 unknown-command 拒绝整行）；宿主命令注册表（安装的 0.1.0-rc.6 尚无）支持时原生执行、旧宿主按普通消息交给模型——E2E 按版本无关断言。
+- **Esc 打断**：`ComposerInput` 无弹层时 Esc → onStop（新增 `resolveEscape` 纯函数：弹层优先 → 运行中 cancel → 否则忽略）；`ComposerCard` 文档级监听兜底（running && 无 overlay && 无 suggest 弹层 && target 不在 input/textarea/菜单/对话框/选择器内 → `session.cancel`），模型/权限菜单、风险确认框、Goal 行内编辑的 Esc 语义不受影响。
+- **窄宽度自适应**：工具栏 `.composer-tools` 改 `flex:1 1 0 + overflow:hidden`（过宽时从右缘裁切，裁切顺序恰好=隐藏优先级），`.composer-chip` / svg / `.composer-primary` 全部 `flex:none`（图标不再被挤压变形）；媒体查询按 优先级 权限选择(≤560) → 模型(≤480) → 上下文环(≤430) → IDE 开关(≤380) → 附件(≤320) 逐级隐藏，发送按钮与输入框永驻；`data-composer-tool` 属性作隐藏钩子；StatsLine ≤480px 换行显示完整信息（TODO 新增条目一并完成）。
+- 回归：typecheck + 45 单测（新增 tests/composer-input.test.ts 7 例）+ build + 窄宽 Playwright 逐宽度断言（640→240 共 11 档全过，无溢出、无挤压图标）+ 全套 E2E **16/16 绿**（新增 tests/e2e/composer-commands.spec.ts 2 例：斜杠弹出/过滤/选中/发送链路 + Esc 打断 live，live 用例模型未响应时自动跳过）。
+- 版本升 0.0.4：CHANGELOG 补记 Goal 条（用户要求"0.0.4版本changelog说明一下"）+ 本轮三项；README 输入区补三条特性；TODO 勾回 [x]（Goal 条 / 斜杠 / Esc / 缩放 / 统计行换行）；VSIX 重打。
+
 ### 08-17 Goal 条补 E2E 覆盖（收尾勾选）
 - 新增 `tests/e2e/goal.spec.ts` 2 用例（真实 host goal 域，无模型调用）：① baseline 渲染（进行中 + objective）→ 真实 goal.pause RPC → 投影帧 → 已暂停 → resume 恢复；② 行内编辑（goal.edit → 新 objective 生效）→ 清除（goal.clear → 投影 tombstone → 条消失）。harness 增 `rpc` 透传。
 - 全套 E2E 14/14 绿（48.7s）；TODO 的 Goal 条勾回 [x]；CHANGELOG 0.0.3 用例数更新；skill 增 goal.spec 与 rpc API 说明。

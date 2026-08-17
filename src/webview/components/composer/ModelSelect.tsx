@@ -135,7 +135,7 @@ export function ModelSelect({ models, selected, onSelect }: ModelSelectProps): J
   const triggerLabel = effortLabel === undefined ? modelLabel : `${modelLabel} · ${effortLabel}`
 
   return (
-    <div ref={rootRef} className="model-select">
+    <div ref={rootRef} className="model-select" data-composer-tool="model">
       <button
         type="button"
         className="composer-chip"

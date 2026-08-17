@@ -141,11 +141,24 @@
   gap: 8px;
 }
 
-.composer-tools,
+/* The left tool group absorbs extra width and clips from its right edge, so
+   a too-tight row trims the LAST-hidden chip (permission — the first to hide)
+   instead of squeezing icons or pushing the send button out. */
+.composer-tools {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1 1 0;
+  min-width: 0;
+  overflow: hidden;
+}
+
+/* The right group never shrinks: the send button always stays visible. */
 .composer-trailing {
   display: flex;
   align-items: center;
   gap: 6px;
+  flex: none;
   min-width: 0;
 }
 
@@ -162,6 +175,12 @@
   cursor: pointer;
   white-space: nowrap;
   overflow: hidden;
+  /* Chips never squeeze: labels ellipsize instead, so icons keep their shape. */
+  flex: none;
+}
+
+.composer-chip svg {
+  flex: none;
 }
 
 .composer-chip:hover:not(:disabled) {
@@ -189,6 +208,7 @@
   overflow: hidden;
   text-overflow: ellipsis;
   max-width: 140px;
+  min-width: 0;
 }
 
 .composer-chip-effort {
@@ -426,6 +446,8 @@
   background: var(--vscode-button-background, #0e639c);
   color: var(--vscode-button-foreground, #ffffff);
   cursor: pointer;
+  /* Never squeezed by a tight row: the send button is the last to go. */
+  flex: none;
 }
 
 .composer-primary:disabled {
@@ -720,4 +742,49 @@
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+/* --- narrow-width responsive toolbar ---
+   The webview width tracks the sidebar width, so viewport media queries are
+   the width signal. As the panel narrows, toolbar extras hide in priority
+   order (access select → model → context meter → IDE toggle → attach button);
+   the send button and the input never hide. */
+
+@media (max-width: 560px) {
+  [data-composer-tool='permission'] {
+    display: none;
+  }
+}
+
+@media (max-width: 480px) {
+  [data-composer-tool='model'] {
+    display: none;
+  }
+}
+
+@media (max-width: 430px) {
+  [data-composer-tool='meter'] {
+    display: none;
+  }
+}
+
+@media (max-width: 380px) {
+  [data-composer-tool='ide'] {
+    display: none;
+  }
+}
+
+@media (max-width: 320px) {
+  [data-composer-tool='attach'] {
+    display: none;
+  }
+}
+
+/* The stats line truncates wide, but on a narrow panel it wraps so the full
+   information stays reachable instead of vanishing behind an ellipsis. */
+@media (max-width: 480px) {
+  .stats-line {
+    white-space: normal;
+    line-height: 1.4;
+  }
 }

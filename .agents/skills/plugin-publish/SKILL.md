@@ -26,7 +26,7 @@ code --install-extension dsh-vscode-sidebar-0.0.3.vsix   # 本地安装
 ## 2. 发布到 Marketplace
 
 ### 2.1 首次：创建 PAT 并登录
-
+目前在maru用户已登录
 1. 打开 <https://marketplace.visualstudio.com/manage>（用 Azure DevOps 账号登录，确保是 publisher `XuRongSheng` 的所有者）
 2. 新建 Personal Access Token：组织选 `all accessible organizations`，范围勾选 **Marketplace > Acquire / Manage**
 3. 登录：

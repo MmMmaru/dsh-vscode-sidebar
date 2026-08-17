@@ -50,6 +50,7 @@ export function ContextMeter(): JSX.Element | null {
   return (
     <span
       className="context-meter"
+      data-composer-tool="meter"
       role="img"
       aria-label={`上下文已用 ${pct}%`}
       title={meterTitle(pct, breakdown)}

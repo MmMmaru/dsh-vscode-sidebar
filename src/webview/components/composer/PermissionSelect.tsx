@@ -80,7 +80,7 @@ export function PermissionSelect({ value, onChange }: PermissionSelectProps): JS
   }
 
   return (
-    <div ref={rootRef} className="permission-select">
+    <div ref={rootRef} className="permission-select" data-composer-tool="permission">
       <button
         type="button"
         className="composer-chip"

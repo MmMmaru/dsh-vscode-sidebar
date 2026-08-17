@@ -134,7 +134,12 @@ export const createComposerSlice: StateCreator<AppStore, [], [], ComposerSlice> 
     if (get().activeSessionId === null) await get().newChat()
     const sessionId = get().activeSessionId
     if (sessionId === null) throw new Error('no active session')
-    const prompt = await enrichWithIdeContext(text, get().ideContextEnabled)
+    // A prompt whose content is exactly one text block starting with `/` is a
+    // slash command the HOST executes (goal/compact/plan...); IDE context must
+    // not be appended or the host rejects it as an unknown command.
+    const prompt = text.startsWith('/')
+      ? text
+      : await enrichWithIdeContext(text, get().ideContextEnabled)
     const content: PromptContentPart[] = [
       { type: 'text', text: prompt },
       ...attachments.map((a): PromptContentPart => ({ type: 'image', mediaType: a.mediaType, data: a.data, name: a.name })),

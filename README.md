@@ -79,6 +79,9 @@ vibe coded by **kimi k3 & GPT 5.6 & deepseek v4**.
 ### 输入区（下层栏 Composer）
 
 - 文本框多行自动增高，Enter 发送 / Shift+Enter 换行；随时可输入，无会话时发送自动建会话
+- **斜杠命令提示**：输入 `/` 弹出命令建议——内置宿主命令 `/goal`、`/compact`、`/plan` 优先，其后跟随会话技能名（skill.list）；输入中过滤，Enter/Tab 选中，Esc 关闭。发送 `/`-开头的一行消息即斜杠命令：宿主命令注册表支持时由宿主直接执行（不发给模型），旧版宿主则作为普通消息交给模型
+- **Esc 打断**：运行中按 Esc 中断当前回合（与停止按钮同动作）；弹层打开时 Esc 优先关闭弹层，菜单/对话框/输入框内的 Esc 保持原有语义
+- **窄宽度自适应**：面板变窄时工具栏按优先级隐藏（权限选择 → 模型 → 上下文环 → IDE 开关 → 附件按钮），发送按钮与输入框永远保留，图标不被挤压变形
 - 权限芯片：Read Only / Workspace Write / Full access（选 Full access 弹风险确认）；启动时同步 host 端默认权限，新建会话重置为已保存默认
 - 模型选择器：两级菜单（模型按 provider 分组 + reasoning effort 档位）；"记住上次模型"由 host 端实现（新会话自动带回），无会话首页通过 host.describe 预选默认模型，无会话时的选择暂存、建会话后自动应用
 - 上下文用量环（ContextMeter）：按 contextWindow 计算占用，环旁带百分比文本，缺数据不渲染

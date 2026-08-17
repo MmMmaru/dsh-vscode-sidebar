@@ -35,6 +35,7 @@ tests/e2e/
   e2e.spec.ts           # 主用例：五条修复回归 + 核心对话闭环 + IDE 自动注入
   switch-repro.spec.ts  # 提问切换/重放/真实应答闭环（含 live 模型用例）
   goal.spec.ts           # Goal 条真实 host 域（baseline 渲染/暂停恢复/编辑/清除）
+  composer-commands.spec.ts # 斜杠命令弹出/过滤/选中/发送链路（版本无关）+ Esc 打断 live（模型未响应自动跳过）
 playwright.config.ts    # workers=1、串行、失败截图/trace 到 .temp/e2e-artifacts
 esbuild.config.mjs      # --e2e 目标：打包 harness + 生成 harness.d.mts（类型重导出）
 ```
