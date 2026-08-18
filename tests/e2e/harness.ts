@@ -14,7 +14,7 @@
  */
 
 import { createServer, type Server } from 'node:http'
-import { cp, mkdtemp, realpath, rm } from 'node:fs/promises'
+import { cp, mkdir, mkdtemp, realpath, rm } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
 import path from 'node:path'
@@ -106,6 +106,9 @@ export async function startHarness(): Promise<Harness> {
     const src = path.join(userDsh, file)
     if (existsSync(src)) await cp(src, path.join(tmpRoot, file))
   }
+  // The host writes workspace-registry storage under DSH_HOME/storages and
+  // assumes the dir exists (a real install creates it); mirror that.
+  await mkdir(path.join(tmpRoot, 'storages'), { recursive: true })
   stubWorkspace.workspaceFolders = [{ uri: { fsPath: workspacePath } }]
 
   const log = { appendLine: (): void => undefined }

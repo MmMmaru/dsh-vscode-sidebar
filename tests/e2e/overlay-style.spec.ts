@@ -41,9 +41,12 @@ async function openApp(page: Page, harness: Harness): Promise<void> {
 }
 
 test('OVL-1: takeover card and session menu use the shared card tokens', async ({ page, harness }) => {
-  const sessionId = await harness.createSession(harness.workspacePath, 'OVL-SESS')
+  // Sessions persist on the host across runs — a per-run unique title keeps
+  // strict locators unambiguous.
+  const title = `OVL-${Date.now().toString(36)}`
+  const sessionId = await harness.createSession(harness.workspacePath, title)
   await openApp(page, harness)
-  await page.locator('.session-row', { hasText: 'OVL-SESS' }).click()
+  await page.locator('.session-row', { hasText: title }).click()
   await expect(page.locator('.composer-input')).toBeVisible()
 
   // Raise the question takeover card.
@@ -68,7 +71,7 @@ test('OVL-1: takeover card and session menu use the shared card tokens', async (
   // Session menu (⋯): same 10px radius. The list lives in the history
   // dropdown once a session is active; the trigger shows on row hover.
   await page.locator('.chat-list-header .icon-btn').first().click()
-  const row = page.locator('.chat-list-dropdown .session-row', { hasText: 'OVL-SESS' })
+  const row = page.locator('.chat-list-dropdown .session-row', { hasText: title })
   await row.hover()
   await row.locator('.session-menu-trigger').click()
   const menu = page.locator('.session-menu')

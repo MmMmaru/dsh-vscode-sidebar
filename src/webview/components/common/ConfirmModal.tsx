@@ -1,6 +1,9 @@
 /**
- * ConfirmModal (W6): a small blocking confirmation dialog for destructive
- * actions (provider removal). Local to the settings components.
+ * ConfirmModal: a small blocking confirmation dialog for destructive actions
+ * (provider removal, session delete). Shared by settings and the chat list;
+ * the settings-confirm* classes stay as-is (their styles in settings.css are
+ * global once bundled, and the mask is fixed-positioned, so the dialog covers
+ * the whole webview from any mount point).
  */
 
 import { useEffect, type JSX } from 'react'

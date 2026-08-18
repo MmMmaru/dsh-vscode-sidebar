@@ -13,6 +13,7 @@ import type { SessionId } from '../../../extension/protocol/brand'
 import { useAppStore } from '../../store'
 import { waitingSessionId as firstWaitingSessionId } from '../../store/overlay'
 import type { SessionMeta } from '../../types'
+import { ConfirmModal } from '../common/ConfirmModal'
 import './chat-list.css'
 
 /** Compact relative time: 刚刚 / N分钟 / N小时 / Nd. */
@@ -65,7 +66,14 @@ function Icon(props: { name: 'clock' | 'gear' | 'pencil' | 'dots' | 'search' }):
         <path d="M9.5 4l2.5 2.5" />
       </>
     ),
-    dots: <path d="M3.5 8h.01M8 8h.01M12.5 8h.01" />,
+    // Filled dots (solid circles read better than hairline stroked dots).
+    dots: (
+      <>
+        <circle cx="3.5" cy="8" r="1.6" fill="currentColor" stroke="none" />
+        <circle cx="8" cy="8" r="1.6" fill="currentColor" stroke="none" />
+        <circle cx="12.5" cy="8" r="1.6" fill="currentColor" stroke="none" />
+      </>
+    ),
     search: (
       <>
         <circle cx="7" cy="7" r="4.5" />
@@ -91,6 +99,9 @@ function SessionRow(props: { session: SessionMeta; waitingSessionId: SessionId |
   const [menuOpen, setMenuOpen] = useState(false)
   const [renaming, setRenaming] = useState(false)
   const [draft, setDraft] = useState('')
+  const [confirming, setConfirming] = useState(false)
+  const [deleting, setDeleting] = useState(false)
+  const [deleteFailure, setDeleteFailure] = useState<string | null>(null)
   const menuRef = useRef<HTMLDivElement>(null)
 
   // Close the hover menu on any outside click.
@@ -110,6 +121,21 @@ function SessionRow(props: { session: SessionMeta; waitingSessionId: SessionId |
     const next = draft.trim()
     setRenaming(false)
     if (next !== '' && next !== session.title) void renameSession(session.sessionId, next)
+  }
+
+  // Archive the session through the store; a failed RPC keeps the dialog open
+  // and shows the reason (window.confirm/alert are unavailable in a webview).
+  const confirmDelete = async (): Promise<void> => {
+    setDeleting(true)
+    setDeleteFailure(null)
+    try {
+      await deleteSession(session.sessionId)
+      setConfirming(false)
+    } catch (error) {
+      setDeleteFailure(error instanceof Error ? error.message : String(error))
+    } finally {
+      setDeleting(false)
+    }
   }
 
   if (renaming) {
@@ -181,12 +207,24 @@ function SessionRow(props: { session: SessionMeta; waitingSessionId: SessionId |
             className="session-menu-danger"
             onClick={() => {
               setMenuOpen(false)
-              if (window.confirm(`归档会话「${title}」？`)) void deleteSession(session.sessionId)
+              setDeleteFailure(null)
+              setConfirming(true)
             }}
           >
             删除
           </button>
         </div>
+      )}
+      {confirming && (
+        <ConfirmModal
+          title="删除会话"
+          description={`会话「${title}」将被归档，从列表中移除。此操作不可撤销。`}
+          confirmLabel="删除"
+          busy={deleting}
+          failure={deleteFailure}
+          onConfirm={() => void confirmDelete()}
+          onCancel={() => { if (!deleting) setConfirming(false) }}
+        />
       )}
     </li>
   )

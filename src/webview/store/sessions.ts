@@ -106,7 +106,13 @@ export const createSessionsSlice: StateCreator<AppStore, [], [], SessionsSlice> 
   },
 
   deleteSession: async (id) => {
-    await rpc('workspace.archiveSession', { sessionId: id })
+    try {
+      await rpc('workspace.archiveSession', { sessionId: id })
+    } catch (error) {
+      // The list stays untouched on failure; the caller (ConfirmModal) shows
+      // the reason and lets the user retry.
+      throw new Error(`归档会话失败：${error instanceof Error ? error.message : String(error)}`)
+    }
     set({ sessions: get().sessions.filter((s) => s.sessionId !== id) })
     if (get().activeSessionId === id) {
       get().resetGoal()

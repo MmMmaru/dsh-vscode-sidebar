@@ -211,6 +211,31 @@ test('applyOverlays reinstalls replayed frames from the init payload', async () 
 })
 
 // ---------------------------------------------------------------------------
+// ⑥ deleteSession failure path (TODO 10: the row must stay on rpc failure)
+// ---------------------------------------------------------------------------
+
+test('deleteSession rethrows with the reason and keeps the list on rpc failure', async () => {
+  const { useAppStore } = await import('../src/webview/store')
+  const { mockRpcFailures } = await import('../src/webview/mock/bridge')
+  const state = useAppStore.getState()
+  useAppStore.setState({ sessions: [meta(a, 2), meta(b, 1)], activeSessionId: b })
+
+  mockRpcFailures.add('workspace.archiveSession')
+  try {
+    await assert.rejects(state.deleteSession(a), /归档会话失败.*forced failure/)
+    // The list and the active session stay untouched.
+    assert.deepEqual(useAppStore.getState().sessions.map((s) => s.sessionId), [a, b])
+    assert.equal(useAppStore.getState().activeSessionId, b)
+  } finally {
+    mockRpcFailures.delete('workspace.archiveSession')
+  }
+
+  // The happy path still removes the row.
+  await state.deleteSession(a)
+  assert.deepEqual(useAppStore.getState().sessions.map((s) => s.sessionId), [b])
+})
+
+// ---------------------------------------------------------------------------
 // ⑤ Running-turn timer resume
 // ---------------------------------------------------------------------------
 

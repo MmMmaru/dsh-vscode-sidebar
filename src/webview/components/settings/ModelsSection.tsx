@@ -11,7 +11,7 @@ import { useState, type JSX } from 'react'
 import type { ConfigurableProviderView } from '../../../extension/protocol/settings'
 import { useAppStore } from '../../store'
 import { deriveKeyRef, type ProviderTarget } from '../../store/settings'
-import { ConfirmModal } from './ConfirmModal'
+import { ConfirmModal } from '../common/ConfirmModal'
 import { CustomProviderCard } from './CustomProviderCard'
 import { ProviderEditorCard } from './ProviderEditorCard'
 

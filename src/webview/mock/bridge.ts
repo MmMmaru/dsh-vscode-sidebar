@@ -285,6 +285,9 @@ const goalStore = new Map<SessionId, GoalProjection | null>([[DEMO_SESSION_ID, D
  */
 export const mockHistoryOverrides = new Map<SessionId, HistoryEntry[]>()
 
+/** Test hook: rpc methods in this set reject (failure-path tests). */
+export const mockRpcFailures = new Set<string>()
+
 /** Read one session's current goal projection, `null` when none exists. */
 function currentGoal(sessionId: SessionId): GoalProjection | null {
   return goalStore.get(sessionId) ?? null
@@ -624,6 +627,8 @@ function waitInit(): Promise<InitPayload> {
 function rpc<T = unknown>(method: string, params?: unknown): Promise<T> {
   const p = (params ?? {}) as Record<string, unknown>
   const respond = (value: unknown): Promise<T> => Promise.resolve(value as T)
+  // Test hook: forced transport-level failures (see mockRpcFailures).
+  if (mockRpcFailures.has(method)) return Promise.reject(new Error(`mock bridge: forced failure for ${method}`))
   if (/^(settings|credentials|agentPreset)\./.test(method)) {
     mockSettingsRpcLog.push({ method, params: p })
   }

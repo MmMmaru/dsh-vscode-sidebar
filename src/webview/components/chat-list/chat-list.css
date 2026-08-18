@@ -173,8 +173,11 @@
   flex: none;
   display: none;
   align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
   color: var(--dsh-fg-muted);
-  padding: 0 2px;
+  padding: 0;
 }
 
 .session-row:hover .session-menu-trigger {
@@ -185,10 +188,12 @@
   display: none;
 }
 
+/* Hover menu: floats on the SAME line as the ⋯ trigger, extending left into
+   the row (not below it), so it never covers the next session row. */
 .session-menu {
   position: absolute;
-  right: 8px;
-  top: 100%;
+  right: 30px;
+  top: 0;
   z-index: 20;
   display: flex;
   flex-direction: column;
