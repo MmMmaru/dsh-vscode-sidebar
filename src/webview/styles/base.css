@@ -140,16 +140,15 @@ body {
   background: var(--vscode-list-activeSelectionBackground, rgba(0, 127, 212, 0.25));
 }
 
+/* Base status dot. Modifiers (.status-dot-waiting / .status-dot-done) live in
+ * chat-list.css with equal specificity and only win because main.tsx imports
+ * this file before the component stylesheets — keep that order. */
 .status-dot {
   flex: none;
   width: 8px;
   height: 8px;
   border-radius: 50%;
   background: var(--dsh-fg-muted);
-}
-
-.status-dot-running {
-  background: var(--dsh-ok);
 }
 
 .empty-hero {

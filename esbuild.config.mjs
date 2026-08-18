@@ -33,7 +33,7 @@ async function buildExtension(watch) {
 }
 
 async function buildTests() {
-  const files = (await readdir('tests')).filter((f) => f.endsWith('.test.ts'))
+  const files = (await readdir('tests')).filter((f) => f.endsWith('.test.ts') || f.endsWith('.test.tsx'))
   return build({
     ...base,
     // Keep React's Node server entry and the renderer native; bundling their

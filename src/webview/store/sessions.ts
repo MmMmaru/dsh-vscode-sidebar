@@ -52,7 +52,7 @@ export const createSessionsSlice: StateCreator<AppStore, [], [], SessionsSlice> 
   },
 
   selectSession: async (id) => {
-    // Selecting a session marks it read (clears the blue unread dot) — even
+    // Selecting a session marks it read (clears the green unread dot) — even
     // when it is already the active one, so a finished turn can be acked.
     const markRead = get().sessions.map((s) => (s.sessionId === id ? { ...s, unread: false } : s))
     if (get().activeSessionId === id) {
@@ -157,7 +157,7 @@ export const createSessionsSlice: StateCreator<AppStore, [], [], SessionsSlice> 
         }
         break
       case 'host/session-status': {
-        // A running -> idle transition marks the session unread (blue dot),
+        // A running -> idle transition marks the session unread (green dot),
         // including the active one — it clears when the user selects it again.
         const ended =
           !frame.running &&
@@ -198,7 +198,7 @@ export const createSessionsSlice: StateCreator<AppStore, [], [], SessionsSlice> 
             s.sessionId === frame.sessionId ? { ...s, blank: false } : s),
         })
       }
-      // Any live turn ending marks the session unread (blue dot), including the
+      // Any live turn ending marks the session unread (green dot), including the
       // active one; selecting the session clears it. History pages arrive via
       // RPC, not the event stream, so old turns never hit this.
       if (frame.event.type === 'turn/end') {

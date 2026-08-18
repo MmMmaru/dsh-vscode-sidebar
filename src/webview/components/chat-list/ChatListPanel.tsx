@@ -26,12 +26,21 @@ function relativeTime(updatedAt: number): string {
   return `${Math.floor(hours / 24)}d`
 }
 
-/** Status dot priority: waiting (amber, if this session has the pending overlay) > running (green) > unread (blue) > idle (grey). */
-function dotClass(session: SessionMeta, waitingSessionId: SessionId | null): string {
-  if (waitingSessionId !== null && session.sessionId === waitingSessionId) return 'status-dot status-dot-waiting'
-  if (session.running) return 'status-dot status-dot-running'
-  if (session.unread === true) return 'status-dot status-dot-unread'
-  return 'status-dot'
+/**
+ * Session status indicator (priority: waiting > running > unread > idle):
+ *   - waiting (this session holds the pending overlay): amber pulsing dot
+ *   - running: spinning ring
+ *   - unread (a turn finished while the session was not open): green dot
+ *   - idle: renders nothing, so the title naturally aligns left
+ */
+export function StatusIndicator(props: { session: SessionMeta; waitingSessionId: SessionId | null }): JSX.Element | null {
+  const { session, waitingSessionId } = props
+  if (waitingSessionId !== null && session.sessionId === waitingSessionId) {
+    return <span className="status-dot status-dot-waiting" />
+  }
+  if (session.running) return <span className="status-spin" />
+  if (session.unread === true) return <span className="status-dot status-dot-done" />
+  return null
 }
 
 /** Inline icon set (16px stroke icons, no dependency). */
@@ -131,7 +140,7 @@ function SessionRow(props: { session: SessionMeta; waitingSessionId: SessionId |
         }}
         title={title}
       >
-        <span className={dotClass(session, props.waitingSessionId)} />
+        <StatusIndicator session={session} waitingSessionId={props.waitingSessionId} />
         <span className="session-title">{title}</span>
         {!session.blank && <span className="session-time">{relativeTime(session.updatedAt)}</span>}
         <span

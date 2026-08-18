@@ -69,7 +69,7 @@ function buildSessions(): SessionMeta[] {
   ]
   for (let i = 0; i < 29; i += 1) {
     // `unread` is a webview-local field (webview/types.ts); one row is preset
-    // so the blue unread dot shows up in mock screenshots.
+    // so the green unread dot shows up in mock screenshots.
     const row: SessionMeta & { unread?: boolean } = {
       sessionId: `s-${String(i + 1).padStart(2, '0')}` as SessionId,
       title: SESSION_TITLES[i] ?? `会话 ${i + 1}`,

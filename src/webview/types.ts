@@ -31,7 +31,7 @@ import type { SessionMeta as BridgeSessionMeta } from '../shared/bridge'
 // `SessionMeta` is defined on the bridge contract (src/shared/bridge.ts); the
 // UI layer widens it with view-local bits maintained by the sessions slice.
 export interface SessionMeta extends BridgeSessionMeta {
-  /** A turn finished while this session was not active; cleared on select (blue dot). */
+  /** A turn finished while this session was not active; cleared on select (green dot). */
   unread?: boolean
 }
 export type { TodoItem, ModelSelection, AskUserQuestionItem }
