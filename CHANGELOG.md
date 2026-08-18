@@ -3,6 +3,39 @@
 本插件所有重要变更记录。格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)；
 版本号与 `package.json` 的 `version` 保持一致。
 
+## [0.0.8] - 2026-08-19
+
+### 新增
+
+- **弹窗统一美化**（TODO 29）：接管卡片、历史下拉、会话菜单、确认对话框统一"浮层卡片"
+  质感——10px 圆角 + 淡化边框（soft border token）+ 双层阴影，入场动画改为
+  fade + 上浮 + 轻微缩放（180ms）；提问选项选中态由整行重底色改为左侧 2px accent 竖条 + 淡底
+- **会话状态指示器重做**：等待应答=琥珀呼吸点（优先级最高）、运行中=2px 旋转圈、
+  完成未读=绿点、常态不再渲染占位灰点（标题自然左对齐）
+- **SegmentRail 概览化重做**（TODO 19）：删除滚动 1:1 映射（measureMarkers + scroll 监听 +
+  ResizeObserver + rAF 节流全部移除），N 条用户消息渲染为垂直居中的 tick 簇
+  （簇高 min(N×10, 120)px）；tick 收窄为 6px×1px，rail 常态半透明、hover 恢复；
+  hover tick 浮出该消息前 10 码点预览（emoji 按码点截断不断裂），点击仍滚动定位并解除贴底
+
+### 修复
+
+- **会话删除从未生效**（TODO 10）：删除确认原来用 `window.confirm`（VS Code webview 不支持、
+  恒返回 false），改为复用 ConfirmModal（归档说明 + 失败原因弹窗内显示 + busy 态）；
+  确认后列表实时移除；`deleteSession` RPC 失败时保留列表并抛出原因
+- **未读状态点从未显示**：根因是 main.tsx 先引 App 再引 base.css，打包后 base.css 的
+  `.status-dot` 灰底压过 chat-list.css 同优先级的颜色修饰类；调整为 base.css 最先引入
+- ⋯ 触发器三点由 1.4 描边细线改实心圆点、点击区加大到 22px；菜单由行下方改为与 ⋯ 同行
+  向左侧浮出，不再遮挡下方相邻会话行
+
+### 测试
+
+- 单测新增 `tests/status-indicator.test.tsx`（7 例：四态渲染 + store 行为契约 + CSS 引入顺序回归）、
+  `tests/segment-rail.test.tsx`（6 例：previewText 截断含 emoji + tick 计数/簇高上限）；
+  todo-fixes 增 deleteSession 失败路径（共 68 例）
+- E2E 新增 `tests/e2e/overlay-style.spec.ts`（OVL-1：卡片/菜单 token 的 computed style 断言）与
+  `tests/e2e/session-delete.spec.ts`（DEL-1：⋯ 菜单 → ConfirmModal → 列表实时消失）；
+  RJ-2 断言适配概览版 rail；harness 补 `DSH_HOME/storages` 目录（workspace 域 RPC 需要）
+
 ## [0.0.7] - 2026-08-18
 
 ### 新增

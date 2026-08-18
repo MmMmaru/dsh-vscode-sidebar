@@ -1,5 +1,10 @@
 # 进展记录
 
+### 08-19 01:15
+- 0.0.8 UI 美化四项：① 弹窗统一美化（TODO 29：新增 `--dsh-radius-lg/--dsh-border-soft/--dsh-shadow-card` token，接管卡片/历史下拉/会话菜单/确认框统一应用，入场动画改 fade+上浮+缩放 180ms，提问选项选中态改左侧 2px 竖条+淡底）；② 会话状态指示器重做（等待=琥珀呼吸点 / 运行=2px 转圈 / 完成未读=绿点 / 常态不渲染）并修复未读点从未显示的根因——**main.tsx 先引 App 再引 base.css，打包后 base.css 的 `.status-dot` 灰底压过 chat-list.css 同优先级颜色修饰类**，调整为 base.css 最先引入；③ 会话删除修复（window.confirm 在 webview 恒返回 false → 改复用 ConfirmModal，ConfirmModal 提升到 components/common；deleteSession 失败保留列表并抛因）+ ⋯ 实心三点、22px 点击区、菜单同行左浮；④ SegmentRail 概览化重做（删 measureMarkers/scroll 监听/ResizeObserver/rAF，N 条用户消息聚成垂直居中 tick 簇 min(N×10,120)px，previewText 按码点截断 10 字符+…，rail 常态半透明 hover 恢复）。
+- 测试：单测 68 绿（新增 status-indicator 7 例、segment-rail 6 例、todo-fixes deleteSession 失败路径 1 例；esbuild --tests glob 扩到 .test.tsx）；e2e 新增 OVL-1（卡片/菜单 computed style）与 DEL-1（删除闭环），RJ-2 适配新 rail。harness 修复：DSH_HOME 补建 `storages` 目录（workspace 域 RPC 写注册表需要，否则 archiveSession 500）；发现 e2e 会话在 host 端跨运行残留，新用例标题带 per-run 唯一后缀。
+- 版本升 0.0.8：CHANGELOG/TODO/README/PROGRESS 同步，VSIX 重打。
+
 ### 08-17 窄宽度断点按实测重标定（全显示 560px → 460px）
 - 用户反馈"需要很宽才能全部显示，中间空白大"。实测发现真实工具栏内容宽度远小于初版估算：mock 内容 ~400px；真实环境（Full access + "DeepSeek V4 Flash · Max" + 上下文环）含卡片边距 ~467px。初版断点 560 按最坏估算设得太保守。
 - 重标定：chip 内边距 8→6、工具间距 6→4、工具栏间距 8→6；断点 560/480/430/380/320 → **460/360/320/280/240**；窄面板（≤480px）上下文环只留图标、百分比移入 title（省 31px，保住 460 断点零裁切）。
