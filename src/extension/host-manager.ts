@@ -110,7 +110,10 @@ export class HostManager {
     const command = await this.resolveCommand()
     const args = [...command.args, 'web', '--host', '127.0.0.1', '--port', String(port)]
     this.log.appendLine(`[host-manager] spawn: ${command.bin} ${args.join(' ')}`)
-    const child = spawnChild(command.bin, args, { stdio: ['ignore', 'pipe', 'pipe'] })
+    // detached (POSIX): the npx fallback is a wrapper chain (npx -> sh -> node);
+    // its own process group lets dispose() kill the whole tree instead of
+    // orphaning the real host process.
+    const child = spawnChild(command.bin, args, { stdio: ['ignore', 'pipe', 'pipe'], detached: process.platform !== 'win32' })
     this.child = child
     child.stdout?.on('data', (chunk: Buffer) => this.log.appendLine(`[dsh] ${chunk.toString().trimEnd()}`))
     child.stderr?.on('data', (chunk: Buffer) => this.log.appendLine(`[dsh:err] ${chunk.toString().trimEnd()}`))
@@ -164,6 +167,16 @@ export class HostManager {
     this.child = null
     if (child && child.exitCode === null) {
       this.log.appendLine('[host-manager] killing spawned dsh host')
+      // Kill the whole POSIX process group (see the detached spawn): a plain
+      // kill only reaches the npx wrapper and leaks the real host.
+      if (process.platform !== 'win32' && child.pid !== undefined) {
+        try {
+          process.kill(-child.pid, 'SIGTERM')
+          return
+        } catch {
+          // Group already gone — fall through to the direct kill.
+        }
+      }
       child.kill()
     }
   }
