@@ -17,8 +17,47 @@ export interface StubTextEditor {
   selection: { isEmpty: boolean }
 }
 
+/** Position/Range/Selection/RevealType shapes for the code-jump opener. */
+export class Position {
+  constructor(
+    public readonly line: number,
+    public readonly character: number,
+  ) {}
+}
+
+export class Range {
+  constructor(
+    public readonly start: Position,
+    public readonly end: Position,
+  ) {}
+}
+
+export class Selection extends Range {}
+
+export enum TextEditorRevealType {
+  Default = 0,
+  InCenter = 1,
+  InCenterIfOutsideViewport = 2,
+  AtTop = 3,
+}
+
 const errorMessages: string[] = []
 const warningMessages: string[] = []
+/** Documents the code-jump opener opened, in order (absolute fsPaths). */
+const openedDocuments: string[] = []
+/** Last revealRange call (range + reveal type), for jump assertions. */
+let lastRevealCall: { range: Range; type: TextEditorRevealType } | null = null
+
+/** Fake editor returned by showTextDocument for the code-jump opener. */
+function fakeEditor(document: { uri: { fsPath: string }; lineCount: number }): unknown {
+  return {
+    document,
+    revealRange: (range: Range, type: TextEditorRevealType): void => {
+      lastRevealCall = { range, type }
+    },
+    selection: undefined as Selection | undefined,
+  }
+}
 
 export const window = {
   /** Programmable active editor; tests set it to exercise IDE insertion. */
@@ -32,12 +71,26 @@ export const window = {
     return Promise.resolve()
   },
   createOutputChannel: () => ({ appendLine: (): void => undefined, append: (): void => undefined }),
+  showTextDocument: async (document: { uri: { fsPath: string }; lineCount: number }): Promise<unknown> =>
+    fakeEditor(document),
 }
 
 export const workspace = {
   /** Programmable workspace root (session ownership anchor of the bridge). */
   workspaceFolders: undefined as { uri: { fsPath: string } }[] | undefined,
   getConfiguration: () => ({ get: (): undefined => undefined }),
+  openTextDocument: async (
+    file: string,
+  ): Promise<{ uri: { fsPath: string }; lineCount: number; lineAt(line: number): { text: string } }> => {
+    openedDocuments.push(file)
+    // A stand-in document: the opener only reads lineCount and the last
+    // line's text length to build the reveal range.
+    return {
+      uri: { fsPath: file },
+      lineCount: 1000,
+      lineAt: (line: number) => ({ text: `line ${line + 1} placeholder content` }),
+    }
+  },
 }
 
 export class Disposable {
@@ -65,4 +118,14 @@ export function setActiveEditor(editor: StubTextEditor | null): void {
 /** Test control: notifications the extension host raised via the stub. */
 export function errorNotifications(): string[] {
   return [...errorMessages]
+}
+
+/** Test control: files the code-jump opener asked to open (absolute paths). */
+export function openedFiles(): string[] {
+  return [...openedDocuments]
+}
+
+/** Test control: the last revealRange call of the code-jump opener. */
+export function lastReveal(): { range: Range; type: TextEditorRevealType } | null {
+  return lastRevealCall
 }

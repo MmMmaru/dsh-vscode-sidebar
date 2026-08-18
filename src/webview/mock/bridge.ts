@@ -941,6 +941,14 @@ function fetchIdeContent(kind: IdeContentKind): Promise<IdeContentPayload> {
   return Promise.resolve({ kind, text: '', error: 'mock: 无编辑器' })
 }
 
+/** Last `openFileInIde` target, for tests and e2e assertions. */
+export let lastMockOpenFile: { path: string; line: number } | null = null
+
+/** Mock code jump: records the target (no editor in mock mode). */
+function openFileInIde(target: { path: string; line: number; endLine?: number; col?: number; cwd?: string }): void {
+  lastMockOpenFile = { path: target.path, line: target.line }
+}
+
 /** Mock approval answer: resolves the scripted pending approval and continues the stream. */
 function respondApproval(approvalId: ApprovalRequestId, decision: 'allow-once' | 'refuse'): Promise<void> {
   if (pendingScriptedApproval?.approvalId !== approvalId) {
@@ -998,5 +1006,5 @@ function respondQuestion(sessionId: SessionId, answers: AskUserQuestionAnswerIte
 
 /** The assembled mock client, structurally identical to ../api.ts. */
 export const mockBridge: BridgeClient = {
-  rpc, onEvent, onHostStatus, onCommand, waitInit, respondApproval, respondQuestion, onIdeContent, requestIdeContent, fetchIdeContent,
+  rpc, onEvent, onHostStatus, onCommand, waitInit, respondApproval, respondQuestion, onIdeContent, requestIdeContent, fetchIdeContent, openFileInIde,
 }

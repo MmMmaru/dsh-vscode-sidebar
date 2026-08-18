@@ -31,3 +31,4 @@ export const respondQuestion = client.respondQuestion
 export const onIdeContent = client.onIdeContent
 export const requestIdeContent = client.requestIdeContent
 export const fetchIdeContent = client.fetchIdeContent
+export const openFileInIde = client.openFileInIde

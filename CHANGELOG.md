@@ -3,6 +3,43 @@
 本插件所有重要变更记录。格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)；
 版本号与 `package.json` 的 `version` 保持一致。
 
+## [0.0.7] - 2026-08-18
+
+### 新增
+
+- **代码跳转**（issue #4）：助手正文 Markdown 中的 `路径:行号`（含 `:行:列` 与 `行-行` 范围）自动渲染为
+  可点击 chip（保守识别：拒绝 URL / 时钟 / 无扩展名片段，支持 Windows 盘符与 `~` 路径）。
+  点击经 `ide-open-file` 桥消息交给扩展宿主，按**会话 cwd → workspace 根**顺序解析相对路径，
+  在编辑器中打开并定位高亮目标行/范围（`revealRange InCenter` + 选中）；文件不存在时提示错误。
+  纯识别/解析逻辑可单测（`src/shared/file-refs.ts`、`src/extension/open-file-resolve.ts`）
+- **对话分点栏（SegmentRail）**（TODO 19）：对话区右侧窄 rail，每个用户消息一个 `-` 时间轴标记；
+  鼠标悬停标记浮现该消息一行缩略预览（移开即隐），点击滚动定位到该消息并解除贴底。
+  位置实时测量（滚动 rAF 节流 + 内容 ResizeObserver），工具卡片展开 / 流式增长不产生漂移；
+  滚出视野的标记由 rail 裁剪保留（时间轴语义），预览浮层 fixed 定位不被裁切
+
+### 测试
+
+- 单测新增 `tests/file-refs.test.ts`（9 例）：`path:line` 识别（相对/Win/绝对/`~`/范围/列号、拒绝 URL
+  与时钟、去重与倒序范围）与路径解析（cwd 优先、root 回退、绝对直通、home 展开、缺失返回 null）
+- E2E 新增 `tests/e2e/code-jump-segments.spec.ts`（2 例，共 18）：RJ-1 代码跳转全链路（chip 渲染 →
+  `ide-open-file` → 扩展解析打开定位；缺失文件报错）；RJ-2 分点栏（标记计数 / hover 预览 / 点击滚动
+  定位 + 解除贴底）。vscode-stub 补齐 `openTextDocument` / `showTextDocument` / `Range` 等面
+
+### 修复
+
+- 分点栏 zustand selector 每次渲染返回新数组导致无限更新（React #185，曾使整条 E2E 联动失败），
+  改 `useMemo` 稳定引用
+
+## [0.0.6] - 2026-08-17（本地安装，未上市场）
+
+### 修复
+
+- 窄宽度断点按实测重标定：全部显示仅需 460px
+
+### 测试
+
+- E2E 支持 goal 用例（`.temp` 目标）；发布技能文档补充中断回退指引
+
 ## [0.0.4] - 2026-08-17
 
 ### 新增

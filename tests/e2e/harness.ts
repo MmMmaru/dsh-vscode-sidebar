@@ -26,7 +26,7 @@ import type { HostFrame, MuxFrame } from '../../src/extension/protocol/events'
 import type { RpcId } from '../../src/extension/protocol/rpc'
 import type { SessionId } from '../../src/extension/protocol/brand'
 import type { ExtensionMessage, IdeContentPayload, WebviewMessage } from '../../src/shared/bridge'
-import { setActiveEditor, workspace as stubWorkspace, errorNotifications, type StubTextEditor } from './vscode-stub'
+import { setActiveEditor, workspace as stubWorkspace, errorNotifications, lastReveal, openedFiles, type StubTextEditor } from './vscode-stub'
 
 /** First candidate port for the test host (never 3080). */
 const HOST_BASE_PORT = 3200
@@ -56,6 +56,10 @@ export interface Harness {
   emitIdeContent(payload: IdeContentPayload): void
   /** Error notifications the extension host raised via the vscode stub. */
   errorNotifications(): string[]
+  /** Files the code-jump opener opened via the stub (absolute paths). */
+  openedFiles(): string[]
+  /** Last revealRange call of the code-jump opener, for jump assertions. */
+  lastReveal(): { range: { start: { line: number }; end: { line: number } }; type: number } | null
   /** Tear down: close servers, kill our own host, delete temp dirs. */
   stop(): Promise<void>
 }
@@ -253,6 +257,8 @@ export async function startHarness(): Promise<Harness> {
       latestWebview?.postMessage({ type: 'ide-content', ...payload })
     },
     errorNotifications: () => errorNotifications(),
+    openedFiles: () => openedFiles(),
+    lastReveal: () => lastReveal(),
     stop: async () => {
       wss.close()
       await new Promise<void>((resolve) => server.close(() => resolve()))

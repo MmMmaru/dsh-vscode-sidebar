@@ -17,6 +17,7 @@ import type {
   WebviewMessage,
 } from '../shared/bridge'
 import type { SessionSummary } from './protocol/sessions'
+import { openFileAt } from './open-file'
 import { OverlayRetention } from './overlay-retention'
 
 /**
@@ -99,6 +100,26 @@ export class Bridge {
       case 'ide-request':
         this.handleIdeRequest(webview, message.kind, message.id)
         break
+      case 'ide-open-file':
+        void this.handleOpenFile(message)
+        break
+    }
+  }
+
+  /**
+   * Open a `path:line` reference from the webview (code jump): resolve the
+   * path against the session cwd / workspace root and reveal the target range
+   * in the editor. Failures surface as an error notification.
+   */
+  private async handleOpenFile(message: Extract<WebviewMessage, { type: 'ide-open-file' }>): Promise<void> {
+    try {
+      const workspaceRoot = this.workspaceCwd()
+      await openFileAt(
+        { path: message.path, line: message.line, endLine: message.endLine, col: message.col, cwd: message.cwd },
+        workspaceRoot,
+      )
+    } catch (error) {
+      void vscode.window.showErrorMessage(`DSH 代码跳转失败：${errorMessage(error)}`)
     }
   }
 

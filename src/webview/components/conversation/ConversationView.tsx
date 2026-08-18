@@ -13,6 +13,7 @@ import { useAppStore } from '../../store'
 import type { CompactionNode, ContextInjectionNode, ConversationNode, ErrorNode, RetryNode } from '../../types'
 import { AssistantBubble, MessageBubble } from './MessageBubble'
 import { ReasoningRow } from './ReasoningRow'
+import { SegmentRail } from './SegmentRail'
 import { ToolCallRow } from './ToolCallRow'
 import { formatDuration, TurnStatusLine } from './TurnStatusLine'
 import './conversation.css'
@@ -159,41 +160,55 @@ export function ConversationView({ sessionId }: ConversationViewProps): JSX.Elem
     void loadOlderHistory(sessionId)
   }
 
+  /** SegmentRail click: scroll the message row into view and unpin bottom-follow. */
+  const jumpToNode = (nodeId: string): void => {
+    const el = scrollRef.current
+    if (el === null) return
+    const row = el.querySelector(`[data-node-id="${nodeId}"]`)
+    if (!(row instanceof HTMLElement)) return
+    el.scrollTop += row.getBoundingClientRect().top - el.getBoundingClientRect().top - 12
+    atBottomRef.current = false
+    setAtBottom(false)
+  }
+
   return (
-    <section
-      ref={scrollRef}
-      className="region region-conversation conversation-view"
-      data-region="ConversationView"
-      data-session={sessionId}
-      onScroll={onScroll}
-    >
-      {hasMoreHistory && (
-        <div className="conv-older">
-          <button type="button" className="conv-older-btn" disabled={loadingOlder} onClick={loadOlder}>
-            {loadingOlder ? '加载中…' : 'Load older'}
-          </button>
-        </div>
-      )}
-      {nodes.length === 0 ? (
-        <div className="empty-hero">输入消息，开始对话</div>
-      ) : (
-        <div className="conv-flow">
-          {nodes.map((n) => (
-            <div key={n.id} className={`conv-node conv-node-${n.kind}`}>
-              <NodeView node={n} />
-            </div>
-          ))}
-        </div>
-      )}
-      {turnStatus === 'running' && turnStartedAt !== null && <TurnStatusLine startedAt={turnStartedAt} />}
-      <TurnStatsRow />
-      {!atBottom && (
-        <div className="conv-tobottom-slot">
-          <button type="button" className="conv-tobottom" aria-label="回到底部" onClick={toBottom}>
-            ↓ 回到底部
-          </button>
-        </div>
-      )}
-    </section>
+    <div className="conversation-wrap">
+      <section
+        ref={scrollRef}
+        className="region region-conversation conversation-view"
+        data-region="ConversationView"
+        data-session={sessionId}
+        onScroll={onScroll}
+      >
+        {hasMoreHistory && (
+          <div className="conv-older">
+            <button type="button" className="conv-older-btn" disabled={loadingOlder} onClick={loadOlder}>
+              {loadingOlder ? '加载中…' : 'Load older'}
+            </button>
+          </div>
+        )}
+        {nodes.length === 0 ? (
+          <div className="empty-hero">输入消息，开始对话</div>
+        ) : (
+          <div className="conv-flow">
+            {nodes.map((n) => (
+              <div key={n.id} className={`conv-node conv-node-${n.kind}`} data-node-id={n.id}>
+                <NodeView node={n} />
+              </div>
+            ))}
+          </div>
+        )}
+        {turnStatus === 'running' && turnStartedAt !== null && <TurnStatusLine startedAt={turnStartedAt} />}
+        <TurnStatsRow />
+        {!atBottom && (
+          <div className="conv-tobottom-slot">
+            <button type="button" className="conv-tobottom" aria-label="回到底部" onClick={toBottom}>
+              ↓ 回到底部
+            </button>
+          </div>
+        )}
+      </section>
+      <SegmentRail scrollRef={scrollRef} onJumpTo={jumpToNode} />
+    </div>
   )
 }

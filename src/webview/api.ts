@@ -59,6 +59,8 @@ export interface BridgeClient {
   /** Correlated request/response: resolve with the payload (or an error
    * payload) once the extension host answers. */
   fetchIdeContent: (kind: IdeContentKind) => Promise<IdeContentPayload>
+  /** Ask the extension host to open a `path:line` reference (code jump). */
+  openFileInIde: (target: { path: string; line: number; endLine?: number; col?: number; cwd?: string }) => void
 }
 
 interface PendingRpc {
@@ -268,4 +270,21 @@ export function fetchIdeContent(kind: IdeContentKind): Promise<IdeContentPayload
       }
     }, IDE_REQUEST_TIMEOUT_MS)
   })
+}
+
+/**
+ * Ask the extension host to open a `path:line` reference in the IDE. The
+ * extension resolves the path (session cwd first, workspace root second) and
+ * reveals/highlights the target range.
+ * @param target - the parsed reference plus the session cwd for resolution.
+ */
+export function openFileInIde(target: {
+  path: string
+  line: number
+  endLine?: number
+  col?: number
+  cwd?: string
+}): void {
+  if (vscode === null) throw new Error('vscode webview API unavailable (use the mock bridge)')
+  vscode.postMessage({ type: 'ide-open-file', ...target })
 }

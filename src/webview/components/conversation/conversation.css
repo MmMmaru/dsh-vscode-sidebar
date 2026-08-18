@@ -13,6 +13,78 @@
   padding: var(--dsh-gap) 10px;
 }
 
+/* The rail sibling takes over the shell flex slot; the section scrolls. */
+.conversation-wrap {
+  flex: 1 1 auto;
+  display: flex;
+  min-height: 0;
+  min-width: 0;
+}
+
+.conversation-wrap > .conversation-view {
+  flex: 1 1 auto;
+}
+
+/* --- SegmentRail: right-edge markers for user message start points --- */
+
+.segment-rail {
+  flex: none;
+  position: relative;
+  width: 18px;
+  margin: 6px 0;
+  border-left: 1px solid var(--dsh-border);
+  /* Off-view dashes stay in the DOM (the timeline) but must not paint over
+   * the shell; the fixed-position tip is unaffected by this clip. */
+  overflow: hidden;
+}
+
+.segment-rail-mark {
+  position: absolute;
+  right: 2px;
+  width: 14px;
+  height: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  background: transparent;
+  border: none;
+  border-radius: 3px;
+  cursor: pointer;
+  color: var(--dsh-fg-muted);
+}
+
+.segment-rail-mark:hover,
+.segment-rail-mark-active {
+  background: var(--dsh-bg-raised);
+  color: var(--dsh-accent);
+}
+
+.segment-rail-dash {
+  width: 8px;
+  height: 1.5px;
+  border-radius: 1px;
+  background: currentColor;
+}
+
+/* Floating one-line preview, anchored right-center at the marker. */
+.segment-rail-tip {
+  position: fixed;
+  transform: translate(-100%, -50%);
+  max-width: 260px;
+  padding: 4px 8px;
+  background: var(--dsh-bg-raised);
+  border: 1px solid var(--dsh-border);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.35);
+  color: var(--dsh-fg);
+  font-size: 0.8em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  pointer-events: none;
+  z-index: 30;
+}
+
 .conv-flow {
   display: flex;
   flex-direction: column;
@@ -167,6 +239,29 @@
 
 .md-body p {
   margin: 8px 0;
+}
+
+/* --- File-reference chip (code jump, TODO 5) --- */
+
+.file-ref {
+  display: inline-block;
+  margin: 0 1px;
+  padding: 0 5px;
+  border: 1px solid var(--dsh-border);
+  border-radius: 4px;
+  background: var(--dsh-bg-raised);
+  color: var(--dsh-accent);
+  font-family: var(--vscode-editor-font-family, ui-monospace, monospace);
+  font-size: 0.9em;
+  line-height: 1.5;
+  cursor: pointer;
+  vertical-align: baseline;
+  white-space: nowrap;
+}
+
+.file-ref:hover {
+  border-color: var(--dsh-accent);
+  text-decoration: underline;
 }
 
 /* Trim outer margins so the block sits flush in the message stream. */

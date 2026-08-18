@@ -100,6 +100,18 @@ export type WebviewMessage =
    * `id` turns the push into a request/response pair (send-time auto-inject);
    * without it the answer fans out to the fire-and-forget subscribers. */
   | { type: 'ide-request'; kind: IdeContentKind; id?: string }
+  /** Ask the extension host to open a `path:line` reference (code jump). The
+   * path is resolved session-cwd-first, then workspace-root; the target range
+   * is revealed and highlighted in the editor. */
+  | {
+      type: 'ide-open-file'
+      path: string
+      line: number
+      endLine?: number
+      col?: number
+      /** Session working directory the webview resolved the ref against. */
+      cwd?: string
+    }
 
 /** Messages the extension host sends to the webview. */
 export type ExtensionMessage =
