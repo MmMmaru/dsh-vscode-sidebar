@@ -7,9 +7,10 @@
  *    (session cwd → workspace root) and opens/reveals it through the vscode
  *    stub. Missing files surface as an error notification.
  *
- * ② Segment rail: every user message gets a `-` marker on the right rail;
- *    hovering shows a one-line preview; clicking scrolls the stream to the
- *    message and unpins bottom-follow.
+ * ② Segment rail: every user message gets one tick on the right rail (a
+ *    vertically centered overview cluster, not a scroll-position map);
+ *    hovering shows a one-line preview (first 10 code points + …); clicking
+ *    scrolls the stream to the message and unpins bottom-follow.
  *
  * Run: `npm run test:e2e` (or `npm run build:webview && node esbuild.config.mjs --e2e`
  * then `LD_LIBRARY_PATH=.temp/libs/root/usr/lib/x86_64-linux-gnu npx playwright test -g "RJ-"`).
@@ -140,8 +141,7 @@ test('RJ-2: segment rail marks user messages with hover preview and jump', async
   await selectSessionRow(page, 'RJ-RAIL')
   await expect(page.locator('.composer-input')).toBeVisible()
 
-  // Two user messages: a SHORT first reply (so the second message's dash is
-  // inside the rail viewport at scrollTop=0) and a LONG second reply (so
+  // Two user messages: a SHORT first reply and a LONG second reply (so
   // jumping to the second message leaves the stream far from the bottom and
   // bottom-follow unpins).
   const shortBlock = Array.from({ length: 3 }, (_, i) => `第 ${i + 1} 段说明文字。`).join('\n\n')
@@ -151,29 +151,23 @@ test('RJ-2: segment rail marks user messages with hover preview and jump', async
   harness.emitMux(userMessageEvent(sessionId, 3, 'rj-r3', 'RJ-RAIL 问题二：删除按钮没反应'))
   harness.emitMux(assistantTextEvent(sessionId, 4, 'rj-r4', longBlock))
 
-  // Every user message gets a dash (timeline rows exist even when clipped).
+  // Every user message gets one tick in the centered overview cluster.
   const marks = page.locator('.segment-rail-mark')
   await expect(marks).toHaveCount(2)
 
-  // Scroll to the top so both dashes are inside the rail viewport.
-  const viewport = page.locator('.conversation-view')
-  await viewport.evaluate((el) => {
-    el.scrollTop = 0
-  })
-  await expect.poll(() => viewport.evaluate((el) => el.scrollTop)).toBe(0)
-
-  // Hover the second marker: a one-line preview with that message's text.
+  // Hover the second tick: a one-line preview, truncated to 10 code points + ….
   await marks.nth(1).hover()
   const tip = page.locator('.segment-rail-tip')
   await expect(tip).toBeVisible()
-  await expect(tip).toContainText('RJ-RAIL 问题二')
+  await expect(tip).toHaveText('RJ-RAIL 问题…')
 
   // Moving the mouse away hides the tip.
   await page.locator('.segment-rail').hover({ position: { x: 4, y: 0 } })
   await expect(tip).toHaveCount(0)
 
-  // Clicking the marker scrolls the message near the top of the region and
+  // Clicking the tick scrolls the message near the top of the region and
   // unpins bottom-follow (the 回到底部 button appears).
+  const viewport = page.locator('.conversation-view')
   await marks.nth(1).click()
   await expect.poll(() => viewport.evaluate((el) => el.scrollTop)).toBeGreaterThan(100)
   await expect(page.locator('.conv-tobottom')).toBeVisible()

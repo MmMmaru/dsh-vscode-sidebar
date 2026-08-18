@@ -1,27 +1,36 @@
 /**
- * SegmentRail (TODO 19): a thin rail on the right edge of the conversation
- * stream. Every user message ("对话开始点") gets one marker — normally a
- * small `-` tick; hovering a marker raises a floating one-line preview of that
- * message's text; clicking scrolls the stream to the message.
- *
- * Markers are measured live against the scrollport: positions recompute on
- * scroll (rAF-throttled), on flow resize (ResizeObserver) and whenever the
- * conversation nodes change, so expansion of tool cards and streaming content
- * never leaves stale markers. The preview tip is fixed-positioned (viewport
- * coordinates) so the scrollport's overflow clipping cannot cut it off.
+ * SegmentRail (TODO 19): an overview rail on the right edge of the
+ * conversation stream. Every user message ("对话开始点") gets one tick —
+ * ticks are NOT a scroll-position map; they form a vertically centered
+ * cluster expressing "which round" each message is. Hovering a tick raises a
+ * one-line preview (fixed-positioned so the rail's overflow clip cannot cut
+ * it); clicking scrolls the stream to the message. The rail stays dimmed
+ * (opacity 0.25) until hovered.
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState, type JSX, type RefObject } from 'react'
+import { useMemo, useState, type JSX, type RefObject } from 'react'
 import { useAppStore } from '../../store'
 import type { UserMessageNode } from '../../types'
 
-/** One measured marker row. */
-interface Marker {
-  id: string
-  /** Y offset inside the scrollport viewport (section-relative). */
-  y: number
-  /** One-line preview text (the user message's plain text). */
-  text: string
+/** Per-tick slot height; the whole cluster caps at 120px. */
+const TICK_SLOT_PX = 10
+const CLUSTER_MAX_PX = 120
+
+/**
+ * One-line preview of a user message: the first 10 code points plus an
+ * ellipsis when truncated. Array.from keeps surrogate pairs (emoji) intact.
+ */
+export function previewText(text: string): string {
+  const chars = Array.from(text)
+  return chars.length <= 10 ? text : `${chars.slice(0, 10).join('')}…`
+}
+
+/** Plain text of a user message node (text blocks only). */
+function userMessageText(node: UserMessageNode): string {
+  return node.blocks
+    .filter((b) => b.type === 'text')
+    .map((b) => (b.type === 'text' ? b.text : ''))
+    .join('\n')
 }
 
 /** Floating preview state; `null` hides the tip. */
@@ -33,101 +42,46 @@ interface Tip {
   top: number
 }
 
-/** Plain text of a user message node (text blocks only). */
-function userMessageText(node: UserMessageNode): string {
-  return node.blocks
-    .filter((b) => b.type === 'text')
-    .map((b) => (b.type === 'text' ? b.text : ''))
-    .join('\n')
-}
-
-/** Live marker positions for the current nodes, measured against the scrollport.
- * Every user message gets a dash; out-of-view dashes are clipped by the rail's
- * overflow (they are the timeline, so they must exist even while scrolled away). */
-function measureMarkers(scrollEl: HTMLElement, nodes: readonly UserMessageNode[]): Marker[] {
-  const rect = scrollEl.getBoundingClientRect()
-  const markers: Marker[] = []
-  for (const node of nodes) {
-    const row = scrollEl.querySelector(`[data-node-id="${node.id}"]`)
-    if (!(row instanceof HTMLElement)) continue
-    const y = row.getBoundingClientRect().top - rect.top
-    markers.push({ id: node.id, y, text: userMessageText(node) })
-  }
-  return markers
-}
-
 export function SegmentRail(props: { scrollRef: RefObject<HTMLElement | null>; onJumpTo: (id: string) => void }): JSX.Element {
   // Select the raw node array (stable identity) and filter in useMemo: a
-  // selector returning a fresh filtered array would re-run on every render,
-  // destabilize `measure`, and loop the effect below (React error #185).
+  // selector returning a fresh filtered array would re-run on every render
+  // (React error #185).
   const nodes = useAppStore((s) => s.nodes)
   const userNodes = useMemo(
     () => nodes.filter((n): n is UserMessageNode => n.kind === 'user-message'),
     [nodes],
   )
-  const [markers, setMarkers] = useState<Marker[]>([])
   const [tip, setTip] = useState<Tip | null>(null)
-  const railRef = useRef<HTMLDivElement | null>(null)
 
-  const measure = useCallback(() => {
-    const el = props.scrollRef.current
-    if (el === null) return
-    setMarkers(measureMarkers(el, userNodes))
-  }, [props.scrollRef, userNodes])
+  const clusterHeight = Math.min(userNodes.length * TICK_SLOT_PX, CLUSTER_MAX_PX)
 
-  // Re-measure when the node set changes (new messages, compaction).
-  useEffect(() => {
-    measure()
-  }, [measure])
-
-  // Live tracking: scroll + flow resize (tool-card expansion, streaming).
-  useEffect(() => {
-    const el = props.scrollRef.current
-    if (el === null) return
-    let raf = 0
-    const reschedule = (): void => {
-      cancelAnimationFrame(raf)
-      raf = requestAnimationFrame(() => {
-        measure()
-        setTip(null)
-      })
-    }
-    el.addEventListener('scroll', reschedule, { passive: true })
-    const flow = el.querySelector('.conv-flow')
-    const observer = new ResizeObserver(reschedule)
-    if (flow !== null) observer.observe(flow)
-    else observer.observe(el)
-    return () => {
-      el.removeEventListener('scroll', reschedule)
-      observer.disconnect()
-      cancelAnimationFrame(raf)
-    }
-  }, [measure])
-
-  const openTip = (marker: Marker, el: HTMLElement): void => {
+  const openTip = (node: UserMessageNode, el: HTMLElement): void => {
     const rect = el.getBoundingClientRect()
-    setTip({ id: marker.id, text: marker.text, left: rect.left - 8, top: rect.top + rect.height / 2 })
+    setTip({ id: node.id, text: previewText(userMessageText(node)), left: rect.left - 8, top: rect.top + rect.height / 2 })
   }
 
   return (
-    <div className="segment-rail" ref={railRef}>
-      {markers.map((marker) => (
-        <button
-          key={marker.id}
-          type="button"
-          className={`segment-rail-mark${tip?.id === marker.id ? ' segment-rail-mark-active' : ''}`}
-          style={{ top: marker.y }}
-          title="定位到该消息"
-          onClick={() => {
-            props.onJumpTo(marker.id)
-            setTip(null)
-          }}
-          onMouseEnter={(e) => openTip(marker, e.currentTarget)}
-          onMouseLeave={() => setTip(null)}
-        >
-          <span className="segment-rail-dash" />
-        </button>
-      ))}
+    <div className="segment-rail">
+      {userNodes.length > 0 && (
+        <div className="segment-rail-cluster" style={{ height: clusterHeight }}>
+          {userNodes.map((node) => (
+            <button
+              key={node.id}
+              type="button"
+              className={`segment-rail-mark${tip?.id === node.id ? ' segment-rail-mark-active' : ''}`}
+              title="定位到该消息"
+              onClick={() => {
+                props.onJumpTo(node.id)
+                setTip(null)
+              }}
+              onMouseEnter={(e) => openTip(node, e.currentTarget)}
+              onMouseLeave={() => setTip(null)}
+            >
+              <span className="segment-rail-dash" />
+            </button>
+          ))}
+        </div>
+      )}
       {tip !== null && (
         <div className="segment-rail-tip" style={{ left: tip.left, top: tip.top }} data-tip-for={tip.id}>
           {tip.text}

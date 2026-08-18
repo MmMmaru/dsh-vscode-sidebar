@@ -2,6 +2,8 @@ declare module 'react-test-renderer' {
   interface TestProps {
     readonly value?: string
     readonly disabled?: boolean
+    readonly className?: string
+    readonly style?: Record<string, unknown>
     readonly onClick: (...args: never[]) => unknown
     readonly onChange: (event: unknown) => unknown
     readonly onKeyDown: (event: unknown) => unknown
@@ -10,6 +12,7 @@ declare module 'react-test-renderer' {
   interface ReactTestInstance {
     readonly props: TestProps
     findByProps(props: Record<string, unknown>): ReactTestInstance
+    findAllByProps(props: Record<string, unknown>): ReactTestInstance[]
   }
 
   interface ReactTestRenderer {
