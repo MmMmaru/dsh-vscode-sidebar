@@ -29,18 +29,12 @@
   position: relative;
   z-index: 41; /* above .ovl-mask (no ancestor creates a stacking context) */
   margin-bottom: var(--dsh-gap);
-  border: 1px solid var(--vscode-widget-border, var(--dsh-border));
-  border-radius: var(--dsh-radius);
+  border: 1px solid var(--dsh-border-soft);
+  border-radius: var(--dsh-radius-lg);
   background: var(--dsh-bg-raised);
-  box-shadow: 0 4px 16px var(--vscode-widget-shadow, rgba(0, 0, 0, 0.36));
+  box-shadow: var(--dsh-shadow-card);
   overflow: hidden;
-  animation: ovl-enter 160ms ease-out;
-}
-
-/* Entrance: fade in with a slight rise, kept small on purpose. */
-@keyframes ovl-enter {
-  from { opacity: 0; transform: translateY(6px); }
-  to { opacity: 1; transform: translateY(0); }
+  animation: ovl-enter 180ms ease-out;
 }
 
 /* Amber top strip shared by the approval and plan-review cards. */
@@ -54,7 +48,7 @@
   color: var(--dsh-warning);
   background: rgba(204, 167, 0, 0.12);
   background: color-mix(in srgb, var(--dsh-warning) 14%, transparent);
-  border-bottom: 1px solid var(--dsh-border);
+  border-bottom: 1px solid var(--dsh-border-soft);
 }
 
 .ovl-strip-dot {
@@ -94,7 +88,7 @@
   font-size: 0.9em;
   color: var(--dsh-fg-muted);
   background: var(--dsh-bg);
-  border: 1px solid var(--dsh-border);
+  border: 1px solid var(--dsh-border-soft);
   border-radius: var(--dsh-radius);
   padding: 6px 8px;
   white-space: pre-wrap;
@@ -160,19 +154,23 @@
   text-align: left;
   color: var(--dsh-fg);
   background: transparent;
-  border: 1px solid var(--dsh-border);
+  border: 1px solid var(--dsh-border-soft);
   border-radius: var(--dsh-radius);
   cursor: pointer;
-  transition: background-color 120ms ease-out, border-color 120ms ease-out;
+  transition: background-color 120ms ease-out, border-color 120ms ease-out,
+    box-shadow 120ms ease-out;
 }
 
 .ovl-option:hover {
   background: var(--vscode-list-hoverBackground, rgba(255, 255, 255, 0.06));
 }
 
+/* Selected: a restrained 2px accent bar on the left over a faint accent tint
+   (instead of repainting the whole row). */
 .ovl-option-selected {
-  border-color: var(--dsh-accent);
-  background: var(--vscode-list-activeSelectionBackground, rgba(0, 127, 212, 0.15));
+  border-color: var(--dsh-border-soft);
+  background: color-mix(in srgb, var(--dsh-accent) 10%, transparent);
+  box-shadow: inset 2px 0 0 var(--dsh-accent);
 }
 
 .ovl-radio,
@@ -256,7 +254,7 @@
   align-items: center;
   gap: 8px;
   padding: 2px 8px;
-  border: 1px dashed var(--dsh-border);
+  border: 1px dashed var(--dsh-border-soft);
   border-radius: var(--dsh-radius);
 }
 
@@ -283,7 +281,7 @@
   font: inherit;
   color: var(--dsh-fg);
   background: var(--vscode-input-background, var(--dsh-bg));
-  border: 1px solid var(--vscode-input-border, var(--dsh-border));
+  border: 1px solid var(--vscode-input-border, var(--dsh-border-soft));
   border-radius: var(--dsh-radius);
   padding: 6px 8px;
 }
@@ -300,7 +298,7 @@
   align-items: center;
   gap: var(--dsh-gap);
   padding: 8px 10px;
-  border-top: 1px solid var(--dsh-border);
+  border-top: 1px solid var(--dsh-border-soft);
 }
 
 .ovl-pager {
@@ -364,7 +362,7 @@
 .ovl-btn-outline {
   color: var(--dsh-fg);
   background: transparent;
-  border: 1px solid var(--dsh-border);
+  border: 1px solid var(--dsh-border-soft);
 }
 
 .ovl-btn-outline:hover:not(:disabled) {

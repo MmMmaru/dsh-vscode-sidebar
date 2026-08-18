@@ -443,9 +443,11 @@
 .settings-confirm {
   width: min(320px, calc(100vw - 32px));
   background: var(--dsh-bg-raised);
-  border: 1px solid var(--dsh-border);
-  border-radius: var(--dsh-radius);
+  border: 1px solid var(--dsh-border-soft);
+  border-radius: var(--dsh-radius-lg);
+  box-shadow: var(--dsh-shadow-card);
   padding: 12px;
+  animation: ovl-enter 180ms ease-out;
 }
 
 .settings-confirm-title {
