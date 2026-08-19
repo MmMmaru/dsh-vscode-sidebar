@@ -4,8 +4,10 @@
  * ticks are NOT a scroll-position map; they form a vertically centered
  * cluster expressing "which round" each message is. Hovering a tick raises a
  * one-line preview (fixed-positioned so the rail's overflow clip cannot cut
- * it); clicking scrolls the stream to the message. The rail stays dimmed
- * (opacity 0.25) until hovered.
+ * it); clicking scrolls the stream to the message. The rail is absolutely
+ * positioned over the scrollbar column (see conversation.css): the container
+ * is pointer-events:none so scrollbar drags fall through, only ticks are
+ * clickable. The rail stays dimmed (opacity 0.4) until hovered.
  */
 
 import { useMemo, useState, type JSX, type RefObject } from 'react'

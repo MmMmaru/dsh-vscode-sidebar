@@ -1,7 +1,8 @@
 /**
  * SegmentRail unit tests (TODO 19 rework): N user messages render N ticks in
  * a vertically centered cluster; previewText truncates to 10 code points
- * (emoji-safe).
+ * (emoji-safe). Tick visuals (10px × 2px dash, 22px rail) live in
+ * conversation.css; here we assert each tick renders one .segment-rail-dash.
  */
 
 import { test } from 'node:test'
@@ -60,8 +61,8 @@ test('previewText counts emoji as single code points (no broken surrogates)', as
 // Tick rendering (react-test-renderer: SSR reads the store's initial snapshot)
 // ---------------------------------------------------------------------------
 
-/** Render the rail against the given store nodes; returns mark count + cluster height. */
-async function renderRail(nodes: UserMessageNode[]): Promise<{ marks: number; clusterHeight: number | undefined }> {
+/** Render the rail against the given store nodes; returns mark/dash count + cluster height. */
+async function renderRail(nodes: UserMessageNode[]): Promise<{ marks: number; dashes: number; clusterHeight: number | undefined }> {
   const { act, create } = await import('react-test-renderer')
   const { useAppStore } = await import('../src/webview/store')
   const { SegmentRail } = await loadRail()
@@ -73,20 +74,23 @@ async function renderRail(nodes: UserMessageNode[]): Promise<{ marks: number; cl
   const root = renderer?.root
   assert.ok(root !== undefined)
   const marks = root.findAllByProps({ className: 'segment-rail-mark' })
+  const dashes = root.findAllByProps({ className: 'segment-rail-dash' })
   const clusters = root.findAllByProps({ className: 'segment-rail-cluster' })
   const style = clusters[0]?.props.style as { height?: number } | undefined
   renderer?.unmount()
-  return { marks: marks.length, clusterHeight: style?.height }
+  return { marks: marks.length, dashes: dashes.length, clusterHeight: style?.height }
 }
 
 test('N user messages render N ticks; other node kinds are ignored', async () => {
-  const { marks, clusterHeight } = await renderRail([
+  const { marks, dashes, clusterHeight } = await renderRail([
     userNode('e1', '第一条消息'),
     { kind: 'assistant-text', id: 'e2', seq: 2, time: 2, text: '回复', streaming: false } as unknown as UserMessageNode,
     userNode('e3', '第二条消息'),
     userNode('e4', '第三条消息'),
   ])
   assert.equal(marks, 3)
+  // 每个 tick 内渲染一条 dash（视觉尺寸 10px × 2px 由 conversation.css 控制）。
+  assert.equal(dashes, 3)
   // Cluster height: 3 ticks * 10px (numeric style, React renders as px).
   assert.equal(clusterHeight, 30)
 })

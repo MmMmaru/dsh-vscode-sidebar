@@ -155,19 +155,31 @@ test('RJ-2: segment rail marks user messages with hover preview and jump', async
   const marks = page.locator('.segment-rail-mark')
   await expect(marks).toHaveCount(2)
 
+  // New layout (0.0.9): rail overlays the scrollbar column (absolute), the
+  // stream itself never scrolls horizontally; ticks are the bolder 10×2 dash.
+  const viewport = page.locator('.conversation-view')
+  const rail = page.locator('.segment-rail')
+  await expect(rail).toHaveCSS('position', 'absolute')
+  await expect(rail).toHaveCSS('width', '22px')
+  await expect(rail).toHaveCSS('opacity', '0.4')
+  await expect(viewport).toHaveCSS('overflow-x', 'hidden')
+  const dash = page.locator('.segment-rail-dash').first()
+  await expect(dash).toHaveCSS('width', '10px')
+  await expect(dash).toHaveCSS('height', '2px')
+
   // Hover the second tick: a one-line preview, truncated to 10 code points + ….
   await marks.nth(1).hover()
   const tip = page.locator('.segment-rail-tip')
   await expect(tip).toBeVisible()
   await expect(tip).toHaveText('RJ-RAIL 问题…')
 
-  // Moving the mouse away hides the tip.
-  await page.locator('.segment-rail').hover({ position: { x: 4, y: 0 } })
+  // Moving the mouse away hides the tip. The rail container is
+  // pointer-events:none, so hover the stream itself instead.
+  await viewport.hover({ position: { x: 20, y: 20 } })
   await expect(tip).toHaveCount(0)
 
   // Clicking the tick scrolls the message near the top of the region and
   // unpins bottom-follow (the 回到底部 button appears).
-  const viewport = page.locator('.conversation-view')
   await marks.nth(1).click()
   await expect.poll(() => viewport.evaluate((el) => el.scrollTop)).toBeGreaterThan(100)
   await expect(page.locator('.conv-tobottom')).toBeVisible()

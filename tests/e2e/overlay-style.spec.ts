@@ -79,3 +79,21 @@ test('OVL-1: takeover card and session menu use the shared card tokens', async (
   await expect(menu).toHaveCSS('border-radius', '10px')
   await expect(menu).toHaveCSS('animation-name', 'ovl-enter')
 })
+
+test('OVL-2: conversation chrome — no horizontal scroll, rail overlays scrollbar column', async ({ page, harness }) => {
+  const title = `OVL2-${Date.now().toString(36)}`
+  await harness.createSession(harness.workspacePath, title)
+  await openApp(page, harness)
+  await page.locator('.session-row', { hasText: title }).click()
+  await expect(page.locator('.composer-input')).toBeVisible()
+
+  // 滚动区自身禁横向滚动（代码块/表格内部仍 overflow-x:auto）。
+  const viewport = page.locator('.conversation-view')
+  await expect(viewport).toHaveCSS('overflow-x', 'hidden')
+
+  // SegmentRail 绝对定位覆盖在右缘滚动条列上，不占独立布局列。
+  const rail = page.locator('.segment-rail')
+  await expect(rail).toHaveCSS('position', 'absolute')
+  await expect(rail).toHaveCSS('width', '22px')
+  await expect(rail).toHaveCSS('opacity', '0.4')
+})

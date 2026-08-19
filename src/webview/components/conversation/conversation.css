@@ -11,33 +11,41 @@
   margin: 0;
   border-radius: 0;
   padding: var(--dsh-gap) 10px;
+  /* 横向滚动交给代码块/表格自身（overflow-x:auto），滚动区不再出横向滚动条。 */
+  overflow-x: hidden;
 }
 
-/* The rail sibling takes over the shell flex slot; the section scrolls. */
+/* 单列布局：滚动区占满整列，SegmentRail 绝对定位覆盖在右缘滚动条列上。 */
 .conversation-wrap {
   flex: 1 1 auto;
-  display: flex;
+  position: relative;
   min-height: 0;
   min-width: 0;
 }
 
 .conversation-wrap > .conversation-view {
-  flex: 1 1 auto;
+  height: 100%;
 }
 
 /* --- SegmentRail: right-edge overview of user message start points --- */
 
 .segment-rail {
-  flex: none;
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  right: 0;
   display: flex;
   align-items: center;
-  width: 18px;
-  margin: 6px 0;
+  width: 22px;
+  /* tick 推到滚动条左侧，避免视觉压住滚动条。 */
+  padding-right: 12px;
+  /* 容器不拦截指针，滚动条拖动穿透到下层滚动区；tick 按钮自行恢复。 */
+  pointer-events: none;
   border-left: 1px solid var(--dsh-border);
   /* The fixed-position tip is unaffected by this clip. */
   overflow: hidden;
   /* Dimmed until hovered. */
-  opacity: 0.25;
+  opacity: 0.4;
   transition: opacity 150ms ease-out;
 }
 
@@ -62,6 +70,8 @@
   background: transparent;
   border: none;
   cursor: pointer;
+  /* rail 容器 pointer-events:none，tick 恢复可点。 */
+  pointer-events: auto;
   color: var(--dsh-fg-muted);
 }
 
@@ -71,8 +81,10 @@
 }
 
 .segment-rail-dash {
-  width: 6px;
-  height: 1px;
+  /* rail 内宽仅 9px（22 - 12 padding - 1 边框），必须禁止 flex 收缩保住 10px 宽度。 */
+  flex: none;
+  width: 10px;
+  height: 2px;
   border-radius: 1px;
   background: currentColor;
 }
