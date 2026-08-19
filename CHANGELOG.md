@@ -3,6 +3,33 @@
 本插件所有重要变更记录。格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)；
 版本号与 `package.json` 的 `version` 保持一致。
 
+## [0.0.10] - 2026-08-19
+
+### 新增
+
+- **长会话渲染性能**：会话节点加 `content-visibility: auto` + `contain-intrinsic-size`——
+  屏外消息跳过布局与绘制（参考 VS Code chat 同病 microsoft/vscode#297349 的社区通行做法）；
+  `NodeView` 改 `memo`，流式 delta 不再触发每个落定消息的 react-markdown 全量重解析与
+  ToolCard diff 重算（store 投影复用未变节点引用，按引用 memo 安全）
+- **代码跳转失败原位反馈**：chip 点击打开失败时 3 秒红色错误态并显示原因
+  （`ide-open-file` 加请求/响应回执，此前真实环境失败只有主窗口右下角通知，webview 零反馈）；
+  流式中的文本现在也渲染 `path:line` chip（此前只有落定文本可点）
+
+### 修复
+
+- **会话 ⋯ 菜单不跟随点击行**：`.session-menu` 的绝对定位包含块原本是整个 chat-list
+  面板（li 无 position），菜单永远贴面板顶部；补 `.session-list > li { position: relative }`
+  后菜单跟随被点击的行（e2e DEL-2）
+- **代码跳转打开目录误判**：路径解析从 `existsSync` 改 `statSync().isFile()`，
+  目录不再被当作可打开文件
+- **SegmentRail 左侧竖线删除**（rail 与对话区之间的 1px 分隔线）
+
+### 测试
+
+- 新增 conversation-perf（content-visibility/memo/竖线删除 4 例）、open-file-message
+  （回执契约 3 例）、markdown-block（流式/落定 chip 2 例）；file-refs 补目录拒收；
+  RJ-1 加强失败回执断言；DEL-2 菜单跟随行位置
+
 ## [0.0.9] - 2026-08-19
 
 ### 新增

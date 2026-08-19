@@ -1,5 +1,10 @@
 # 进展记录
 
+### 08-19 10:35
+- 0.0.10 四项（swarm 三 worker：conversation 性能 / chat-list 菜单 / 代码跳转全链路）：① 长文本卡顿——参考 codex/VS Code chat 同病（microsoft/vscode#297349），`.conv-node` 加 `content-visibility:auto + contain-intrinsic-size` 屏外跳过渲染，NodeView 改 memo（store 投影复用未变节点引用，按引用 memo 安全）；② ⋯菜单不跟随行——根因 li 无 position，`.session-menu` 包含块是整个 chat-list 面板永远贴顶，补 `.session-list > li{position:relative}`；③ SegmentRail 左侧竖线删除；④ 代码跳转无效——根因是真实环境失败仅主窗口通知 webview 零反馈 + `existsSync` 把目录误判可打开，修：`ide-open-file` 加请求/响应回执（id 关联、5s 超时兜底、向后兼容），chip 失败 3 秒原位红态显原因，流式文本也渲染 chip，解析改 `statSync().isFile()`。
+- 测试：单测 83 绿（新增 conversation-perf 4、open-file-message 3、markdown-block 2；file-refs 补目录拒收）；e2e 新增 DEL-2（菜单跟随行，断言顶缘对齐——比中心会被菜单高度带偏，集成阶段修正）+ RJ-1 加强失败回执断言；全量 e2e 复核。
+- 版本升 0.0.10：CHANGELOG/TODO/PROGRESS 同步。
+
 ### 08-19 10:07
 - 0.0.9 五项 UI 改进（swarm 三个并行 worker 按目录分工：composer / conversation / chat-list，集成统一收口）：① StatsLine 常驻行移除，并入 ContextMeter 点击弹层（statsLineGroups + contextBreakdown 逐行展示，外部点击/Esc 关闭，空数据显示「暂无统计数据」；StatsLine.tsx 仅留纯 helper，SubagentDock 仍从其 import formatDuration）；② 对话区 `overflow-x: hidden` 禁横向滚动，SegmentRail 改绝对定位与垂直滚动条同列（rail 容器 pointer-events:none + tick 恢复 auto，padding-right 12px 让开滚动条）；③ rail 加粗（tick 10×2px、rail 22px、常态 opacity 0.4）——坑：rail 内宽仅 9px，dash 必须 `flex:none` 否则被收缩（RJ-2 实测 9px 抓获）；④ 历史按钮运行徽标 border 1.5→2px 对齐 .status-spin；⑤ session 行 hover 抖动消除（⋯ trigger 改绝对定位 + opacity 切换，加 pointer-events 防透明态吞点击；时间文本 hover 时 opacity:0 保占位，display 切换规则删除）。
 - 测试：单测 73 绿（新增 context-meter-stats 5 例；segment-rail 加 dash 结构断言）；e2e 新增 HOV-1/HOV-2（hover 前后行盒逐像素相等、徽标 2px）、OVL-2（禁横向 + rail 同列布局），RJ-2 适配新布局；全量 e2e 23 绿。

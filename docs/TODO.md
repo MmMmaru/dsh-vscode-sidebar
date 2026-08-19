@@ -25,13 +25,13 @@ session管理内标点提示
 支持音频提示
 - [ ] 17. 英文切换支持
 - [ ] 18. 图片上传预览失败
-- [] 参考一下codex的实现，目前长文本渲染卡顿，是否有懒加载等策略？
 
 ### bug
 - [ ] 24. dsh后端中断后卡住，在bash执行情况下。
 - [ ] 25. [#2](https://github.com/MmMmaru/dsh-vscode-sidebar/issues/2) 解决 node use env 的问题（与 #7 proxy 加载相关）
-- [ ] 26. [#5](https://github.com/MmMmaru/dsh-vscode-sidebar/issues/5) 对话内依然显示 ide 上下文注入内容
+- [ ] 26. [#5](https://github.com/MmMmaru/dsh-vscode-sidebar/issues/5) 对话管理界面依然显示 ide 上下文注入内容
 - [ ] 28. 删除候选发送列表部分时候出现无效
+- [] 代码文本跳转无效
 
 ### 美化
 - [ ] 30. 优化markdown解析字体效果，对齐codex style  
@@ -39,7 +39,6 @@ session管理内标点提示
 - [ ] 32. TODO栏目颜色代表执行与代办
 - [ ] 33. 框线淡化，优化前端组件设计
 - [ ] 34. ide上下文注入就说：ide上下文注入，后面不需要
-- [] 删除会话目前依然没有跟随会话位置。
 
 ### 项目harness
 - [ ] 36. 补充使用playwright构建的e2e test。
@@ -48,7 +47,13 @@ session管理内标点提示
 
 ## 已完成（按版本，新→旧）
 
-### 0.0.9（当前版）
+### 0.0.10（当前版）
+- [x] 新增. 长文本渲染卡顿治理（参考 codex/VS Code chat 同病 issue #297349：`.conv-node` 加 content-visibility 屏外跳过渲染 + NodeView memo 消除流式期全量重解析）
+- [x] 新增. 删除会话菜单不跟随会话位置（根因：`.session-menu` 绝对定位包含块是整个面板——li 无 position；补 `.session-list > li{position:relative}`；e2e DEL-2）
+- [x] 新增. 上下滑动组件旁边竖线删除（`.segment-rail` 的 border-left）
+- [x] 5 关联. 代码文本跳转无效（根因：真实环境失败只有主窗口通知、webview 零反馈 + existsSync 把目录误判可打开；修：ide-open-file 加回执、chip 失败 3 秒原位红态、流式文本也渲染 chip、改 statSync().isFile()；e2e RJ-1 加强）
+
+### 0.0.9
 - [x] 新增. StatsLine 并入 ContextMeter 弹层（点击上下文环弹出上浮卡片：完整统计 + 上下文组成分解逐行展示，外部点击/Esc 关闭；常驻统计行移除）
 - [x] 新增. 滚动条整改：对话区禁止横向滚动；SegmentRail 改绝对定位与垂直滚动条同列（rail 容器 pointer-events 穿透，tick 可点不挡滚动条拖动）
 - [x] 新增. SegmentRail 加粗（tick 6×1→10×2px，rail 18→22px，常态透明度 0.25→0.4）
