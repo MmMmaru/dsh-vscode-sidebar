@@ -7,7 +7,7 @@
  * the reader's scroll position. Node kinds dispatch to their row components.
  */
 
-import { useLayoutEffect, useRef, useState, type JSX } from 'react'
+import { memo, useLayoutEffect, useRef, useState, type JSX } from 'react'
 import type { SessionId } from '../../../extension/protocol/brand'
 import { useAppStore } from '../../store'
 import type { CompactionNode, ContextInjectionNode, ConversationNode, ErrorNode, RetryNode } from '../../types'
@@ -73,8 +73,15 @@ function ErrorRow(props: { node: ErrorNode }): JSX.Element {
   )
 }
 
-/** Dispatch one conversation node to its row component. Exported for tests. */
-export function NodeView(props: { node: ConversationNode }): JSX.Element {
+/**
+ * Dispatch one conversation node to its row component. Memoized on the node
+ * reference: the store reuses node objects for unchanged rows, so during
+ * streaming only the mutated node re-renders — settled markdown/diff rows are
+ * not re-parsed per delta (the main long-session CPU cost). Store-reading
+ * children (FileRefChip, AssistantBubble actions) keep their own
+ * subscriptions, so memo does not stale them. Exported for tests.
+ */
+export const NodeView = memo(function NodeView(props: { node: ConversationNode }): JSX.Element {
   const { node } = props
   switch (node.kind) {
     case 'user-message':
@@ -94,7 +101,7 @@ export function NodeView(props: { node: ConversationNode }): JSX.Element {
     case 'error':
       return <ErrorRow node={node} />
   }
-}
+})
 
 /** Turn-tail stats row: run duration plus accumulated token usage. */
 function TurnStatsRow(): JSX.Element | null {

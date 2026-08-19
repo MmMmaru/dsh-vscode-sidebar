@@ -41,7 +41,6 @@
   padding-right: 12px;
   /* 容器不拦截指针，滚动条拖动穿透到下层滚动区；tick 按钮自行恢复。 */
   pointer-events: none;
-  border-left: 1px solid var(--dsh-border);
   /* The fixed-position tip is unaffected by this clip. */
   overflow: hidden;
   /* Dimmed until hovered. */
@@ -81,7 +80,7 @@
 }
 
 .segment-rail-dash {
-  /* rail 内宽仅 9px（22 - 12 padding - 1 边框），必须禁止 flex 收缩保住 10px 宽度。 */
+  /* rail 内宽仅 10px（22 - 12 padding），必须禁止 flex 收缩保住 10px 宽度。 */
   flex: none;
   width: 10px;
   height: 2px;
@@ -116,6 +115,10 @@
 
 .conv-node {
   min-width: 0;
+  /* 屏外节点跳过布局与绘制：长会话大量 markdown/代码块时的主要卡顿来源。
+     auto 记住上次渲染尺寸，Load older 后滚动位置恢复仍有稳定占位高度。 */
+  content-visibility: auto;
+  contain-intrinsic-size: auto 100px;
 }
 
 /* --- Load older / back-to-bottom chrome --- */
@@ -285,6 +288,14 @@
 .file-ref:hover {
   border-color: var(--dsh-accent);
   text-decoration: underline;
+}
+
+/* Failed jump (unresolvable path / open error): brief error state, reason in the tooltip. */
+.file-ref-failed,
+.file-ref-failed:hover {
+  border-color: var(--vscode-errorForeground, #f44336);
+  color: var(--vscode-errorForeground, #f44336);
+  text-decoration: none;
 }
 
 /* Trim outer margins so the block sits flush in the message stream. */
