@@ -134,6 +134,27 @@ test('RJ-1: file refs in assistant text render as chips and open the file', asyn
   await expect(chips.nth(2)).toHaveClass(/file-ref-failed/)
   // The successful jump left its chip in the normal state.
   await expect(chips.nth(0)).not.toHaveClass(/file-ref-failed/)
+
+  // Markdown links whose href is a local file render as the same chip with
+  // the link label; the GitHub `#L18-L40` fragment carries the range. An
+  // external URL link stays a plain anchor.
+  harness.emitMux(
+    assistantTextEvent(
+      sessionId,
+      3,
+      'rj-a2',
+      `链接形式：[vscode-stub.ts](${harness.workspacePath}/tests/e2e/vscode-stub.ts#L18-L40) 与 [外部文档](https://example.com/x.py)。`,
+    ),
+  )
+  const linkChip = page.locator('.md-body .file-ref', { hasText: 'vscode-stub.ts' })
+  await expect(linkChip).toHaveCount(1)
+  await expect(page.locator('.md-body a', { hasText: '外部文档' })).toHaveCount(1)
+  await linkChip.click()
+  const linkTarget = `${harness.workspacePath}/tests/e2e/vscode-stub.ts`
+  await expect.poll(() => harness.openedFiles()).toContain(linkTarget)
+  const linkReveal = harness.lastReveal()
+  expect(linkReveal?.range.start.line).toBe(17) // #L18 -> 0-based 17
+  expect(linkReveal?.range.end.line).toBe(39) // -L40 -> 0-based 39
 })
 
 // ---------------------------------------------------------------------------

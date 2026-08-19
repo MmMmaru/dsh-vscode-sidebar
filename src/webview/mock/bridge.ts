@@ -947,12 +947,12 @@ function fetchIdeContent(kind: IdeContentKind): Promise<IdeContentPayload> {
 }
 
 /** Last `openFileInIde` target, for tests and e2e assertions. */
-export let lastMockOpenFile: { path: string; line: number } | null = null
+export let lastMockOpenFile: { path: string; line?: number } | null = null
 
 /** Mock code jump: records the target and resolves immediately (no editor in
  * mock mode, so the receipt is an unconditional success). */
-function openFileInIde(target: { path: string; line: number; endLine?: number; col?: number; cwd?: string }): Promise<void> {
-  lastMockOpenFile = { path: target.path, line: target.line }
+function openFileInIde(target: { path: string; line?: number; endLine?: number; col?: number; cwd?: string }): Promise<void> {
+  lastMockOpenFile = { path: target.path, ...(target.line === undefined ? {} : { line: target.line }) }
   return Promise.resolve()
 }
 

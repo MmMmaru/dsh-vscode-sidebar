@@ -62,7 +62,7 @@ export interface BridgeClient {
   /** Ask the extension host to open a `path:line` reference (code jump).
    * Resolves once the host confirms the open; rejects with the host's reason
    * (or a timeout) so the chip can show the failure in-place. */
-  openFileInIde: (target: { path: string; line: number; endLine?: number; col?: number; cwd?: string }) => Promise<void>
+  openFileInIde: (target: { path: string; line?: number; endLine?: number; col?: number; cwd?: string }) => Promise<void>
 }
 
 interface PendingRpc {
@@ -298,7 +298,7 @@ export function fetchIdeContent(kind: IdeContentKind): Promise<IdeContentPayload
  */
 export function openFileInIde(target: {
   path: string
-  line: number
+  line?: number
   endLine?: number
   col?: number
   cwd?: string

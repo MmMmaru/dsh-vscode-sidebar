@@ -109,7 +109,8 @@ export type WebviewMessage =
   | {
       type: 'ide-open-file'
       path: string
-      line: number
+      /** 1-based start line; absent for refs without a line suffix (opens at line 1). */
+      line?: number
       endLine?: number
       col?: number
       /** Session working directory the webview resolved the ref against. */

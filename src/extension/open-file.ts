@@ -25,7 +25,7 @@ export async function openFileAt(target: OpenFileTarget, workspaceRoot: string):
   const document = await vscode.workspace.openTextDocument(file)
   const editor = await vscode.window.showTextDocument(document, { preview: true })
   const lineCount = document.lineCount
-  const startLine = Math.min(Math.max(target.line - 1, 0), lineCount - 1)
+  const startLine = Math.min(Math.max((target.line ?? 1) - 1, 0), lineCount - 1)
   const endLine =
     target.endLine === undefined
       ? startLine

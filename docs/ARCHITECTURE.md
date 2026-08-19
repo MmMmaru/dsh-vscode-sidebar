@@ -70,7 +70,7 @@ Webview → Extension：
 | `rpc` | `{ id: string, method: string, params?: unknown }` | 透传 dsh RPC，method 如 `session.list` |
 | `respond` | `{ kind: 'approval', approvalId, decision }` 或 `{ kind: 'question', sessionId, answers }` | 应答 approval/question 请求帧（修订 2 新增）。请求帧是 server-request，应答须 POST /api/respond 并回显帧的 rpcId；但 MuxFrame 不带 rpcId，webview 用 `approvalId`/`sessionId` 关联，由扩展侧从 DshClient 的 pending 表反查 rpcId。 |
 | `ide-request` | `{ kind: 'selection' \| 'active-file' }` | 向扩展宿主请求 IDE 内容（活动编辑器选中内容 / 整文件），应答为 `ide-content`（修订 3 新增） |
-| `ide-open-file` | `{ path, line, endLine?, col?, cwd?, id? }` | 代码跳转：请求扩展宿主打开 `path:line` 引用（路径按 会话cwd→workspace 解析）。带 `id` 时应答为 `ide-open-file-result`（0.0.10 新增回执） |
+| `ide-open-file` | `{ path, line?, endLine?, col?, cwd?, id? }` | 代码跳转：请求扩展宿主打开 `path:line` 引用（路径按 会话cwd→workspace 解析；无行号后缀的 markdown 链接不带 `line`，打开到第 1 行）。带 `id` 时应答为 `ide-open-file-result`（0.0.10 新增回执） |
 
 Extension → Webview：
 

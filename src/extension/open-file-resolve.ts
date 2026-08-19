@@ -15,8 +15,9 @@ import * as path from 'node:path'
 export interface OpenFileTarget {
   /** The path part exactly as it appeared in the text. */
   path: string
-  /** 1-based start line. */
-  line: number
+  /** 1-based start line; absent for references without a line suffix
+   * (markdown links), which open at line 1. */
+  line?: number
   /** 1-based end line, for `file.ts:10-20` ranges. */
   endLine?: number
   /** 1-based column, for `file.ts:10:5`. */

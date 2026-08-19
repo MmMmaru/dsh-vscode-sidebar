@@ -11,7 +11,7 @@ import assert from 'node:assert/strict'
 import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { extractFileRefs, splitFileRefs } from '../src/shared/file-refs'
+import { extractFileRefs, splitFileRefs, parseFileHref } from '../src/shared/file-refs'
 import { resolveCandidates, resolveExistingFile } from '../src/extension/open-file-resolve'
 
 // ---------------------------------------------------------------------------
@@ -141,4 +141,74 @@ test('resolveExistingFile rejects directories (the real vscode openTextDocument 
   // `src` exists but is a directory: existsSync would accept it, only a real
   // file counts (directories fail later inside vscode with a cryptic error).
   assert.equal(resolveExistingFile({ path: 'src', line: 1 }, root), null)
+})
+
+// ---------------------------------------------------------------------------
+// parseFileHref: markdown link hrefs as jump targets
+// ---------------------------------------------------------------------------
+
+test('parseFileHref accepts paths without a line suffix (line stays absent)', () => {
+  const absolute = parseFileHref('/home/maru/project/vllm-ascend/vllm_ascend/platform.py')
+  assert.deepEqual(absolute, {
+    path: '/home/maru/project/vllm-ascend/vllm_ascend/platform.py',
+    start: 0,
+    end: '/home/maru/project/vllm-ascend/vllm_ascend/platform.py'.length,
+  })
+  assert.equal(parseFileHref('src/foo.ts')?.path, 'src/foo.ts')
+  assert.equal(parseFileHref('~/dotfiles/.zshrc')?.path, '~/dotfiles/.zshrc')
+  assert.equal(parseFileHref('C:\\proj\\app.ts')?.path, 'C:\\proj\\app.ts')
+})
+
+test('parseFileHref parses colon line, range and column suffixes', () => {
+  const line = parseFileHref('/abs/platform.py:32')
+  assert.equal(line?.line, 32)
+  assert.equal(line?.endLine, undefined)
+  const range = parseFileHref('/abs/platform.py:26-29')
+  assert.deepEqual(range && { path: range.path, line: range.line, endLine: range.endLine }, {
+    path: '/abs/platform.py',
+    line: 26,
+    endLine: 29,
+  })
+  const col = parseFileHref('src/a.ts:10:5')
+  assert.deepEqual(col && { path: col.path, line: col.line, col: col.col }, {
+    path: 'src/a.ts',
+    line: 10,
+    col: 5,
+  })
+  assert.equal(parseFileHref('C:\\proj\\app.ts:7')?.line, 7)
+})
+
+test('parseFileHref parses GitHub #L and #L-L fragments', () => {
+  const single = parseFileHref('/abs/path/platform.py#L32')
+  assert.deepEqual(single && { path: single.path, line: single.line, endLine: single.endLine }, {
+    path: '/abs/path/platform.py',
+    line: 32,
+    endLine: undefined,
+  })
+  const range = parseFileHref('/abs/path/platform.py#L18-L40')
+  assert.deepEqual(range && { path: range.path, line: range.line, endLine: range.endLine }, {
+    path: '/abs/path/platform.py',
+    line: 18,
+    endLine: 40,
+  })
+  // Inverted ranges and zero lines are not jump targets.
+  assert.equal(parseFileHref('/abs/platform.py#L40-L18'), null)
+  assert.equal(parseFileHref('/abs/platform.py#L0'), null)
+})
+
+test('parseFileHref rejects scheme URLs, protocol-relative URLs and anchors', () => {
+  assert.equal(parseFileHref('https://example.com/x.py'), null)
+  assert.equal(parseFileHref('http://example.com/x.py#L3'), null)
+  assert.equal(parseFileHref('mailto:a@b.c'), null)
+  assert.equal(parseFileHref('//host/x.py'), null)
+  // Pure in-page anchors and non-line fragments are not file targets.
+  assert.equal(parseFileHref('#L3'), null)
+  assert.equal(parseFileHref('#section'), null)
+  assert.equal(parseFileHref('/abs/a.py#section'), null)
+  // Bare words without separator/extension are not paths.
+  assert.equal(parseFileHref('README'), null)
+  // Colon digits mid-href (not a clean suffix) stay ambiguous: rejected.
+  assert.equal(parseFileHref('/abs/a.ts:10/extra'), null)
+  // A colon line suffix AND a line fragment together are ambiguous: rejected.
+  assert.equal(parseFileHref('/abs/a.ts:10#L20'), null)
 })
