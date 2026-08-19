@@ -1,5 +1,10 @@
 # 进展记录
 
+### 08-19 11:36
+- 0.0.11 markdown 文件链接跳转（用户实测三种格式全失败触发）：根因双层的——file-refs 正则只认裸文本 `path:digits`，且 MarkdownBlock 的 `a` 渲染器把文件链接当外链。修：新增 `parseFileHref`（fragment `#L<n>`/`#L<n>-L<m>` 剥离解析 + 冒号行号三后缀，歧义拒收；scheme URL/页内锚拒收；Windows 盘符放行）；FileRef.line 改可选（无行号开第 1 行，open-file.ts `line ?? 1`）；`a` 渲染器命中文件引用则渲染 FileRefChip（label=链接文本）；streaming 快路径顺带识别 `[text](href)`。
+- 测试：单测 90 绿（file-refs +4、markdown-block +3）；e2e RJ-1 补 `#L18-L40` 链接点击 reveal 17-39 行断言；全量 e2e 复核绿（switch-repro live 一次偶发失败，复跑即过，与本次无关）。
+- 版本升 0.0.11：CHANGELOG/TODO/PROGRESS 同步，VSIX 重打安装。注：docs/TODO.md 含用户手写新增的两条待办（统一缩放/session 指示数字），随本版提交入库。
+
 ### 08-19 10:35
 - 0.0.10 四项（swarm 三 worker：conversation 性能 / chat-list 菜单 / 代码跳转全链路）：① 长文本卡顿——参考 codex/VS Code chat 同病（microsoft/vscode#297349），`.conv-node` 加 `content-visibility:auto + contain-intrinsic-size` 屏外跳过渲染，NodeView 改 memo（store 投影复用未变节点引用，按引用 memo 安全）；② ⋯菜单不跟随行——根因 li 无 position，`.session-menu` 包含块是整个 chat-list 面板永远贴顶，补 `.session-list > li{position:relative}`；③ SegmentRail 左侧竖线删除；④ 代码跳转无效——根因是真实环境失败仅主窗口通知 webview 零反馈 + `existsSync` 把目录误判可打开，修：`ide-open-file` 加请求/响应回执（id 关联、5s 超时兜底、向后兼容），chip 失败 3 秒原位红态显原因，流式文本也渲染 chip，解析改 `statSync().isFile()`。
 - 测试：单测 83 绿（新增 conversation-perf 4、open-file-message 3、markdown-block 2；file-refs 补目录拒收）；e2e 新增 DEL-2（菜单跟随行，断言顶缘对齐——比中心会被菜单高度带偏，集成阶段修正）+ RJ-1 加强失败回执断言；全量 e2e 复核。

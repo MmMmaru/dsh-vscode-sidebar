@@ -3,6 +3,21 @@
 本插件所有重要变更记录。格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)；
 版本号与 `package.json` 的 `version` 保持一致。
 
+## [0.0.11] - 2026-08-19
+
+### 修复
+
+- **markdown 文件链接跳转**：模型输出的 `[文本](路径)` 链接此前被当外部链接一律
+  新窗口打开（webview 中无效）。现经 `parseFileHref` 识别为文件引用则渲染为跳转 chip
+  （label=链接文本），支持绝对/相对/`~/`/Windows 盘符路径，行号格式覆盖
+  `#L32`、`#L18-L40`、`:26`、`:26-29`、`:26:5`，无行号打开第 1 行；
+  外链（http/https/mailto）与页内锚保持原行为；流式期间同样识别
+
+### 测试
+
+- file-refs +4（parseFileHref 全格式/拒收）、markdown-block +3（链接 chip/外链不变/
+  流式识别）；RJ-1 新增 `#L18-L40` 链接点击断言 reveal 17-39 行
+
 ## [0.0.10] - 2026-08-19
 
 ### 新增

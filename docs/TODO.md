@@ -39,6 +39,8 @@ session管理内标点提示
 - [ ] 32. TODO栏目颜色代表执行与代办
 - [ ] 33. 框线淡化，优化前端组件设计
 - [ ] 34. ide上下文注入就说：ide上下文注入，后面不需要
+- [] think, 工具调用等做统一缩放，只全量显示模型输出对话内容
+- [] 多会话运行时 session指示数字过细，优化数字显示。
 
 ### 项目harness
 - [ ] 36. 补充使用playwright构建的e2e test。
@@ -47,7 +49,10 @@ session管理内标点提示
 
 ## 已完成（按版本，新→旧）
 
-### 0.0.10（当前版）
+### 0.0.11（当前版）
+- [x] 5 关联. markdown 文件链接跳转（`[文本](路径)` 识别为 chip：支持绝对/相对/`~`/盘符 + `#L32`/`#L18-L40`/`:26`/`:26-29`/`:26:5` 行号，无行号开第 1 行；外链与页内锚不变；流式同样识别；e2e RJ-1 补 reveal 断言）
+
+### 0.0.10
 - [x] 新增. 长文本渲染卡顿治理（参考 codex/VS Code chat 同病 issue #297349：`.conv-node` 加 content-visibility 屏外跳过渲染 + NodeView memo 消除流式期全量重解析）
 - [x] 新增. 删除会话菜单不跟随会话位置（根因：`.session-menu` 绝对定位包含块是整个面板——li 无 position；补 `.session-list > li{position:relative}`；e2e DEL-2）
 - [x] 新增. 上下滑动组件旁边竖线删除（`.segment-rail` 的 border-left）
