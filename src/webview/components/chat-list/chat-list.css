@@ -150,6 +150,13 @@
   min-height: 0;
 }
 
+/* 行容器（li）必须是 ⋯ 菜单（.session-menu 绝对定位）的包含块：此前 li 无
+ * position，菜单一路向上落到 .chat-list section 的相对定位上，top:0 使菜单
+ * 永远贴在面板顶部而不跟随被点击的行。 */
+.session-list > li {
+  position: relative;
+}
+
 .session-row {
   position: relative;
   padding: 6px 8px;
