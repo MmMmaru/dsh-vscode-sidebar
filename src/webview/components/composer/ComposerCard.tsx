@@ -4,7 +4,7 @@
  * (OverlayHost mount point — pending takeover panels replace the input area —
  * AttachmentRail, ComposerInput, and the toolbar row: + file picker and
  * PermissionSelect on the left, ModelSelect / ContextMeter / SendStopButton
- * on the right), plus StatsLine below. Owns the draft text, the not-yet-sent
+ * on the right). Owns the draft text, the not-yet-sent
  * image attachments with their intake pre-check (5 images max, 5MB each,
  * png/jpeg/webp/gif; a violating batch is rejected whole with a toast), and
  * the drag & drop intake listeners.
@@ -27,7 +27,6 @@ import { ModelSelect } from './ModelSelect'
 import { PermissionSelect } from './PermissionSelect'
 import { QueueDock } from './QueueDock'
 import { SendStopButton } from './SendStopButton'
-import { StatsLine } from './StatsLine'
 import { SubagentDock } from './SubagentDock'
 import { TodoPanel } from './TodoPanel'
 import './composer.css'
@@ -351,7 +350,6 @@ export function ComposerCard(): JSX.Element {
         )}
         {dragActive && <div className="composer-drop-overlay">松开以添加图片</div>}
       </div>
-      <StatsLine />
     </section>
   )
 }

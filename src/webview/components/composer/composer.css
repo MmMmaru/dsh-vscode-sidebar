@@ -401,9 +401,70 @@
 /* --- context meter --- */
 
 .context-meter {
+  position: relative; /* anchors the popup */
+  display: inline-flex;
+  align-items: center;
+}
+
+/* The ring is a button (opens the stats popup); reset the base button look. */
+.context-meter-btn {
   display: inline-flex;
   align-items: center;
   gap: 3px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+
+/* Stats popup above the ring: shared floating-card tokens (0.0.8). */
+.context-meter-pop {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  right: 0;
+  z-index: 30;
+  min-width: 200px;
+  max-width: min(320px, calc(100vw - 16px));
+  padding: 8px 10px;
+  background: var(--dsh-bg-raised);
+  border: 1px solid var(--dsh-border-soft);
+  border-radius: var(--dsh-radius-lg);
+  box-shadow: var(--dsh-shadow-card);
+  animation: ovl-enter 180ms ease-out;
+  font-size: 0.85em;
+}
+
+.context-meter-pop-title {
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+
+.context-meter-pop-section {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 4px 0;
+  border-top: 1px solid var(--dsh-border-soft);
+}
+
+.context-meter-pop-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--dsh-fg-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.context-meter-pop-value {
+  color: var(--dsh-fg);
+  font-variant-numeric: tabular-nums;
+}
+
+.context-meter-pop-empty {
+  justify-content: flex-start;
 }
 
 .context-meter-pct {
@@ -729,17 +790,6 @@
   font-size: 0.8em;
 }
 
-/* --- stats line --- */
-
-.stats-line {
-  padding: 0 8px;
-  color: var(--dsh-fg-muted);
-  font-size: 0.8em;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
 /* --- narrow-width responsive toolbar ---
    The webview width tracks the sidebar width, so viewport media queries are
    the width signal. As the panel narrows, toolbar extras hide in priority
@@ -776,15 +826,6 @@
 @media (max-width: 240px) {
   [data-composer-tool='attach'] {
     display: none;
-  }
-}
-
-/* The stats line truncates wide, but on a narrow panel it wraps so the full
-   information stays reachable instead of vanishing behind an ellipsis. */
-@media (max-width: 480px) {
-  .stats-line {
-    white-space: normal;
-    line-height: 1.4;
   }
 }
 

@@ -7,6 +7,7 @@ declare module 'react-test-renderer' {
     readonly onClick: (...args: never[]) => unknown
     readonly onChange: (event: unknown) => unknown
     readonly onKeyDown: (event: unknown) => unknown
+    readonly children?: unknown
   }
 
   interface ReactTestInstance {

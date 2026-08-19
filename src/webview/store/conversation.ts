@@ -88,13 +88,13 @@ export interface ConversationSlice {
   todos: TodoItem[]
   /** Accumulated token usage of the current/last turn. */
   stats: TurnStats | null
-  /** Durable whole-log stats projection (sessionStats key), drives StatsLine. */
+  /** Durable whole-log stats projection (sessionStats key), drives the ContextMeter popup. */
   sessionStats: SessionStatsProjection | null
-  /** Durable token-billing projection (tokenUsage key), drives StatsLine. */
+  /** Durable token-billing projection (tokenUsage key), drives the ContextMeter popup. */
   tokenUsage: TokenUsageProjection | null
   /** Context occupancy projection (contextPressure key), drives ContextMeter. */
   contextPressure: ContextPressureProjection | null
-  /** Heuristic context composition (contextBreakdown key), ContextMeter tooltip. */
+  /** Heuristic context composition (contextBreakdown key), ContextMeter popup. */
   contextBreakdown: ContextBreakdownProjection | null
   /** Wall time of the last completed turn in ms (drives the turn-tail stats row). */
   lastTurnMs: number | null

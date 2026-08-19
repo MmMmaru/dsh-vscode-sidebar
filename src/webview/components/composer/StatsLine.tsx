@@ -1,19 +1,17 @@
 /**
- * StatsLine (owned by W4): the one-line muted summary under the composer
- * card — turns/steps, LLM/tool wall time, TTFT/decode speed, cache-hit rate,
- * billed tokens. Every figure rides the store's durable whole-log projections
- * (sessionStats / tokenUsage), so paging and compaction cannot change them.
- * Pure helpers mirror the dsh web StatsLine. Pipe-separated groups; a group
- * with no data drops out whole, and a fully empty line renders null.
- * Contract: ARCHITECTURE.md section 5.3 — no props, reads the store slices.
+ * Stats helpers (owned by W4): the session statistics (turns/steps, LLM/tool
+ * wall time, TTFT/decode speed, cache-hit rate, billed tokens) ride the
+ * store's durable whole-log projections (sessionStats / tokenUsage), so
+ * paging and compaction cannot change them. Since 0.0.9 these figures render
+ * inside the ContextMeter popup instead of a permanent line under the
+ * composer; this file keeps the pure helpers (mirroring the dsh web
+ * StatsLine) and the group-building logic.
  */
 
-import type { JSX } from 'react'
 import type {
   SessionStatsProjection,
   TokenUsageProjection,
 } from '../../../extension/protocol/projections'
-import { useAppStore } from '../../store'
 
 /**
  * Compact token count: 517 / 12.2K / 517K / 1.2M (one decimal under three digits).
@@ -91,18 +89,21 @@ function statsGroups(stats: SessionStatsProjection): string[] {
   return groups
 }
 
-export function StatsLine(): JSX.Element | null {
-  const stats = useAppStore((s) => s.sessionStats)
-  const usage = useAppStore((s) => s.tokenUsage)
+/**
+ * All stat groups for the session projections: stats groups plus the billing
+ * lines. Billing rides the durable projection, so these survive paging and
+ * compaction. Gated on actual token activity: a session whose steps all
+ * settled without billing shows its counts without a zero-token group.
+ * @param stats - the session's sessionStats projection value.
+ * @param usage - the session's tokenUsage projection value.
+ * @returns pipe-separated groups (each one display row), empty when no data.
+ */
+export function statsLineGroups(stats: SessionStatsProjection | null, usage: TokenUsageProjection | null): string[] {
   const groups: string[] = stats === null ? [] : statsGroups(stats)
-  // Billing rides the durable projection, so these survive paging and
-  // compaction. Gated on actual token activity: a session whose steps all
-  // settled without billing shows its counts without a zero-token group.
   if (usage !== null && (billedInputTokens(usage) > 0 || usage.outputTokens > 0)) {
     const cacheHit = cacheHitPercent(usage)
     if (cacheHit !== null) groups.push(`Cache hit ${cacheHit}%`)
     groups.push(`Input ${formatTokens(billedInputTokens(usage))} tok · Output ${formatTokens(usage.outputTokens)} tok`)
   }
-  if (groups.length === 0) return null
-  return <div className="stats-line">{groups.join(' | ')}</div>
+  return groups
 }

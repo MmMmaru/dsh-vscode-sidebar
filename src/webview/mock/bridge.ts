@@ -90,7 +90,7 @@ const archived = new Set<SessionId>()
 
 /**
  * Projection baseline served with the demo session's history tail page. The
- * figures are chosen so StatsLine reads
+ * figures are chosen so the ContextMeter popup reads
  * `1 turns · 17 steps | LLM 2m24s · Tool call 0.3s | TTFT avg 2.2s · 112 tok/s
  * | Cache hit 92% | Input 509K tok · Output 12K tok` and ContextMeter sits at
  * 45% of a 128K window.
