@@ -104,7 +104,8 @@
 .chat-list-running-spinner {
   position: absolute;
   inset: 0;
-  border: 1.5px solid var(--dsh-border);
+  /* 2px 描边，与单会话行的 .status-spin 圆环对齐。 */
+  border: 2px solid var(--dsh-border);
   border-top-color: var(--dsh-accent);
   border-radius: 50%;
   animation: chat-list-spin 0.8s linear infinite;
@@ -169,23 +170,42 @@
   color: var(--dsh-fg-muted);
 }
 
+/* 悬浮触发钮：绝对定位钉在行右缘（盖在时间文本上方），不参与 flex 布局，
+ * hover 不再引起标题重排。用 opacity 而非 display 隐藏以保持行盒稳定；
+ * 未 hover 时关掉 pointer-events，避免隐形按钮吞掉本应选中会话的点击。 */
 .session-menu-trigger {
-  flex: none;
-  display: none;
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: inline-flex;
   align-items: center;
   justify-content: center;
   width: 22px;
   height: 22px;
   color: var(--dsh-fg-muted);
   padding: 0;
+  background: var(--dsh-bg);
+  border-radius: var(--dsh-radius);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 120ms ease-out;
+}
+
+/* 下拉卡片里的行盖在 raised 底色上，trigger 背景随之切换。 */
+.chat-list-dropdown .session-menu-trigger {
+  background: var(--dsh-bg-raised);
 }
 
 .session-row:hover .session-menu-trigger {
-  display: inline-flex;
+  opacity: 1;
+  pointer-events: auto;
 }
 
+/* hover 时时间文本保留 flex 占位（不触发重排），只是淡出到 trigger 底下。 */
 .session-row:hover .session-time {
-  display: none;
+  opacity: 0;
+  transition: opacity 120ms ease-out;
 }
 
 /* Hover menu: floats on the SAME line as the ⋯ trigger, extending left into
