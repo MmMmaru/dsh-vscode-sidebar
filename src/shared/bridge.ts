@@ -102,7 +102,10 @@ export type WebviewMessage =
   | { type: 'ide-request'; kind: IdeContentKind; id?: string }
   /** Ask the extension host to open a `path:line` reference (code jump). The
    * path is resolved session-cwd-first, then workspace-root; the target range
-   * is revealed and highlighted in the editor. */
+   * is revealed and highlighted in the editor. An `id` turns it into a
+   * request/response pair answered by `ide-open-file-result`, so the webview
+   * can surface failures in-place (the VSCode notification alone is easy to
+   * miss while watching the sidebar). */
   | {
       type: 'ide-open-file'
       path: string
@@ -111,6 +114,8 @@ export type WebviewMessage =
       col?: number
       /** Session working directory the webview resolved the ref against. */
       cwd?: string
+      /** Correlation id echoed by `ide-open-file-result`. */
+      id?: string
     }
 
 /** Messages the extension host sends to the webview. */
@@ -133,3 +138,9 @@ export type ExtensionMessage =
    * extension reads the active editor and posts the text back here.
    */
   | ({ type: 'ide-content' } & IdeContentPayload)
+  /**
+   * Code-jump receipt answering an `ide-open-file` that carried an `id`:
+   * `path` is the resolved absolute file on success; `error` is the
+   * human-readable failure (unresolvable path, vscode open failure).
+   */
+  | { type: 'ide-open-file-result'; id: string; path?: string; error?: string }

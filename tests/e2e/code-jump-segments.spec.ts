@@ -126,9 +126,14 @@ test('RJ-1: file refs in assistant text render as chips and open the file', asyn
   expect(reveal?.range.end.line).toBe(9)
   expect(reveal?.type).toBe(1) // TextEditorRevealType.InCenter
 
-  // A missing file surfaces the extension's error notification.
+  // A missing file surfaces the extension's error notification AND flips the
+  // chip to its error state through the real `ide-open-file-result` receipt
+  // round-trip (the failure is visible where the user clicked).
   await chips.nth(2).click()
   await expect.poll(() => harness.errorNotifications().join('\n')).toContain('找不到文件')
+  await expect(chips.nth(2)).toHaveClass(/file-ref-failed/)
+  // The successful jump left its chip in the normal state.
+  await expect(chips.nth(0)).not.toHaveClass(/file-ref-failed/)
 })
 
 // ---------------------------------------------------------------------------

@@ -133,3 +133,12 @@ test('resolveExistingFile finds the file in cwd first, then the workspace root',
   // missing file resolves to null.
   assert.equal(resolveExistingFile({ path: 'nope.ts', line: 1, cwd }, root), null)
 })
+
+test('resolveExistingFile rejects directories (the real vscode openTextDocument rejects them)', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'dsh-open-file-'))
+  const root = join(dir, 'ws-root')
+  mkdirSync(join(root, 'src'), { recursive: true })
+  // `src` exists but is a directory: existsSync would accept it, only a real
+  // file counts (directories fail later inside vscode with a cryptic error).
+  assert.equal(resolveExistingFile({ path: 'src', line: 1 }, root), null)
+})

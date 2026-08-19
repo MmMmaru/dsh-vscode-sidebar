@@ -70,6 +70,7 @@ Webview → Extension：
 | `rpc` | `{ id: string, method: string, params?: unknown }` | 透传 dsh RPC，method 如 `session.list` |
 | `respond` | `{ kind: 'approval', approvalId, decision }` 或 `{ kind: 'question', sessionId, answers }` | 应答 approval/question 请求帧（修订 2 新增）。请求帧是 server-request，应答须 POST /api/respond 并回显帧的 rpcId；但 MuxFrame 不带 rpcId，webview 用 `approvalId`/`sessionId` 关联，由扩展侧从 DshClient 的 pending 表反查 rpcId。 |
 | `ide-request` | `{ kind: 'selection' \| 'active-file' }` | 向扩展宿主请求 IDE 内容（活动编辑器选中内容 / 整文件），应答为 `ide-content`（修订 3 新增） |
+| `ide-open-file` | `{ path, line, endLine?, col?, cwd?, id? }` | 代码跳转：请求扩展宿主打开 `path:line` 引用（路径按 会话cwd→workspace 解析）。带 `id` 时应答为 `ide-open-file-result`（0.0.10 新增回执） |
 
 Extension → Webview：
 
@@ -81,6 +82,7 @@ Extension → Webview：
 | `host-status` | `{ status: 'starting' \| 'ready' \| 'down' }` | host 生命周期通知 |
 | `command` | `{ command: 'newChat' \| 'openSettings' }` | 工具栏命令转发（W1 新增；store 侧决定行为） |
 | `ide-content` | `{ kind, text, path?, error? }` | 应答 `ide-request`（或 `dsh.insertSelection` / `dsh.insertActiveFile` 命令），携带编辑器文本与来源路径（修订 3 新增） |
+| `ide-open-file-result` | `{ id, path?, error? }` | 代码跳转回执（0.0.10 新增）：成功带解析后的绝对路径，失败带原因，供 chip 原地显示失败态 |
 
 ## 4. 扩展宿主侧模块
 
@@ -159,7 +161,7 @@ class Bridge {
   postIdeContent(kind: IdeContentKind, targets: Iterable<vscode.Webview>): void
 }
 ```
-功能：`ready` → 回 `init`（cwd 先经 `workspace.create` 解析规范路径再过滤 `session.list`，并携带 `pendingOverlays` 重放）；`rpc` → 调 `client.rpc` 后回 `rpc-result`；`ide-request` → 读活动编辑器回 `ide-content`；client 事件 → 推 `event`；host 状态变化 → 推 `host-status`。webview 销毁时清理订阅。
+功能：`ready` → 回 `init`（cwd 先经 `workspace.create` 解析规范路径再过滤 `session.list`，并携带 `pendingOverlays` 重放）；`rpc` → 调 `client.rpc` 后回 `rpc-result`；`ide-request` → 读活动编辑器回 `ide-content`；`ide-open-file` → 解析并打开目标文件（带 `id` 时回 `ide-open-file-result`，失败另弹错误通知）；client 事件 → 推 `event`；host 状态变化 → 推 `host-status`。webview 销毁时清理订阅。
 **OverlayRetention（修订 3）**：构造时注册常驻 client 级 mux 订阅，记录 approval/question 请求帧、按 resolved 帧清除；侧边栏 webview 隐藏即被 VSCode 销毁，重放缓冲保证切回后 pending 接管（askuserquestion）不丢失。
 
 ### 4.6 `overlay-retention.ts` — 待应答帧重放缓冲（纯模块，可单测）

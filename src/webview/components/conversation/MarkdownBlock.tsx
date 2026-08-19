@@ -5,9 +5,11 @@
  * strategy); once settled it renders full GitHub-flavored Markdown with
  * copyable code blocks.
  *
- * Code jump (TODO 5): settled text nodes are scanned for `path:line`
- * references (src/shared/file-refs.ts) and each match renders as a clickable
- * chip that asks the extension host to open the file at that range.
+ * Code jump (TODO 5): text nodes are scanned for `path:line` references
+ * (src/shared/file-refs.ts) and each match renders as a clickable chip that
+ * asks the extension host to open the file at that range. The streaming fast
+ * path renders the same chips on plain text; a failed jump flips the chip to
+ * an error state with the host's reason in the tooltip.
  */
 
 import { Children, cloneElement, isValidElement, useState, type JSX, type ReactElement, type ReactNode } from 'react'
@@ -48,11 +50,15 @@ function CodeBlock(props: { className?: string; children?: React.ReactNode }): J
 /**
  * Clickable chip for one `path:line` reference: opens the file in the IDE via
  * the extension host, resolving the path against the active session's cwd.
+ * A failed jump (unresolvable path, vscode open error, timeout) flips the
+ * chip to a brief error state — the extension's receipt carries the reason,
+ * so the failure is visible where the user clicked.
  */
 function FileRefChip(props: { ref: FileRef }): JSX.Element {
   const activeSessionId = useAppStore((s) => s.activeSessionId)
   const sessions = useAppStore((s) => s.sessions)
   const workspaceCwd = useAppStore((s) => s.cwd)
+  const [error, setError] = useState<string | null>(null)
 
   const jump = (): void => {
     const session = sessions.find((s) => s.sessionId === activeSessionId)
@@ -62,6 +68,10 @@ function FileRefChip(props: { ref: FileRef }): JSX.Element {
       ...(props.ref.endLine === undefined ? {} : { endLine: props.ref.endLine }),
       ...(props.ref.col === undefined ? {} : { col: props.ref.col }),
       ...(session?.cwd === undefined ? {} : { cwd: session.cwd }),
+    }).catch((err: unknown) => {
+      const reason = err instanceof Error ? err.message : String(err)
+      setError(reason)
+      setTimeout(() => setError(null), 3000)
     })
     void workspaceCwd // resolution base lives in the store; kept for future use
   }
@@ -69,13 +79,14 @@ function FileRefChip(props: { ref: FileRef }): JSX.Element {
   return (
     <button
       type="button"
-      className="file-ref"
-      title={`在编辑器中打开 ${props.ref.path}:${props.ref.line}`}
+      className={error === null ? 'file-ref' : 'file-ref file-ref-failed'}
+      title={error ?? `在编辑器中打开 ${props.ref.path}:${props.ref.line}`}
       onClick={jump}
     >
       {props.ref.path}:{props.ref.line}
       {props.ref.endLine !== undefined ? `-${props.ref.endLine}` : ''}
       {props.ref.col !== undefined ? `:${props.ref.col}` : ''}
+      {error !== null ? ' ✗' : ''}
     </button>
   )
 }
@@ -117,7 +128,9 @@ function withFileRefs(children: ReactNode, keyBase: string): ReactNode[] {
 /** Assistant markdown block; plain-text fast path while streaming. */
 export function MarkdownBlock(props: { text: string; streaming: boolean }): JSX.Element {
   if (props.streaming) {
-    return <div className="md-plain">{props.text}</div>
+    // Fast path stays plain text, but refs still render as chips so a jump is
+    // clickable before the message settles (long turns stream for a while).
+    return <div className="md-plain">{renderRefs(props.text, 's')}</div>
   }
   return (
     <div className="md-body">

@@ -101,7 +101,7 @@ export class Bridge {
         this.handleIdeRequest(webview, message.kind, message.id)
         break
       case 'ide-open-file':
-        void this.handleOpenFile(message)
+        void this.handleOpenFile(webview, message)
         break
     }
   }
@@ -109,17 +109,28 @@ export class Bridge {
   /**
    * Open a `path:line` reference from the webview (code jump): resolve the
    * path against the session cwd / workspace root and reveal the target range
-   * in the editor. Failures surface as an error notification.
+   * in the editor. Failures surface as an error notification AND, when the
+   * message carried an `id`, ride the `ide-open-file-result` receipt so the
+   * chip can show the failure in-place (sidebar users miss the main-window
+   * notification).
    */
-  private async handleOpenFile(message: Extract<WebviewMessage, { type: 'ide-open-file' }>): Promise<void> {
+  private async handleOpenFile(
+    webview: vscode.Webview,
+    message: Extract<WebviewMessage, { type: 'ide-open-file' }>,
+  ): Promise<void> {
     try {
       const workspaceRoot = this.workspaceCwd()
-      await openFileAt(
+      const file = await openFileAt(
         { path: message.path, line: message.line, endLine: message.endLine, col: message.col, cwd: message.cwd },
         workspaceRoot,
       )
+      if (message.id !== undefined) this.post(webview, { type: 'ide-open-file-result', id: message.id, path: file })
     } catch (error) {
-      void vscode.window.showErrorMessage(`DSH 代码跳转失败：${errorMessage(error)}`)
+      const reason = errorMessage(error)
+      if (message.id !== undefined) {
+        this.post(webview, { type: 'ide-open-file-result', id: message.id, error: reason })
+      }
+      void vscode.window.showErrorMessage(`DSH 代码跳转失败：${reason}`)
     }
   }
 

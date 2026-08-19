@@ -48,13 +48,15 @@ export function resolveCandidates(target: OpenFileTarget, workspaceRoot: string)
   return candidates
 }
 
-/** First existing candidate, or null when none resolves. */
+/** First existing candidate, or null when none resolves. Directories do not
+ * count: the real vscode `openTextDocument` rejects them (the e2e stub does
+ * not), so accepting a directory here would surface as a late open failure. */
 export function resolveExistingFile(target: OpenFileTarget, workspaceRoot: string): string | null {
   for (const candidate of resolveCandidates(target, workspaceRoot)) {
     try {
-      if (fs.existsSync(candidate)) return candidate
+      if (fs.statSync(candidate).isFile()) return candidate
     } catch {
-      // Unreadable path (permissions, invalid characters): try the next one.
+      // Missing or unreadable path (permissions, invalid characters): try the next one.
     }
   }
   return null

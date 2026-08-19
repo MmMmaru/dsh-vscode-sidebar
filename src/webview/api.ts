@@ -59,8 +59,10 @@ export interface BridgeClient {
   /** Correlated request/response: resolve with the payload (or an error
    * payload) once the extension host answers. */
   fetchIdeContent: (kind: IdeContentKind) => Promise<IdeContentPayload>
-  /** Ask the extension host to open a `path:line` reference (code jump). */
-  openFileInIde: (target: { path: string; line: number; endLine?: number; col?: number; cwd?: string }) => void
+  /** Ask the extension host to open a `path:line` reference (code jump).
+   * Resolves once the host confirms the open; rejects with the host's reason
+   * (or a timeout) so the chip can show the failure in-place. */
+  openFileInIde: (target: { path: string; line: number; endLine?: number; col?: number; cwd?: string }) => Promise<void>
 }
 
 interface PendingRpc {
@@ -70,6 +72,7 @@ interface PendingRpc {
 
 const pendingRpcs = new Map<string, PendingRpc>()
 const pendingIde = new Map<string, (content: IdeContentPayload) => void>()
+const pendingOpenFiles = new Map<string, { resolve: () => void; reject: (error: Error) => void }>()
 const eventListeners = new Set<(channel: 'mux' | 'host', frame: unknown) => void>()
 const statusListeners = new Set<(status: HostStatus) => void>()
 const commandListeners = new Set<(command: 'newChat' | 'openSettings') => void>()
@@ -81,6 +84,10 @@ let readySent = false
 /** Deadline for a correlated ide-request; the extension host always answers,
  * this only guards against a wedged message channel. */
 const IDE_REQUEST_TIMEOUT_MS = 2000
+
+/** Deadline for a correlated ide-open-file; opening a large file can take a
+ * moment, so this is looser than the ide-request deadline. */
+const OPEN_FILE_TIMEOUT_MS = 5000
 
 // Guarded for non-DOM hosts (mock verification under node).
 if (typeof window !== 'undefined') {
@@ -132,6 +139,14 @@ if (typeof window !== 'undefined') {
           }
         }
         for (const cb of ideContentListeners) cb(payload)
+        break
+      }
+      case 'ide-open-file-result': {
+        const pending = pendingOpenFiles.get(message.id)
+        if (pending === undefined) break
+        pendingOpenFiles.delete(message.id)
+        if (message.error !== undefined) pending.reject(new Error(message.error))
+        else pending.resolve()
         break
       }
     }
@@ -275,8 +290,11 @@ export function fetchIdeContent(kind: IdeContentKind): Promise<IdeContentPayload
 /**
  * Ask the extension host to open a `path:line` reference in the IDE. The
  * extension resolves the path (session cwd first, workspace root second) and
- * reveals/highlights the target range.
+ * reveals/highlights the target range, then answers with an
+ * `ide-open-file-result` receipt echoing the correlation id.
  * @param target - the parsed reference plus the session cwd for resolution.
+ * @returns resolves on success; rejects with the extension's reason (or a
+ * timeout guard against a wedged channel) on failure.
  */
 export function openFileInIde(target: {
   path: string
@@ -284,7 +302,18 @@ export function openFileInIde(target: {
   endLine?: number
   col?: number
   cwd?: string
-}): void {
-  if (vscode === null) throw new Error('vscode webview API unavailable (use the mock bridge)')
-  vscode.postMessage({ type: 'ide-open-file', ...target })
+}): Promise<void> {
+  if (vscode === null) return Promise.reject(new Error('vscode webview API unavailable (use the mock bridge)'))
+  const id = crypto.randomUUID()
+  return new Promise((resolve, reject) => {
+    pendingOpenFiles.set(id, { resolve, reject })
+    vscode.postMessage({ type: 'ide-open-file', id, ...target })
+    setTimeout(() => {
+      const pending = pendingOpenFiles.get(id)
+      if (pending !== undefined) {
+        pendingOpenFiles.delete(id)
+        pending.reject(new Error('代码跳转超时'))
+      }
+    }, OPEN_FILE_TIMEOUT_MS)
+  })
 }
