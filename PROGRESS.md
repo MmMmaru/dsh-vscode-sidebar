@@ -1,5 +1,10 @@
 # 进展记录
 
+### 08-19 10:07
+- 0.0.9 五项 UI 改进（swarm 三个并行 worker 按目录分工：composer / conversation / chat-list，集成统一收口）：① StatsLine 常驻行移除，并入 ContextMeter 点击弹层（statsLineGroups + contextBreakdown 逐行展示，外部点击/Esc 关闭，空数据显示「暂无统计数据」；StatsLine.tsx 仅留纯 helper，SubagentDock 仍从其 import formatDuration）；② 对话区 `overflow-x: hidden` 禁横向滚动，SegmentRail 改绝对定位与垂直滚动条同列（rail 容器 pointer-events:none + tick 恢复 auto，padding-right 12px 让开滚动条）；③ rail 加粗（tick 10×2px、rail 22px、常态 opacity 0.4）——坑：rail 内宽仅 9px，dash 必须 `flex:none` 否则被收缩（RJ-2 实测 9px 抓获）；④ 历史按钮运行徽标 border 1.5→2px 对齐 .status-spin；⑤ session 行 hover 抖动消除（⋯ trigger 改绝对定位 + opacity 切换，加 pointer-events 防透明态吞点击；时间文本 hover 时 opacity:0 保占位，display 切换规则删除）。
+- 测试：单测 73 绿（新增 context-meter-stats 5 例；segment-rail 加 dash 结构断言）；e2e 新增 HOV-1/HOV-2（hover 前后行盒逐像素相等、徽标 2px）、OVL-2（禁横向 + rail 同列布局），RJ-2 适配新布局；全量 e2e 23 绿。
+- 版本升 0.0.9：CHANGELOG/TODO/PROGRESS 同步；CONTEXT.md 新建（swarm 十个分区调研汇总）。
+
 ### 08-19 01:15
 - 0.0.8 UI 美化四项：① 弹窗统一美化（TODO 29：新增 `--dsh-radius-lg/--dsh-border-soft/--dsh-shadow-card` token，接管卡片/历史下拉/会话菜单/确认框统一应用，入场动画改 fade+上浮+缩放 180ms，提问选项选中态改左侧 2px 竖条+淡底）；② 会话状态指示器重做（等待=琥珀呼吸点 / 运行=2px 转圈 / 完成未读=绿点 / 常态不渲染）并修复未读点从未显示的根因——**main.tsx 先引 App 再引 base.css，打包后 base.css 的 `.status-dot` 灰底压过 chat-list.css 同优先级颜色修饰类**，调整为 base.css 最先引入；③ 会话删除修复（window.confirm 在 webview 恒返回 false → 改复用 ConfirmModal，ConfirmModal 提升到 components/common；deleteSession 失败保留列表并抛因）+ ⋯ 实心三点、22px 点击区、菜单同行左浮；④ SegmentRail 概览化重做（删 measureMarkers/scroll 监听/ResizeObserver/rAF，N 条用户消息聚成垂直居中 tick 簇 min(N×10,120)px，previewText 按码点截断 10 字符+…，rail 常态半透明 hover 恢复）。
 - 测试：单测 68 绿（新增 status-indicator 7 例、segment-rail 6 例、todo-fixes deleteSession 失败路径 1 例；esbuild --tests glob 扩到 .test.tsx）；e2e 新增 OVL-1（卡片/菜单 computed style）与 DEL-1（删除闭环），RJ-2 适配新 rail。harness 修复：DSH_HOME 补建 `storages` 目录（workspace 域 RPC 写注册表需要，否则 archiveSession 500）；发现 e2e 会话在 host 端跨运行残留，新用例标题带 per-run 唯一后缀。

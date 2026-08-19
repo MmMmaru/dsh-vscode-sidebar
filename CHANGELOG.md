@@ -3,6 +3,31 @@
 本插件所有重要变更记录。格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)；
 版本号与 `package.json` 的 `version` 保持一致。
 
+## [0.0.9] - 2026-08-19
+
+### 新增
+
+- **统计信息并入上下文弹层**：composer 下方常驻的 StatsLine 统计行移除；点击上下文占用环
+  弹出上浮卡片，展示完整会话统计（turns/steps、LLM/Tool 耗时、TTFT、tok/s、Cache hit、
+  Input/Output tok）+ 上下文组成分解（系统提示/工具/对话），外部点击或 Esc 关闭
+- **会话行 hover 零重排**：⋯ 触发器改绝对定位 + 透明度淡入（覆盖在时间文本上方），
+  hover 前后行的尺寸与标题位置完全不变
+
+### 修复
+
+- **对话区横向滚动移除**：滚动区 `overflow-x: hidden`（代码块/表格自身滚动保留）；
+  右侧 SegmentRail 改绝对定位与垂直滚动条同列，不再独占一列；rail 容器事件穿透，
+  tick 可点击且不挡滚动条拖动
+- **SegmentRail 加粗**：tick 6×1px → 10×2px，rail 宽 18px → 22px，常态透明度 0.25 → 0.4
+- **session 管理旋转条加粗**：历史按钮运行徽标 border 1.5px → 2px，与单会话行的
+  运行转圈粗细对齐
+
+### 测试
+
+- 新增 `context-meter-stats.test.tsx`（弹层内容/外部点击/Esc 关闭/空数据，5 例）；
+  e2e 新增 HOV-1/HOV-2（hover 前后行盒逐像素相等 + 徽标 2px）与 OVL-2（禁横向滚动 +
+  rail 同列布局断言）；RJ-2 适配 rail 新布局
+
 ## [0.0.8] - 2026-08-19
 
 ### 新增
