@@ -71,11 +71,13 @@ export const createSessionsSlice: StateCreator<AppStore, [], [], SessionsSlice> 
   },
 
   newChat: async () => {
-    // Reuse the active session when it is still blank instead of minting
-    // another empty one (matches dsh web's blank-session reuse).
+    // Reuse the active session when it is still blank OR its conversation has
+    // no content yet (no user input) instead of minting another empty one —
+    // clicking "new chat" on an empty session must not create a new session.
     const activeId = get().activeSessionId
     const active = get().sessions.find((s) => s.sessionId === activeId)
-    if (active !== undefined && active.blank === true) return
+    const emptyConversation = activeId !== null && get().nodes.length === 0
+    if (active !== undefined && (active.blank === true || emptyConversation)) return
     // Group the session under the per-root workspace so the dsh web UI can
     // manage it. workspace.create is idempotent per canonical path; if the
     // host predates workspaces, fall back to a plain cwd-scoped create.

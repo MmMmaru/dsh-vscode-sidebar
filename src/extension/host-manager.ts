@@ -108,7 +108,9 @@ export class HostManager {
    */
   async spawn(port: number): Promise<HostInfo> {
     const command = await this.resolveCommand()
-    const args = [...command.args, 'web', '--host', '127.0.0.1', '--port', String(port)]
+    // --no-open（AGENTS.md）: the sidebar itself is the UI — spawning the host
+    // must not pop the dsh Web UI in the default browser (e2e included).
+    const args = [...command.args, 'web', '--no-open', '--host', '127.0.0.1', '--port', String(port)]
     this.log.appendLine(`[host-manager] spawn: ${command.bin} ${args.join(' ')}`)
     // detached (POSIX): the npx fallback is a wrapper chain (npx -> sh -> node);
     // its own process group lets dispose() kill the whole tree instead of

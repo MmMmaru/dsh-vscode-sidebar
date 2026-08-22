@@ -13,24 +13,27 @@
 import { useState, type JSX } from 'react'
 import type { ToolCallNode } from '../../types'
 import { activeView, ToolCard } from './ToolCard'
+import { IconChevron, IconChecklist, IconCode, IconEdit, IconGlobe, IconQuestion, IconSearch } from './icons'
 
-/** Icon per card kind / tool-name heuristic. */
-function toolIcon(node: ToolCallNode): string {
+/** Icon per card kind / tool-name heuristic (dsh ic_ds_* glyphs). */
+function toolIcon(node: ToolCallNode): JSX.Element {
   const view = activeView(node)
   const kind = view?.card ?? guessKind(node.name)
   switch (kind) {
     case 'terminal':
-      return '❯'
+      return <IconCode size={14} />
     case 'read':
-      return '📄'
+      return <IconCode size={14} />
     case 'diff':
-      return '✏️'
+      return <IconEdit size={14} />
     case 'search':
-      return '🔍'
+      return <IconSearch size={14} />
     case 'web':
-      return '🌐'
+      return <IconGlobe size={14} />
+    case 'check':
+      return <IconChecklist size={14} />
     default:
-      return '🔧'
+      return <IconQuestion size={14} />
   }
 }
 
@@ -107,11 +110,12 @@ export function ToolCallRow(props: { node: ToolCallNode }): JSX.Element {
           )}
         </span>
         <span className="tool-row-name">{node.name}</span>
-        <span className="tool-row-dot">·</span>
         <span className={`tool-row-summary${node.status === 'error' ? ' tool-row-summary-error' : ''}`}>
           {toolSummary(node)}
         </span>
-        <span className={`tool-row-chevron${open ? ' tool-row-chevron-open' : ''}`}>›</span>
+        <span className={`tool-row-chevron${open ? ' tool-row-chevron-open' : ''}`} aria-hidden>
+          <IconChevron size={12} />
+        </span>
       </button>
       {open && (
         <div className="tool-row-body">

@@ -15,6 +15,29 @@
   overflow-x: hidden;
 }
 
+/* 淡化滚动条：细轨 + 低对比度滑块，hover 时略微加深；主要通过内容与背景
+   的对比而不是粗边框来分隔区块。 */
+.conversation-view::-webkit-scrollbar {
+  width: 8px;
+}
+
+.conversation-view::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.conversation-view::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--dsh-fg) 14%, transparent);
+  border-radius: 4px;
+}
+
+.conversation-view::-webkit-scrollbar-thumb:hover {
+  background: color-mix(in srgb, var(--dsh-fg) 26%, transparent);
+}
+
+.conversation-view::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
 /* 单列布局：滚动区占满整列，SegmentRail 绝对定位覆盖在右缘滚动条列上。 */
 .conversation-wrap {
   flex: 1 1 auto;
@@ -272,28 +295,30 @@
 .file-ref {
   display: inline-block;
   margin: 0 1px;
-  padding: 0 5px;
-  border: 1px solid var(--dsh-border);
+  padding: 0 6px;
+  border: none;
   border-radius: 4px;
-  background: var(--dsh-bg-raised);
+  /* 兜底先行：不支持 color-mix 的旧内核至少得到半透明中性底，而不是 UA 按钮灰。 */
+  background: rgba(136, 136, 136, 0.18);
+  background: color-mix(in srgb, var(--dsh-fg) 10%, transparent);
   color: var(--dsh-accent);
   font-family: var(--vscode-editor-font-family, ui-monospace, monospace);
   font-size: 0.9em;
-  line-height: 1.5;
+  line-height: 1.6;
   cursor: pointer;
   vertical-align: baseline;
   white-space: nowrap;
 }
 
 .file-ref:hover {
-  border-color: var(--dsh-accent);
+  background: color-mix(in srgb, var(--dsh-fg) 16%, transparent);
   text-decoration: underline;
 }
 
 /* Failed jump (unresolvable path / open error): brief error state, reason in the tooltip. */
 .file-ref-failed,
 .file-ref-failed:hover {
-  border-color: var(--vscode-errorForeground, #f44336);
+  background: color-mix(in srgb, var(--vscode-errorForeground, #f44336) 12%, transparent);
   color: var(--vscode-errorForeground, #f44336);
   text-decoration: none;
 }
@@ -411,13 +436,14 @@
   font-size: 0.85em;
 }
 
-/* Fenced block: dark base, rounded corners, padding, horizontal scroll. */
+/* Fenced block: no border and no filled slab — the monospace face alone sets
+   code apart; horizontal scroll. (条纹 bug 单独排查，见 PROGRESS。) */
 .md-codeblock {
   margin: 8px 0;
-  border: 1px solid var(--dsh-border);
+  border: none;
   border-radius: var(--dsh-radius);
   overflow: hidden;
-  background: var(--vscode-textCodeBlock-background, var(--dsh-bg-raised));
+  background: transparent;
 }
 
 .md-codeblock-header {
@@ -425,8 +451,7 @@
   justify-content: space-between;
   align-items: center;
   padding: 3px 10px;
-  background: var(--dsh-bg-raised);
-  border-bottom: 1px solid var(--dsh-border);
+  border-bottom: none;
   color: var(--dsh-fg-muted);
   font-family: var(--vscode-editor-font-family, monospace);
   font-size: 0.75em;
@@ -484,9 +509,10 @@
   color: var(--dsh-fg-muted);
 }
 
+/* 行内图标与文字垂直居中对齐（baseline 会让 SVG 图标浮到文字上方）。 */
 .reasoning-header {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   gap: 6px;
   width: 100%;
   background: transparent;
@@ -496,12 +522,37 @@
   text-align: left;
 }
 
-.reasoning-label {
-  font-weight: 600;
+.reasoning-icon,
+.tool-row-icon,
+.ctx-row-icon {
+  flex: none;
+  width: 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--dsh-fg-muted);
 }
 
-.reasoning-dot {
-  color: var(--dsh-border);
+.reasoning-chevron,
+.tool-row-chevron {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  color: var(--dsh-fg-muted);
+  /* 收起时指右，展开时转回向下（dsh DisclosureRow 约定）。 */
+  transform: rotate(-90deg);
+  transition: transform 0.15s ease;
+}
+
+.reasoning-row:hover .reasoning-icon,
+.reasoning-row:hover .reasoning-chevron,
+.tool-row-head:hover .tool-row-icon,
+.tool-row-head:hover .tool-row-chevron {
+  color: var(--dsh-fg);
+}
+
+.reasoning-label {
+  font-weight: 600;
 }
 
 .reasoning-summary {
@@ -517,15 +568,9 @@
   animation: dsh-fade-pulse 1.6s ease-in-out infinite;
 }
 
-.reasoning-chevron,
-.tool-row-chevron {
-  flex: none;
-  transition: transform 0.15s ease;
-}
-
 .reasoning-chevron-open,
 .tool-row-chevron-open {
-  transform: rotate(90deg);
+  transform: rotate(0deg);
 }
 
 .reasoning-body {
@@ -537,11 +582,51 @@
   font-size: 0.9em;
 }
 
+/* --- Round group: a whole think/tool-call round folded into one row --- */
+
+.round-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  background: transparent;
+  border: none;
+  color: var(--dsh-fg);
+  padding: 2px 0;
+  text-align: left;
+}
+
+.round-head:hover {
+  background: var(--vscode-list-hoverBackground, rgba(255, 255, 255, 0.06));
+  border-radius: var(--dsh-radius);
+}
+
+.round-summary {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--dsh-fg-muted);
+}
+
+/* Live round (streaming / awaiting tool result): breathing summary. */
+.round-group-live .round-summary {
+  animation: dsh-fade-pulse 1.6s ease-in-out infinite;
+}
+
+.round-body {
+  margin: 4px 0 4px 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
 /* --- Tool rows --- */
 
 .tool-row-head {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   gap: 6px;
   width: 100%;
   background: transparent;
@@ -554,13 +639,6 @@
 .tool-row-head:hover {
   background: var(--vscode-list-hoverBackground, rgba(255, 255, 255, 0.06));
   border-radius: var(--dsh-radius);
-}
-
-.tool-row-icon {
-  flex: none;
-  width: 16px;
-  text-align: center;
-  font-size: 0.9em;
 }
 
 .tool-row-name {
@@ -618,7 +696,7 @@
 /* --- Tool cards (shared) --- */
 
 .tool-card {
-  border: 1px solid var(--dsh-border);
+  border: 1px solid var(--dsh-border-soft);
   border-radius: var(--dsh-radius);
   background: var(--dsh-bg-raised);
   font-size: 0.9em;
@@ -914,7 +992,7 @@
 
 .ctx-row-head {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   gap: 6px;
   width: 100%;
   background: transparent;

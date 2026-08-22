@@ -1,5 +1,16 @@
 # 进展记录
 
+### 08-19 0.0.12 返工二轮（代码块条纹终稿）
+- 用户复验：```text 代码块内仍有"一行一条纹"（已重载仍现）。grill 三问定位（条纹位置=```text 块内 / 期望=整块暗色面板 / 已重载）。排查路径：全样式表唯一逐行上色只有表格斑马纹；自建 Playwright 探针页像素级分析——初版探针 href 路径写错（./media 应为 ../media）导致全程读到 UA 默认值，修正后确认 color-mix 支持正常、新规则生效。终稿按用户定稿落地：`.md-codeblock` 渲染为一整块不透明深色面板——固定 `background:#1b1d21 + color:#d4d4d8`，header/copy 按钮 scoped 灰阶，不随主题翻转、不依赖 color-mix；`.file-ref` 补 `rgba(136,136,136,.18)` 普通色兜底再叠 color-mix（旧内核丢弃增强行时不至于露出 UA 按钮灰 rgb(239,239,239)，那本身就是"小灰条"观感的潜在来源）。
+- 测试：单测 97 绿（conversation-rounds 契约更新为深面板断言）；VSIX 重打安装待验收。
+- 备注：表格斑马纹（rgba(fg,0.04)）与 inline-code 底（theme textCodeBlock.background）经确认不在本次投诉范围，未动。
+
+### 08-19 0.0.12 返工（整轮折叠/对齐/运行数字/暗条）
+- 用户逐条反馈 0.0.12 四项不合格，grill 对齐六决策（一轮定义/摘要详略/圆点归属/暗条归属/数字尺寸/版本留在 0.0.12）后落地：① 折叠语义重做——由"每行各自折叠"改为"一轮全部做折叠"：新增 `conversation/rounds.ts`（`groupRounds` 把连续 Think+工具调用投影为 FlowItem 折叠组、`roundLabel`/`roundSummary` 摘要），ConversationView 按 flowItems 渲染，RoundGroup live 轮（streaming/pending）默认展开、落定 useEffect 自动收起，组内保留原 NodeView 行级详情；② 行头对齐 + 分隔点删除——reasoning/tool/ctx 三种行头 baseline→center（SVG 图标此前浮在文字上方）、图标列统一 16px，`.reasoning-sep` 2px 装饰点连样式带三处引用全删；③ 历史按钮运行数字回调——徽标 18→16px、数字 12px/700→10px/600（用户嫌比会话标题还大）；④ 代码块"暗条"——上轮引入的 `color-mix(fg 6%)` 灰色底即用户所指，`.md-codeblock` 背景改 transparent。
+- 测试：单测 97 绿（新增 tests/conversation-rounds.test.ts 8 例：分组边界/live 判定/标签摘要纯函数 + 分隔点删除/center 对齐/代码块透明样式契约）；双 tsconfig typecheck 绿；全量 e2e 24/24 绿（59.1s）。
+- 追加：host spawn 加 `--no-open`（用户反馈 e2e 一直弹浏览器 + AGENTS.md 新增约定）——e2e harness 复用真实 HostManager（basePort 3200），故在 host-manager.ts 单点修改，测试与生产同享；`dsh web --help` 确认 flag 受支持。
+- 版本留在 0.0.12（未发市场）：CHANGELOG 0.0.12 条目改写、TODO 反馈项补 R2 备注；VSIX 重打安装待验收。
+
 ### 08-19 11:36
 - 0.0.11 markdown 文件链接跳转（用户实测三种格式全失败触发）：根因双层的——file-refs 正则只认裸文本 `path:digits`，且 MarkdownBlock 的 `a` 渲染器把文件链接当外链。修：新增 `parseFileHref`（fragment `#L<n>`/`#L<n>-L<m>` 剥离解析 + 冒号行号三后缀，歧义拒收；scheme URL/页内锚拒收；Windows 盘符放行）；FileRef.line 改可选（无行号开第 1 行，open-file.ts `line ?? 1`）；`a` 渲染器命中文件引用则渲染 FileRefChip（label=链接文本）；streaming 快路径顺带识别 `[text](href)`。
 - 测试：单测 90 绿（file-refs +4、markdown-block +3）；e2e RJ-1 补 `#L18-L40` 链接点击 reveal 17-39 行断言；全量 e2e 复核绿（switch-repro live 一次偶发失败，复跑即过，与本次无关）。

@@ -3,6 +3,27 @@
 本插件所有重要变更记录。格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)；
 版本号与 `package.json` 的 `version` 保持一致。
 
+## [0.0.12] - 2026-08-19
+
+### 新增
+
+- **think/工具调用整轮折叠**：连续的 Think 与工具调用合并为一个可折叠组（一轮一行），收起后对话区只保留用户消息与模型正文输出；进行中的一轮保持展开（实时可见在跑什么），落定后自动收起；展开后组内每行仍可单独拉出完整 think 文本 / 工具卡片。摘要行显示「思考与工具 · N 步 · M 个工具调用 · 工具名」（对齐 dsh web 端 TrajectoryView 摘要风格）
+- **think/工具调用图标全面对齐 dsh 设计**：think 灯泡、下拉 chevron、工具类型图标（terminal/read→code、diff→edit、search→search、web→globe、check→checklist、generic→question）全部改用 dsh `ic_ds_*` 内联 SVG，替换原 emoji（💡/❯/📄/✏️/🔍/🌐/🔧/›）；Context injection 行同步换图标与 chevron
+- **多会话运行计数**：历史按钮以旋转环 + 数字呈现并发运行数，数字 10px/600、徽标 16px，比会话标题小一档不喧宾夺主
+
+### 修复
+
+- **折叠行对齐与杂点清理**：Think/工具/Context injection 行头 baseline→center，SVG 图标与文字垂直居中、图标列统一 16px 宽；删除 label 与摘要之间的 2px 圆点分隔符（视觉上像多余的「.」）
+- **拉起 host 不再弹浏览器**：spawn `dsh web` 增加 `--no-open`（AGENTS.md 约定）——插件拉起后端、e2e 隔离 host 均不再打开默认浏览器的 dsh Web UI（侧边栏本身就是 UI）
+- **代码块改为一整块深色面板**：``` 代码块（含 ```text）不再做任何逐行/半透明底，渲染为固定深底浅字的不透明整块面板（#1b1d21 底 / #d4d4d8 字，不随主题翻转），消除"一行一条纹"观感；file-ref chip 增加普通色兜底，旧内核不再露出 UA 按钮灰
+- **文件跳转 chip 去边框**：`.file-ref` 删除外框，改用淡色背景 + 文字高亮呈现
+- **边框/滑动条淡化**：对话区滚动条细轨低对比度、hover 加深；撑开卡片（工具卡/上下文正文）边框改用更淡的 `--dsh-border-soft`，以明暗对比而非粗线分割
+- **空会话新建不再创建**：点击“新建对话”时若当前会话仍为空白或对话区无任何内容（无输入），直接复用当前会话，不再新建空会话；有内容时才真正创建
+
+### 测试
+
+- 新增 conversation-rounds 单测 8 例：分组边界/live 判定/标签摘要纯函数 + 分隔点删除、center 对齐、代码块透明的样式契约
+
 ## [0.0.11] - 2026-08-19
 
 ### 修复

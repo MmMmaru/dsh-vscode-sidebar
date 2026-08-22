@@ -7,12 +7,14 @@
  * the reader's scroll position. Node kinds dispatch to their row components.
  */
 
-import { memo, useLayoutEffect, useRef, useState, type JSX } from 'react'
+import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState, type JSX } from 'react'
 import type { SessionId } from '../../../extension/protocol/brand'
 import { useAppStore } from '../../store'
-import type { CompactionNode, ContextInjectionNode, ConversationNode, ErrorNode, RetryNode } from '../../types'
+import type { CompactionNode, ContextInjectionNode, ConversationNode, ErrorNode, ReasoningNode, RetryNode, ToolCallNode } from '../../types'
 import { AssistantBubble, MessageBubble } from './MessageBubble'
+import { IconChevron, IconQuestion, IconThink } from './icons'
 import { ReasoningRow } from './ReasoningRow'
+import { groupRounds, roundLabel, roundSummary } from './rounds'
 import { SegmentRail } from './SegmentRail'
 import { ToolCallRow } from './ToolCallRow'
 import { formatDuration, TurnStatusLine } from './TurnStatusLine'
@@ -33,13 +35,53 @@ function ContextInjectionRow(props: { node: ContextInjectionNode }): JSX.Element
   return (
     <div className="ctx-row">
       <button type="button" className="ctx-row-head" onClick={() => setOpen((v) => !v)}>
-        <span aria-hidden>📎</span>
+        <span className="ctx-row-icon" aria-hidden>
+          <IconQuestion size={13} />
+        </span>
         <span className="ctx-row-label">Context injection</span>
-        <span className="tool-row-dot">·</span>
         <span className="tool-row-summary">{label}</span>
-        <span className={`tool-row-chevron${open ? ' tool-row-chevron-open' : ''}`}>›</span>
+        <span className={`tool-row-chevron${open ? ' tool-row-chevron-open' : ''}`} aria-hidden>
+          <IconChevron size={12} />
+        </span>
       </button>
       {open && <pre className="ctx-row-body">{props.node.text}</pre>}
+    </div>
+  )
+}
+
+/**
+ * One collapsible round: a whole run of Think + tool calls folded into a
+ * single disclosure row, so a settled conversation shows only the model's
+ * output prose (TODO 0.0.12 R2). Expanding reveals the individual rows, which
+ * keep their own per-row detail toggles. A live round (still streaming or
+ * awaiting a tool result) starts expanded and auto-collapses when it settles.
+ */
+function RoundGroup(props: { id: string; nodes: Array<ReasoningNode | ToolCallNode>; live: boolean }): JSX.Element {
+  const [open, setOpen] = useState(props.live)
+  useEffect(() => {
+    if (!props.live) setOpen(false)
+  }, [props.live])
+  return (
+    <div className={`round-group${props.live ? ' round-group-live' : ''}`}>
+      <button type="button" className="round-head" aria-expanded={open} onClick={() => setOpen((v) => !v)}>
+        <span className="tool-row-icon" aria-hidden>
+          <IconThink size={13} />
+        </span>
+        <span className="reasoning-label">{roundLabel(props.nodes)}</span>
+        <span className="round-summary">{roundSummary(props.nodes)}</span>
+        <span className={`tool-row-chevron${open ? ' tool-row-chevron-open' : ''}`} aria-hidden>
+          <IconChevron size={12} />
+        </span>
+      </button>
+      {open && (
+        <div className="round-body">
+          {props.nodes.map((n) => (
+            <div key={n.id} className={`conv-node conv-node-${n.kind}`} data-node-id={n.id}>
+              <NodeView node={n} />
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   )
 }
@@ -167,6 +209,9 @@ export function ConversationView({ sessionId }: ConversationViewProps): JSX.Elem
     void loadOlderHistory(sessionId)
   }
 
+  /** Think/tool-call runs folded into collapsible rounds (see rounds.ts). */
+  const flowItems = useMemo(() => groupRounds(nodes), [nodes])
+
   /** SegmentRail click: scroll the message row into view and unpin bottom-follow. */
   const jumpToNode = (nodeId: string): void => {
     const el = scrollRef.current
@@ -198,11 +243,17 @@ export function ConversationView({ sessionId }: ConversationViewProps): JSX.Elem
           <div className="empty-hero">输入消息，开始对话</div>
         ) : (
           <div className="conv-flow">
-            {nodes.map((n) => (
-              <div key={n.id} className={`conv-node conv-node-${n.kind}`} data-node-id={n.id}>
-                <NodeView node={n} />
-              </div>
-            ))}
+            {flowItems.map((item) =>
+              item.kind === 'node' ? (
+                <div key={item.node.id} className={`conv-node conv-node-${item.node.kind}`} data-node-id={item.node.id}>
+                  <NodeView node={item.node} />
+                </div>
+              ) : (
+                <div key={item.id} className="conv-node conv-node-round" data-node-id={item.id}>
+                  <RoundGroup id={item.id} nodes={item.nodes} live={item.live} />
+                </div>
+              ),
+            )}
           </div>
         )}
         {turnStatus === 'running' && turnStartedAt !== null && <TurnStatusLine startedAt={turnStartedAt} />}
