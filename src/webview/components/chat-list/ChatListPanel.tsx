@@ -97,6 +97,7 @@ function SessionRow(props: { session: SessionMeta; waitingSessionId: SessionId |
   const deleteSession = useAppStore((s) => s.deleteSession)
   const forkSession = useAppStore((s) => s.forkSession)
   const [menuOpen, setMenuOpen] = useState(false)
+  const [menuPos, setMenuPos] = useState<{ top: number; right: number } | null>(null)
   const [renaming, setRenaming] = useState(false)
   const [draft, setDraft] = useState('')
   const [confirming, setConfirming] = useState(false)
@@ -104,14 +105,23 @@ function SessionRow(props: { session: SessionMeta; waitingSessionId: SessionId |
   const [deleteFailure, setDeleteFailure] = useState<string | null>(null)
   const menuRef = useRef<HTMLDivElement>(null)
 
-  // Close the hover menu on any outside click.
+  // Close the hover menu on outside click, window scroll, or Escape.
   useEffect(() => {
     if (!menuOpen) return
-    const close = (e: MouseEvent): void => {
+    const close = (e: Event): void => {
       if (menuRef.current !== null && !menuRef.current.contains(e.target as Node)) setMenuOpen(false)
     }
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key === 'Escape') setMenuOpen(false)
+    }
     window.addEventListener('mousedown', close)
-    return () => window.removeEventListener('mousedown', close)
+    window.addEventListener('scroll', close, true)
+    window.addEventListener('keydown', onKey)
+    return () => {
+      window.removeEventListener('mousedown', close)
+      window.removeEventListener('scroll', close, true)
+      window.removeEventListener('keydown', onKey)
+    }
   }, [menuOpen])
 
   const title = session.title ?? '新会话'
@@ -175,14 +185,27 @@ function SessionRow(props: { session: SessionMeta; waitingSessionId: SessionId |
           tabIndex={-1}
           onClick={(e) => {
             e.stopPropagation()
-            setMenuOpen((v) => !v)
+            if (menuOpen) {
+              setMenuOpen(false)
+              return
+            }
+            const rect = e.currentTarget.getBoundingClientRect()
+            const spaceBelow = window.innerHeight - rect.bottom
+            const top = spaceBelow < 120 && rect.top > 120 ? rect.bottom - 110 : rect.top
+            const right = Math.max(8, window.innerWidth - rect.left + 4)
+            setMenuPos({ top: Math.max(8, top), right })
+            setMenuOpen(true)
           }}
         >
           <Icon name="dots" />
         </span>
       </button>
-      {menuOpen && (
-        <div className="session-menu" ref={menuRef}>
+      {menuOpen && menuPos !== null && (
+        <div
+          className="session-menu"
+          ref={menuRef}
+          style={{ position: 'fixed', top: `${menuPos.top}px`, right: `${menuPos.right}px` }}
+        >
           <button
             type="button"
             onClick={() => {

@@ -91,5 +91,5 @@ export function formatIdeInsert(kind: IdeContentKind, text: string, path?: strin
 /** True when the draft already carries an inserted IDE block (chip/command
  * path), so the send-time auto-injection does not duplicate it. */
 export function hasIdeBlock(text: string): boolean {
-  return /### (?:选中代码|文件|当前文件)：/.test(text)
+  return /\[DSH_ATTACHED_TEXT/.test(text) || /### (?:选中代码|文件|当前文件)/.test(text)
 }

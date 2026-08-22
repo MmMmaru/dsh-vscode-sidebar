@@ -6,36 +6,32 @@
 
 ## 待办（未完成）
 
-### 功能
-- [ ] 3. [#1](https://github.com/MmMmaru/dsh-vscode-sidebar/issues/1) 增加自动重启后端功能  
-- [ ] 6. [#6](https://github.com/MmMmaru/dsh-vscode-sidebar/issues/6) ide 上下文注入不需要每次都注入  
-- [ ] 7. [#7](https://github.com/MmMmaru/dsh-vscode-sidebar/issues/7) proxy 自动加载（环境变量自动注入，见 issue body）
-- [ ] 8. subagent管理  
-我觉得这个后台运行的时候至少要有个提示，前台的话就无所谓吧。后面再支持一下前台的美观优化。
+### 配置界面调整
 - [ ] 9. 后端模型真实配置，目前好像不work
 同步web端界面，不要显示所有的provider配置，按照目前已经配置的显示+自定义provider按钮+预定义provider按钮
 - [ ] 11. 插件可配置
 参考web端设计
+
+### 功能
+- [ ] 3. [#1](https://github.com/MmMmaru/dsh-vscode-sidebar/issues/1) 增加自动重启后端功能  
+- [ ] 6. [#6](https://github.com/MmMmaru/dsh-vscode-sidebar/issues/6) ide 上下文注入不需要每次都注入  
+- [ ] 8. subagent管理  
+我觉得这个后台运行的时候至少要有个提示，前台的话就无所谓吧。后面再支持一下前台的美观优化。
 - [ ] 12. GIF展示
 动态演示
 - [ ] 13. 模式动态切换
 调研dsh是否支持动态切换？
 - [ ] 14. 任务完成提示
-session管理内标点提示
 支持音频提示
-- [ ] 17. 英文切换支持
 - [ ] 18. 图片上传预览失败
-- [] session单条...按钮弹窗优化，目前还是和session在一起，拉到最底下的时候看不到session了，优化到一个外部位置的弹窗
-- [] 注入vscode插件专用上下文（使用绝对路径进行代码引用）
-- [] 长文本压缩为txt不显示在对话框内
-- [] 计划栏可收起
-- [] 右侧上下文指示条转换成一块，鼠标放上去之后显示全部对话，显示对话长度变为20字符
+- [x] session单条...按钮弹窗优化，目前还是和session管理在一起，拉到最底下的时候看不到session了，优化到一个外部位置的弹窗
+- [x] 注入vscode插件专用上下文（使用绝对路径进行代码引用）
+- [x] 长文本压缩为txt不显示在对话框内
+- [x] 计划栏可收起
+- [x] 右侧上下文指示条转换成一块，鼠标放上去之后显示全部对话，显示对话长度变为20字符
 
 ### bug
-- [ ] 24. dsh后端中断后卡住，在bash执行情况下。
-- [ ] 25. [#2](https://github.com/MmMmaru/dsh-vscode-sidebar/issues/2) 解决 node use env 的问题（与 #7 proxy 加载相关）
 - [ ] 26. [#5](https://github.com/MmMmaru/dsh-vscode-sidebar/issues/5) 对话管理界面依然显示 ide 上下文注入内容
-- [ ] 28. 删除候选发送列表部分时候出现无效
 
 ### 美化
 - [ ] 32. TODO栏目颜色代表执行与代办
@@ -48,6 +44,11 @@ session管理内标点提示
 
 ### 低优先
 
+- [ ] 25. [#2](https://github.com/MmMmaru/dsh-vscode-sidebar/issues/2) 解决 node use env 的问题（与 #7 proxy 加载相关）
+- [ ] 7. [#7](https://github.com/MmMmaru/dsh-vscode-sidebar/issues/7) proxy 自动加载（环境变量自动注入，见 issue body）
+- [ ] 24. dsh后端中断后卡住，在bash执行情况下。
+- [ ] 28. 删除候选发送列表部分时候出现无效
+- [ ] 17. 英文切换支持
 ---
 
 ## 已完成（按版本，新→旧）
@@ -64,7 +65,7 @@ R2: 行头 baseline→center 对齐（SVG 图标与文字垂直居中，图标�
 R2: 徽标 18→16px，数字 12px/700→10px/600，比会话标题小一档
 - [x] 边框淡化/滑动条淡化/对比色凸显：对话区滚动条细轨低对比；markdown ```代码块删除边框改灰色块（背景对比而非描边）；撑开卡片边框改淡（--dsh-border-soft）
 文字还是有暗条，删掉
-R2: 灰色底即暗条——先试过完全透明仍见逐行条纹，终稿按用户定稿：`.md-codeblock` 渲染为一整块不透明深色面板（固定 #1b1d21 底/#d4d4d8 浅字，不随主题翻转）；file-ref chip 补普通色兜底防旧内核露 UA 按钮灰
+R2: 实证定位——"整行交替色带"真凶是表格斑马纹（已删，13 种围栏样本经真实 MarkdownBlock 复验均无漏解析）；代码块历经透明/深面板两版实验后按用户定稿恢复原淡灰底（color-mix(fg 6%)，背景对比而非描边）；file-ref chip 补普通色兜底防旧内核露 UA 按钮灰
 - [x] 文件跳转边框消除：`.file-ref` 去外框，改淡色背景 + 文字高亮
 - [x] 空会话新建不再创建：点击“新建对话”时若当前会话无内容输入（对话区无节点）则复用当前会话，不新建空会话
 通过

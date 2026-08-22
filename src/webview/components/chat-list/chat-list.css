@@ -217,13 +217,10 @@
   transition: opacity 120ms ease-out;
 }
 
-/* Hover menu: floats on the SAME line as the ⋯ trigger, extending left into
-   the row (not below it), so it never covers the next session row. */
+/* Hover menu: floats via fixed portal anchored to the ⋯ trigger */
 .session-menu {
-  position: absolute;
-  right: 30px;
-  top: 0;
-  z-index: 20;
+  position: fixed;
+  z-index: 1000;
   display: flex;
   flex-direction: column;
   min-width: 120px;

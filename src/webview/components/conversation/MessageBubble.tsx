@@ -9,6 +9,7 @@
 
 import { useEffect, useState, type JSX } from 'react'
 import type { ImageAttachmentRef } from '../../../extension/protocol/llm'
+import { parseUserMessage, type AttachedTextBlock } from '../../../shared/attached-text'
 import { rpc } from '../../bridge'
 import { useAppStore } from '../../store'
 import type { AssistantTextNode, UserMessageNode } from '../../types'
@@ -47,14 +48,37 @@ function AttachmentImage(props: { attachment: ImageAttachmentRef }): JSX.Element
   return <img src={src} alt={props.attachment.name ?? '附件图片'} />
 }
 
+function AttachedTextCard(props: { block: AttachedTextBlock }): JSX.Element {
+  const [expanded, setExpanded] = useState(false)
+  return (
+    <div className="msg-attached-text-card">
+      <div className="msg-attached-text-header" onClick={() => setExpanded((v) => !v)}>
+        <span className="msg-attached-text-icon" aria-hidden>📄</span>
+        <span className="msg-attached-text-name" title={props.block.path ?? props.block.name}>
+          {props.block.name}
+        </span>
+        <span className="msg-attached-text-meta">{props.block.lines} 行</span>
+        <span className="msg-attached-text-toggle">{expanded ? '收起' : '展开'}</span>
+      </div>
+      {expanded && (
+        <div className="msg-attached-text-body">
+          <pre><code>{props.block.content}</code></pre>
+        </div>
+      )}
+    </div>
+  )
+}
+
 export function MessageBubble(props: { node: UserMessageNode }): JSX.Element {
   const [copied, setCopied] = useState(false)
   const texts = props.node.blocks.filter((b) => b.type === 'text')
   const images = props.node.blocks.filter((b) => b.type === 'image')
-  const plain = texts.map((b) => (b.type === 'text' ? b.text : '')).join('\n')
+  const rawPlain = texts.map((b) => (b.type === 'text' ? b.text : '')).join('\n')
+  const { cleanText, attachedTexts } = parseUserMessage(rawPlain)
 
   const copy = (): void => {
-    void navigator.clipboard.writeText(plain).then(() => {
+    const textToCopy = cleanText !== '' ? cleanText : rawPlain
+    void navigator.clipboard.writeText(textToCopy).then(() => {
       setCopied(true)
       setTimeout(() => setCopied(false), 1000)
     })
@@ -69,7 +93,14 @@ export function MessageBubble(props: { node: UserMessageNode }): JSX.Element {
           )}
         </div>
       )}
-      {plain !== '' && <div className="msg-user-bubble">{plain}</div>}
+      {attachedTexts.length > 0 && (
+        <div className="msg-attached-text-list">
+          {attachedTexts.map((att, i) => (
+            <AttachedTextCard key={i} block={att} />
+          ))}
+        </div>
+      )}
+      {cleanText !== '' && <div className="msg-user-bubble">{cleanText}</div>}
       <div className="msg-user-meta">
         <button type="button" className="msg-copy" onClick={copy} title="复制">
           {copied ? '✓' : '⧉'}

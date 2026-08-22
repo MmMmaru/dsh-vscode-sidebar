@@ -50,7 +50,7 @@
   height: 100%;
 }
 
-/* --- SegmentRail: right-edge overview of user message start points --- */
+/* --- SegmentRail: right-edge overview block of user messages --- */
 
 .segment-rail {
   position: absolute;
@@ -60,12 +60,11 @@
   display: flex;
   align-items: center;
   width: 22px;
-  /* tick 推到滚动条左侧，避免视觉压住滚动条。 */
+  /* bar 推到滚动条左侧，避免视觉压住滚动条。 */
   padding-right: 12px;
-  /* 容器不拦截指针，滚动条拖动穿透到下层滚动区；tick 按钮自行恢复。 */
+  /* 容器不拦截指针，滚动条拖动穿透到下层滚动区；block 自行恢复。 */
   pointer-events: none;
-  /* The fixed-position tip is unaffected by this clip. */
-  overflow: hidden;
+  overflow: visible;
   /* Dimmed until hovered. */
   opacity: 0.4;
   transition: opacity 150ms ease-out;
@@ -75,59 +74,99 @@
   opacity: 1;
 }
 
-/* Ticks cluster: vertically centered, N slots of 10px capped at 120px. */
-.segment-rail-cluster {
-  display: flex;
-  flex-direction: column;
-  width: 100%;
-}
-
-.segment-rail-mark {
-  flex: 1 1 0;
-  min-height: 0;
+/* Single solid indicator block */
+.segment-rail-block {
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 0;
-  background: transparent;
-  border: none;
-  cursor: pointer;
-  /* rail 容器 pointer-events:none，tick 恢复可点。 */
+  width: 100%;
   pointer-events: auto;
-  color: var(--dsh-fg-muted);
+  cursor: pointer;
+  padding: 2px 0;
 }
 
-.segment-rail-mark:hover,
-.segment-rail-mark-active {
-  color: var(--dsh-accent);
-}
-
-.segment-rail-dash {
-  /* rail 内宽仅 10px（22 - 12 padding），必须禁止 flex 收缩保住 10px 宽度。 */
+.segment-rail-bar {
   flex: none;
-  width: 10px;
-  height: 2px;
-  border-radius: 1px;
-  background: currentColor;
+  width: 8px;
+  height: 100%;
+  border-radius: 4px;
+  background: var(--dsh-fg-muted, #888);
+  transition: background 150ms ease-out;
 }
 
-/* Floating one-line preview, anchored right-center at the hovered tick. */
-.segment-rail-tip {
+.segment-rail-block:hover .segment-rail-bar {
+  background: var(--dsh-accent, #3794ff);
+}
+
+/* Floating full conversation list on hover */
+.segment-rail-menu {
   position: fixed;
   transform: translate(-100%, -50%);
-  max-width: 260px;
-  padding: 4px 8px;
-  background: var(--dsh-bg-raised);
-  border: 1px solid var(--dsh-border-soft);
-  border-radius: var(--dsh-radius-lg);
-  box-shadow: var(--dsh-shadow-card);
-  color: var(--dsh-fg);
-  font-size: 0.8em;
-  white-space: nowrap;
+  max-width: 320px;
+  min-width: 180px;
+  max-height: 70vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--dsh-bg-raised, #252526);
+  border: 1px solid var(--dsh-border-soft, rgba(255, 255, 255, 0.12));
+  border-radius: var(--dsh-radius-lg, 8px);
+  box-shadow: var(--dsh-shadow-card, 0 4px 12px rgba(0, 0, 0, 0.3));
+  color: var(--dsh-fg, #ccc);
+  z-index: 500;
+  pointer-events: auto;
+  overflow: hidden;
+  animation: ovl-enter 150ms ease-out;
+}
+
+.segment-rail-menu-header {
+  padding: 6px 10px;
+  font-size: 0.82em;
+  font-weight: 600;
+  color: var(--dsh-fg-muted, #888);
+  border-bottom: 1px solid var(--dsh-border-soft, rgba(255, 255, 255, 0.08));
+  background: rgba(0, 0, 0, 0.08);
+}
+
+.segment-rail-menu-list {
+  display: flex;
+  flex-direction: column;
+  padding: 4px;
+  overflow-y: auto;
+  max-height: calc(70vh - 35px);
+  gap: 2px;
+}
+
+.segment-rail-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 8px;
+  background: transparent;
+  border: none;
+  border-radius: 4px;
+  color: var(--dsh-fg, #ccc);
+  font-size: 0.88em;
+  text-align: left;
+  cursor: pointer;
+  width: 100%;
+}
+
+.segment-rail-menu-item:hover {
+  background: var(--vscode-list-hoverBackground, rgba(255, 255, 255, 0.08));
+}
+
+.segment-rail-menu-idx {
+  flex: none;
+  color: var(--dsh-fg-muted, #888);
+  font-size: 0.85em;
+  min-width: 18px;
+}
+
+.segment-rail-menu-text {
+  flex: 1;
   overflow: hidden;
   text-overflow: ellipsis;
-  pointer-events: none;
-  z-index: 30;
+  white-space: nowrap;
 }
 
 .conv-flow {
@@ -209,6 +248,72 @@
   border: 1px dashed var(--dsh-border);
   border-radius: var(--dsh-radius);
   padding: 6px 10px;
+}
+
+/* Attached text / IDE context collapsed cards in user bubbles */
+.msg-attached-text-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-width: 85%;
+}
+
+.msg-attached-text-card {
+  background: var(--dsh-bg-raised, rgba(255, 255, 255, 0.05));
+  border: 1px solid var(--dsh-border-soft, rgba(255, 255, 255, 0.12));
+  border-radius: var(--dsh-radius-md, 6px);
+  overflow: hidden;
+  font-size: 0.85em;
+}
+
+.msg-attached-text-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  cursor: pointer;
+  user-select: none;
+  background: rgba(0, 0, 0, 0.1);
+}
+
+.msg-attached-text-header:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.msg-attached-text-name {
+  font-weight: 500;
+  color: var(--dsh-fg, #ccc);
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.msg-attached-text-meta {
+  color: var(--dsh-fg-muted, #888);
+  font-size: 0.85em;
+}
+
+.msg-attached-text-toggle {
+  margin-left: auto;
+  color: var(--dsh-accent, #3794ff);
+  font-size: 0.85em;
+}
+
+.msg-attached-text-body {
+  padding: 6px 8px;
+  max-height: 200px;
+  overflow-y: auto;
+  background: var(--vscode-editor-background, rgba(0, 0, 0, 0.2));
+  border-top: 1px solid var(--dsh-border-soft, rgba(255, 255, 255, 0.08));
+}
+
+.msg-attached-text-body pre {
+  margin: 0;
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-size: 0.9em;
+  white-space: pre-wrap;
+  word-break: break-all;
 }
 
 .msg-user-bubble {
@@ -436,14 +541,15 @@
   font-size: 0.85em;
 }
 
-/* Fenced block: no border and no filled slab — the monospace face alone sets
-   code apart; horizontal scroll. (条纹 bug 单独排查，见 PROGRESS。) */
+/* Fenced block: borderless gray slab (背景对比而非描边), rounded corners,
+   padding, horizontal scroll. 用户定稿：整块淡灰底恢复（条纹真凶是表格
+   斑马纹，与代码块无关）。 */
 .md-codeblock {
   margin: 8px 0;
   border: none;
   border-radius: var(--dsh-radius);
   overflow: hidden;
-  background: transparent;
+  background: color-mix(in srgb, var(--dsh-fg) 6%, transparent);
 }
 
 .md-codeblock-header {
@@ -499,9 +605,8 @@
   background: var(--dsh-bg-raised);
 }
 
-.md-body tbody tr:nth-child(even) {
-  background: var(--vscode-list-hoverBackground, rgba(255, 255, 255, 0.04));
-}
+/* 表格不做隔行斑马纹（用户反馈"整行交替色带"）：全表统一底色，
+   行间只靠 1px 边框分隔，表头淡底即可建立层级。 */
 
 /* --- Reasoning (Think) row --- */
 

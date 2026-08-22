@@ -94,9 +94,14 @@ test('disclosure rows center icons with text instead of baseline', () => {
   }
 })
 
-test('fenced code block carries no filled slab behind the text', () => {
+test('fenced code block renders as one translucent gray slab', () => {
   const start = css.indexOf('.md-codeblock {')
   const body = css.slice(start, css.indexOf('}', start))
-  // 深色面板实验已回退（用户反馈"反而变黑了"）；条纹 bug 单独立项排查。
-  assert.match(body, /background:\s*transparent/)
+  // 用户定稿（终）：恢复整块淡灰底（背景对比而非描边）；条纹真凶是表格斑马纹。
+  assert.match(body, /background:\s*color-mix\(in srgb, var\(--dsh-fg\) 6%, transparent\)/)
+})
+
+test('markdown tables carry no zebra striping (full-width alternating bands)', () => {
+  // 用户确认的"整行交替色带"来源：隔行斑马纹是全样式表唯一的逐行上色。
+  assert.ok(!css.includes('nth-child(even)') && !/tr:nth-child\(2n\)/.test(css), 'zebra row banding must stay deleted')
 })

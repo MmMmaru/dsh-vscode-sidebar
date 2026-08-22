@@ -735,16 +735,64 @@
 
 .todo-panel {
   margin: 0;
-  padding: 6px 8px;
-  list-style: none;
-  border: 1px solid var(--dsh-border);
-  border-radius: 10px;
+  padding: 4px 6px;
+  border: 1px solid var(--dsh-border-soft, var(--dsh-border));
+  border-radius: 8px;
   background: var(--dsh-bg-raised);
   display: flex;
   flex-direction: column;
   gap: 2px;
-  max-height: 140px;
+  max-height: 160px;
+  font-size: 0.9em;
+}
+
+.todo-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 4px;
+  cursor: pointer;
+  user-select: none;
+  border-radius: 4px;
+}
+
+.todo-header:hover {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.todo-header-icon {
+  font-size: 0.95em;
+}
+
+.todo-header-title {
+  font-weight: 500;
+  color: var(--dsh-fg);
+}
+
+.todo-header-count {
+  color: var(--dsh-fg-muted);
+  font-size: 0.85em;
+}
+
+.todo-header-toggle {
+  margin-left: auto;
+  color: var(--dsh-fg-muted);
+  font-size: 0.85em;
+}
+
+.todo-header:hover .todo-header-toggle {
+  color: var(--dsh-accent);
+}
+
+.todo-list {
+  margin: 0;
+  padding: 2px 4px 0 4px;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
   overflow-y: auto;
+  max-height: 120px;
 }
 
 .todo-item {

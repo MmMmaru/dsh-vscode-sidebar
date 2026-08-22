@@ -1,8 +1,6 @@
 /**
- * SegmentRail unit tests (TODO 19 rework): N user messages render N ticks in
- * a vertically centered cluster; previewText truncates to 10 code points
- * (emoji-safe). Tick visuals (10px × 2px dash, 22px rail) live in
- * conversation.css; here we assert each tick renders one .segment-rail-dash.
+ * SegmentRail unit tests: user messages render a solid block in the rail;
+ * previewText truncates to 20 code points (emoji-safe).
  */
 
 import { test } from 'node:test'
@@ -33,36 +31,36 @@ function userNode(id: string, text: string): UserMessageNode {
 }
 
 // ---------------------------------------------------------------------------
-// previewText
+// previewText (20 chars limit)
 // ---------------------------------------------------------------------------
 
-test('previewText keeps text of 10 code points or fewer unchanged', async () => {
+test('previewText keeps text of 20 code points or fewer unchanged', async () => {
   const { previewText } = await loadRail()
   assert.equal(previewText('短消息'), '短消息')
-  assert.equal(previewText('1234567890'), '1234567890')
+  assert.equal(previewText('12345678901234567890'), '12345678901234567890')
 })
 
-test('previewText truncates beyond 10 code points with an ellipsis', async () => {
+test('previewText truncates beyond 20 code points with an ellipsis', async () => {
   const { previewText } = await loadRail()
-  assert.equal(previewText('12345678901'), '1234567890…')
-  assert.equal(previewText('这是一条比较长的用户消息内容'), '这是一条比较长的用户…')
+  assert.equal(previewText('123456789012345678901'), '12345678901234567890…')
+  assert.equal(previewText('这是一条比较长的用户消息内容超过二十个字测试样例'), '这是一条比较长的用户消息内容超过二十个字…')
 })
 
 test('previewText counts emoji as single code points (no broken surrogates)', async () => {
   const { previewText } = await loadRail()
-  const emojis = '👍🎉🚀😀🔥✨🎈🎯🎸🏀⚽🏓' // 12 code points, 24 UTF-16 units
-  const preview = previewText(emojis)
-  // 10 emoji + the ellipsis; a UTF-16-unit slice would have split a pair.
-  assert.equal(preview, `${'👍🎉🚀😀🔥✨🎈🎯🎸🏀'}…`)
-  assert.equal(Array.from(preview).length, 11)
+  const emojis = '👍🎉🚀😀🔥✨🎈🎯🎸🏀⚽🏓🌟💡💎🍎🍒🍓🍇🍉' // 20 emoji
+  const longEmojis = emojis + '🍍' // 21 emoji
+  const preview = previewText(longEmojis)
+  assert.equal(preview, `${emojis}…`)
+  assert.equal(Array.from(preview).length, 21)
 })
 
 // ---------------------------------------------------------------------------
-// Tick rendering (react-test-renderer: SSR reads the store's initial snapshot)
+// Block rendering (react-test-renderer)
 // ---------------------------------------------------------------------------
 
-/** Render the rail against the given store nodes; returns mark/dash count + cluster height. */
-async function renderRail(nodes: UserMessageNode[]): Promise<{ marks: number; dashes: number; clusterHeight: number | undefined }> {
+/** Render the rail against the given store nodes; returns block count + bar count. */
+async function renderRail(nodes: UserMessageNode[]): Promise<{ blocks: number; bars: number }> {
   const { act, create } = await import('react-test-renderer')
   const { useAppStore } = await import('../src/webview/store')
   const { SegmentRail } = await loadRail()
@@ -73,38 +71,25 @@ async function renderRail(nodes: UserMessageNode[]): Promise<{ marks: number; da
   })
   const root = renderer?.root
   assert.ok(root !== undefined)
-  const marks = root.findAllByProps({ className: 'segment-rail-mark' })
-  const dashes = root.findAllByProps({ className: 'segment-rail-dash' })
-  const clusters = root.findAllByProps({ className: 'segment-rail-cluster' })
-  const style = clusters[0]?.props.style as { height?: number } | undefined
+  const blocks = root.findAllByProps({ className: 'segment-rail-block' })
+  const bars = root.findAllByProps({ className: 'segment-rail-bar' })
   renderer?.unmount()
-  return { marks: marks.length, dashes: dashes.length, clusterHeight: style?.height }
+  return { blocks: blocks.length, bars: bars.length }
 }
 
-test('N user messages render N ticks; other node kinds are ignored', async () => {
-  const { marks, dashes, clusterHeight } = await renderRail([
+test('N user messages render one solid overview block and bar', async () => {
+  const { blocks, bars } = await renderRail([
     userNode('e1', '第一条消息'),
     { kind: 'assistant-text', id: 'e2', seq: 2, time: 2, text: '回复', streaming: false } as unknown as UserMessageNode,
     userNode('e3', '第二条消息'),
     userNode('e4', '第三条消息'),
   ])
-  assert.equal(marks, 3)
-  // 每个 tick 内渲染一条 dash（视觉尺寸 10px × 2px 由 conversation.css 控制）。
-  assert.equal(dashes, 3)
-  // Cluster height: 3 ticks * 10px (numeric style, React renders as px).
-  assert.equal(clusterHeight, 30)
-})
-
-test('the cluster caps at 120px for large conversations', async () => {
-  const { marks, clusterHeight } = await renderRail(
-    Array.from({ length: 20 }, (_, i) => userNode(`e${i}`, `消息 ${i}`)),
-  )
-  assert.equal(marks, 20)
-  assert.equal(clusterHeight, 120)
+  assert.equal(blocks, 1)
+  assert.equal(bars, 1)
 })
 
 test('no user messages render an empty rail', async () => {
-  const { marks, clusterHeight } = await renderRail([])
-  assert.equal(marks, 0)
-  assert.equal(clusterHeight, undefined)
+  const { blocks, bars } = await renderRail([])
+  assert.equal(blocks, 0)
+  assert.equal(bars, 0)
 })

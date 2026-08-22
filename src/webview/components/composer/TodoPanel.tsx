@@ -1,11 +1,12 @@
 /**
  * TodoPanel (owned by W4): the agent todo checklist docked above the composer
- * card while store.todos is non-empty. Status glyphs: completed ✓ /
- * in_progress ◌ / pending ○.
+ * card while store.todos is non-empty. Supports collapsing to a single summary
+ * header row.
+ * Status glyphs: completed ✓ / in_progress ◌ / pending ○.
  * Contract: ARCHITECTURE.md section 5.3 ({ todos }).
  */
 
-import type { JSX } from 'react'
+import { useState, type JSX } from 'react'
 import type { TodoItem } from '../../types'
 
 const STATUS_GLYPH: Record<TodoItem['status'], string> = {
@@ -25,16 +26,41 @@ export interface TodoPanelProps {
 }
 
 export function TodoPanel({ todos }: TodoPanelProps): JSX.Element | null {
+  const [collapsed, setCollapsed] = useState(false)
   if (todos.length === 0) return null
+
+  const completedCount = todos.filter((t) => t.status === 'completed').length
+
   return (
-    <ul className="todo-panel" aria-label="任务清单">
-      {todos.map((todo, i) => (
-        <li key={`${i}-${todo.content}`} className={`todo-item todo-${todo.status}`}>
-          <span className="todo-glyph" aria-hidden>{STATUS_GLYPH[todo.status]}</span>
-          <span className="todo-content">{todo.content}</span>
-          <span className="todo-status">{STATUS_LABEL[todo.status]}</span>
-        </li>
-      ))}
-    </ul>
+    <div className="todo-panel">
+      <div
+        className="todo-header"
+        role="button"
+        tabIndex={0}
+        onClick={() => setCollapsed((v) => !v)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault()
+            setCollapsed((v) => !v)
+          }
+        }}
+      >
+        <span className="todo-header-icon" aria-hidden>📋</span>
+        <span className="todo-header-title">任务清单</span>
+        <span className="todo-header-count">({completedCount}/{todos.length})</span>
+        <span className="todo-header-toggle">{collapsed ? '展开 ▾' : '收起 ▴'}</span>
+      </div>
+      {!collapsed && (
+        <ul className="todo-list" aria-label="任务清单">
+          {todos.map((todo, i) => (
+            <li key={`${i}-${todo.content}`} className={`todo-item todo-${todo.status}`}>
+              <span className="todo-glyph" aria-hidden>{STATUS_GLYPH[todo.status]}</span>
+              <span className="todo-content">{todo.content}</span>
+              <span className="todo-status">{STATUS_LABEL[todo.status]}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
   )
 }

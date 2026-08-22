@@ -11,6 +11,7 @@ import type { MuxFrame } from '../../extension/protocol/events'
 import type { HostDescription } from '../../extension/protocol/host'
 import type { PromptContentPart, QueueAction } from '../../extension/protocol/sessions'
 import type { SessionModels } from '../../extension/protocol/sessions'
+import { VSCODE_CONTEXT_PROMPT, wrapAttachedText } from '../../shared/attached-text'
 import { fetchIdeContent, rpc } from '../bridge'
 import { formatIdeInsert, hasIdeBlock } from '../ide-insert'
 import type { Attachment, ModelInfo, PermissionMode, QueuedMessage } from '../types'
@@ -90,7 +91,8 @@ async function enrichWithIdeContext(text: string, enabled: boolean): Promise<str
   // No selection: the payload still carries the active file path (the
   // 'selection' kind falls back to the whole document); attach only the path.
   if (content.path !== undefined) {
-    const block = `### 当前文件：${content.path}`
+    const fileName = content.path.slice(content.path.lastIndexOf('/') + 1) || 'file.txt'
+    const block = wrapAttachedText(fileName, `### 当前文件：${content.path}`, content.path)
     return text.trim() === '' ? block : `${text.trim()}\n\n${block}`
   }
   return text
@@ -137,9 +139,16 @@ export const createComposerSlice: StateCreator<AppStore, [], [], ComposerSlice> 
     // A prompt whose content is exactly one text block starting with `/` is a
     // slash command the HOST executes (goal/compact/plan...); IDE context must
     // not be appended or the host rejects it as an unknown command.
-    const prompt = text.startsWith('/')
+    const enriched = text.startsWith('/')
       ? text
       : await enrichWithIdeContext(text, get().ideContextEnabled)
+    
+    // Inject VS Code sidebar environment instructions on the first prompt of a session.
+    const isFirstPrompt = !text.startsWith('/') && !get().nodes.some((n) => n.kind === 'user-message')
+    const prompt = isFirstPrompt
+      ? `${VSCODE_CONTEXT_PROMPT}\n\n${enriched}`
+      : enriched
+
     const content: PromptContentPart[] = [
       { type: 'text', text: prompt },
       ...attachments.map((a): PromptContentPart => ({ type: 'image', mediaType: a.mediaType, data: a.data, name: a.name })),

@@ -1,92 +1,105 @@
 /**
- * SegmentRail (TODO 19): an overview rail on the right edge of the
- * conversation stream. Every user message ("对话开始点") gets one tick —
- * ticks are NOT a scroll-position map; they form a vertically centered
- * cluster expressing "which round" each message is. Hovering a tick raises a
- * one-line preview (fixed-positioned so the rail's overflow clip cannot cut
- * it); clicking scrolls the stream to the message. The rail is absolutely
- * positioned over the scrollbar column (see conversation.css): the container
- * is pointer-events:none so scrollbar drags fall through, only ticks are
- * clickable. The rail stays dimmed (opacity 0.4) until hovered.
+ * SegmentRail: an overview block on the right edge of the conversation stream.
+ * Converts into a single solid indicator block; hovering over it raises a
+ * full-conversation navigation list showing all user messages (up to 20 chars
+ * per preview), and clicking any item jumps directly to that message.
  */
 
 import { useMemo, useState, type JSX, type RefObject } from 'react'
+import { parseUserMessage } from '../../../shared/attached-text'
 import { useAppStore } from '../../store'
 import type { UserMessageNode } from '../../types'
 
-/** Per-tick slot height; the whole cluster caps at 120px. */
-const TICK_SLOT_PX = 10
-const CLUSTER_MAX_PX = 120
+/** Default preview length: 20 code points. */
+const PREVIEW_MAX_CHARS = 20
 
 /**
- * One-line preview of a user message: the first 10 code points plus an
+ * One-line preview of a user message: the first 20 code points plus an
  * ellipsis when truncated. Array.from keeps surrogate pairs (emoji) intact.
  */
-export function previewText(text: string): string {
+export function previewText(text: string, maxChars: number = PREVIEW_MAX_CHARS): string {
   const chars = Array.from(text)
-  return chars.length <= 10 ? text : `${chars.slice(0, 10).join('')}…`
+  return chars.length <= maxChars ? text : `${chars.slice(0, maxChars).join('')}…`
 }
 
-/** Plain text of a user message node (text blocks only). */
+/** Plain text of a user message node (clean prompt text only). */
 function userMessageText(node: UserMessageNode): string {
-  return node.blocks
+  const raw = node.blocks
     .filter((b) => b.type === 'text')
     .map((b) => (b.type === 'text' ? b.text : ''))
     .join('\n')
+  const { cleanText } = parseUserMessage(raw)
+  return cleanText !== '' ? cleanText : raw.trim()
 }
 
-/** Floating preview state; `null` hides the tip. */
-interface Tip {
-  id: string
-  text: string
-  /** Viewport coordinates of the tip's right-center anchor. */
+interface MenuPos {
   left: number
   top: number
 }
 
 export function SegmentRail(props: { scrollRef: RefObject<HTMLElement | null>; onJumpTo: (id: string) => void }): JSX.Element {
-  // Select the raw node array (stable identity) and filter in useMemo: a
-  // selector returning a fresh filtered array would re-run on every render
-  // (React error #185).
   const nodes = useAppStore((s) => s.nodes)
   const userNodes = useMemo(
     () => nodes.filter((n): n is UserMessageNode => n.kind === 'user-message'),
     [nodes],
   )
-  const [tip, setTip] = useState<Tip | null>(null)
+  const [open, setOpen] = useState(false)
+  const [pos, setPos] = useState<MenuPos | null>(null)
 
-  const clusterHeight = Math.min(userNodes.length * TICK_SLOT_PX, CLUSTER_MAX_PX)
+  const blockHeight = Math.max(32, Math.min(userNodes.length * 10 + 20, 100))
 
-  const openTip = (node: UserMessageNode, el: HTMLElement): void => {
+  const handleMouseEnter = (el: HTMLElement): void => {
     const rect = el.getBoundingClientRect()
-    setTip({ id: node.id, text: previewText(userMessageText(node)), left: rect.left - 8, top: rect.top + rect.height / 2 })
+    setPos({
+      left: rect.left - 8,
+      top: rect.top + rect.height / 2,
+    })
+    setOpen(true)
   }
 
   return (
     <div className="segment-rail">
       {userNodes.length > 0 && (
-        <div className="segment-rail-cluster" style={{ height: clusterHeight }}>
-          {userNodes.map((node) => (
-            <button
-              key={node.id}
-              type="button"
-              className={`segment-rail-mark${tip?.id === node.id ? ' segment-rail-mark-active' : ''}`}
-              title="定位到该消息"
-              onClick={() => {
-                props.onJumpTo(node.id)
-                setTip(null)
-              }}
-              onMouseEnter={(e) => openTip(node, e.currentTarget)}
-              onMouseLeave={() => setTip(null)}
-            >
-              <span className="segment-rail-dash" />
-            </button>
-          ))}
+        <div
+          className="segment-rail-block"
+          style={{ height: blockHeight }}
+          onMouseEnter={(e) => handleMouseEnter(e.currentTarget)}
+          onMouseLeave={() => setOpen(false)}
+        >
+          <div className="segment-rail-bar" />
         </div>
       )}
-      {tip !== null && (
-        <div className="segment-rail-tip" style={{ left: tip.left, top: tip.top }} data-tip-for={tip.id}>
-          {tip.text}
+      {open && pos !== null && userNodes.length > 0 && (
+        <div
+          className="segment-rail-menu"
+          style={{ left: pos.left, top: pos.top }}
+          onMouseEnter={() => setOpen(true)}
+          onMouseLeave={() => setOpen(false)}
+        >
+          <div className="segment-rail-menu-header">
+            <span>对话导航 ({userNodes.length})</span>
+          </div>
+          <div className="segment-rail-menu-list">
+            {userNodes.map((node, index) => {
+              const text = userMessageText(node)
+              const preview = previewText(text, 20)
+              return (
+                <button
+                  key={node.id}
+                  type="button"
+                  className="segment-rail-menu-item"
+                  onClick={() => {
+                    props.onJumpTo(node.id)
+                    setOpen(false)
+                  }}
+                  title={text}
+                >
+                  <span className="segment-rail-menu-idx">{index + 1}.</span>
+                  <span className="segment-rail-menu-text">{preview}</span>
+                </button>
+              )
+            })}
+          </div>
         </div>
       )}
     </div>
