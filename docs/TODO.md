@@ -7,10 +7,11 @@
 ## 待办（未完成）
 
 ### 配置界面调整
-- [ ] 9. 后端模型真实配置，目前好像不work
+- [x] 9. 设置侧界面调整
 同步web端界面，不要显示所有的provider配置，按照目前已经配置的显示+自定义provider按钮+预定义provider按钮
-- [ ] 11. 插件可配置
-参考web端设计
+- [x] 英文支持
+- [] 设置界面窗口大小调整，上下占比2/3，左右占比2/3, 目前太满了
+- [] 优化设置窗口圆角配置，和输入框相同
 
 ### 功能
 - [ ] 3. [#1](https://github.com/MmMmaru/dsh-vscode-sidebar/issues/1) 增加自动重启后端功能  
@@ -24,11 +25,7 @@
 - [ ] 14. 任务完成提示
 支持音频提示
 - [ ] 18. 图片上传预览失败
-- [x] session单条...按钮弹窗优化，目前还是和session管理在一起，拉到最底下的时候看不到session了，优化到一个外部位置的弹窗
-- [x] 注入vscode插件专用上下文（使用绝对路径进行代码引用）
-- [x] 长文本压缩为txt不显示在对话框内
-- [x] 计划栏可收起
-- [x] 右侧上下文指示条转换成一块，鼠标放上去之后显示全部对话，显示对话长度变为20字符
+- [x] 复制、分支的按钮不要出现在对话中，只有对话结束的时候有
 
 ### bug
 - [ ] 26. [#5](https://github.com/MmMmaru/dsh-vscode-sidebar/issues/5) 对话管理界面依然显示 ide 上下文注入内容
@@ -36,8 +33,8 @@
 ### 美化
 - [ ] 32. TODO栏目颜色代表执行与代办
 - [ ] 33. 框线淡化，优化前端组件设计
-- [] 工具调用、思考等组件优化
 - [ ] 34. ide上下文注入就说：ide上下文注入，后面不需要
+- [x] 输入框周围阴影效果，输入框收窄5%
 
 ### 项目harness
 - [ ] 36. 补充使用playwright构建的e2e test。
@@ -53,7 +50,23 @@
 
 ## 已完成（按版本，新→旧）
 
-### 0.0.12（当前版）
+### 0.0.15（当前版）
+- [x] 工具调用、思考等组件优化（严格对齐 dsh WebUI 设计）
+  - 折叠行统一「图标↔chevron」悬停切换（hover/focus 淡入右向 chevron，展开常显向下），去掉行头铺底色的旧可供性
+  - 图标字形与映射严格对齐：修复 `IconThink` 缺失外圈闭环子路径（2373 字符完整字形）；引入原版 `IconApi`（terminal/bash）、`IconBrowse`（read / context-injection）、`IconSparkle`（generic/others）；`web` 变体细分（fetch→Browse、search→Globe）；提问工具（`ask_user_question`）对齐 `IconQuestion` 并显示「提问」标题；所有图标统一 `size={14}` 居中渲染；错误点对齐 dsh `StateDot`（10px 盒 + 0.15 光晕外层 + 实心内核）
+  - 在跑信号统一为头部扫光动画（dsh shimmer 模式）：pending 工具行不再转 spinner、Think/live 轮次不再呼吸闪烁，`prefers-reduced-motion` 下静止；TurnStatusLine 小环保留
+  - Think 行流式摘要跟随写入端（`data-follow-end` 用 clip 代替省略号保最新文字可见），落定回首行；去加粗/斜体、正文缩进去左边线（dsh thinkBody）
+  - 工具行变体标题 Bash/Read/Edit/Search/Web/Check/提问（dsh VARIANT_TITLES 风格），未知工具 "Tool call" + `name · 摘要`；单文件路径摘要成 IDE 打开链接（仅当摘要即路径，错误行永不链接）；行头 div[role=button] + Enter/Space + aria-expanded
+  - 通用 IN/OUT 卡片对齐 dsh ioCard：两段独立封顶滚动 + sticky gutter 标签 + 整卡宽 1px 分隔线
+
+### 0.0.13
+- [x] session单条...按钮弹窗优化，目前还是和session管理在一起，拉到最底下的时候看不到session了，优化到一个外部位置的弹窗（fixed 坐标计算定位，脱离滚动容器 overflow 裁剪，支持点击外部/滚动/Esc 关闭）
+- [x] 注入vscode插件专用上下文（使用绝对路径进行代码引用）：首条消息自动注入 `[DSH_VSCODE_CONTEXT]` 指导，促使模型输出标准绝对路径代码引用
+- [x] 长文本压缩为txt不显示在对话框内：IDE 选区与长文本注入封装为 `[DSH_ATTACHED_TEXT]`，对话气泡中折叠为 `[📄 文本附件 (N 行) | 展开/收起]` 卡片
+- [x] 计划栏可收起：Header 增加统计行 `📋 任务清单 (已完成 N/M 项)` 及切换折叠按钮，避免遮挡输入框
+- [x] 右侧上下文指示条转换成一块，鼠标放上去之后显示全部对话，显示对话长度变为20字符：SegmentRail hover 展开全会话对话导航列表（预览提升至 20 字符），点击直接跳转定位
+
+### 0.0.12
 - [x] think/工具调用缩放：折叠为单行（缩略摘要 + 下拉箭头），模型输出正文全量显示，点击拉出完整 think 文本 / 工具卡片
 不是这个折叠，需要一轮全部做折叠，这种情况下只输出模型输出内容
 R2: 整轮折叠落地——连续 Think+工具调用合并为一个折叠组（rounds.ts `groupRounds`），收起后只剩用户消息与模型正文；进行中的一轮保持展开、落定自动收起；组内各行仍可单独展开看详情

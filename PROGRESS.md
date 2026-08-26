@@ -1,12 +1,42 @@
 # 进展记录
 
+### 08-25 0.1.0 设置面板对齐/英文国际化/对话按钮时机与输入框美化
+- 按照最新需求完成五项 UI 与架构优化：
+  1. **设置模型列表对齐 Web 端**：默认只显示已配置或自定义的模型提供方，底部提供「添加预定义提供方」与「添加自定义提供方」按钮；
+  2. **全量英文国际化（i18n）**：构建 `src/webview/i18n` 模块，全面支持中英文无缝切换；
+  3. **对话操作按钮时机调整**：Assistant 气泡底部复制与分叉新对话按钮只在对话结束落定后展示，生成及运行中隐藏；
+  4. **输入框周围阴影与 5% 收窄**：输入卡片设为 `width: 95%` 居中，添加多层柔和阴影；
+  5. **设置弹窗窗口尺寸与圆角优化**：设置弹窗改为上下左右各占 2/3（66.67%）居中展示，圆角对齐输入框（16px）。
+- 测试：单测全量 118/118 绿，打包 `dsh-vscode-sidebar-0.1.0.vsix` 并安装至本地 VS Code。
+
+### 08-22 0.0.15 工具调用/思考组件严格对齐 dsh 设计
+- 参考 deepseek-harness 的 ui-tool/ui-conversation/ui-primitives 源码，完成折叠行与图标体系对齐：
+  1. 共享 leading 槽「图标↔chevron」悬停切换（hover/focus 淡入右向 chevron，展开常显向下），去掉行头铺底色的旧可供性；
+  2. 图标字形与映射严格对齐：
+     - 修复 `IconThink` 外圈闭环缺失（dsh 原版完整 2373 字符字形）；
+     - 引入 `IconApi`（terminal/bash 变体）、`IconBrowse`（read / context injection）、`IconSparkle`（generic/others 通用工具）；
+     - `web` 变体细分：`web_fetch` 用 `IconBrowse`，`web_search` 用 `IconGlobe`；
+     - 提问工具（`ask_user_question` 等）对齐 `IconQuestion` 并显示「提问」标题；
+     - 全部图标统一在 16px 盒内按 `size={14}` 居中渲染；
+     - 错误指示点对齐 dsh `StateDot`（10px 盒 + 0.15 光晕外层 + 实心内核）；
+  3. 在跑信号统一为头部扫光动画（dsh shimmer 模式）：pending 工具行不再转 spinner、Think/live 轮次不再呼吸闪烁，`prefers-reduced-motion` 下静止；TurnStatusLine 小环保留；
+  4. Think 流式摘要取最新一行并钉住 scrollLeft 跟写（`data-follow-end` 用 clip 保最新文字可见），落定回首行；去加粗/斜体、正文去左边线（dsh thinkBody）；
+  5. 工具行变体标题 Bash/Read/Edit/Search/Web/Check/提问（dsh VARIANT_TITLES 风格），未知工具 "Tool call" + `name · 摘要`；单文件路径摘要成 IDE 打开链接（仅当摘要即路径，错误行永不链接）；行头 div[role=button] + Enter/Space + aria-expanded（嵌套真实 button）；
+  6. 通用 IN/OUT 卡对齐 dsh ioCard：两段独立封顶滚动 + sticky gutter 标签 + 整卡宽 1px 分隔线。
+- 测试：新增 `conversation-disclosure.test.ts` 10 例（含 11 种图标逐字提取与映射断言），全量单测 116/116 绿；typecheck/build 绿；E2E 22 过 2 挂（两失败用例经 stash 对照在基线同样挂，为存量问题）。
+- 打包 `dsh-vscode-sidebar-0.0.15.vsix` 并已安装至本地 VS Code（WSL，重载窗口生效）。
+
+### 08-19 0.0.13 返工（SegmentRail 单块→多刻度 + 弹出修复）
+- 用户复验两项不合格：① 指示条被合并成一整块导致无法点击单条跳转——恢复多刻度簇（N 条用户消息 N 个 tick，10px 槽位、120px 封顶），tick 点击直接跳转；hover 改为整栏弹出全部条目的导航浮层（替代旧"点一个弹一个"的单条 tip）；② 浮层不要标题栏、不要序号前缀。弹出 bug 根因一：每个 tick 与菜单自身的 mouseEnter 都会以各自元素重算锚点，指针移向菜单时面板瞬移躲避光标后超时关闭——修复契约：锚点只在指针进入 rail 时按 cluster rect 计算（重开时重算防滚动残留），菜单侧 mouseEnter 仅取消关闭计时；200ms 宽限期 + ::after 悬桥保证跨缝隙不闪断；Esc/滚动即关。根因二（"弹一下再跳位"）：浮层定位依赖静态 transform translate(-100%,-50%)，而入场动画 ovl-enter 的关键帧也动画了 transform——播放期间覆盖定位、结束后回跳；换专用纯 fade 动画 segment-menu-in（关键帧零 transform）。
+- 测试：单测 105 绿（segment-rail 契约更新：N tick/N dash/高度封顶、"无标题栏无序号"、"菜单侧禁重算锚点"、以及"入场关键帧禁含 transform"花括号配对断言）；VSIX 重打安装待验收。
+
 ### 08-19 0.0.13 发布（session菜单外部化 / 专用上下文 / 长文本卡片 / 计划栏折叠 / 单块导航）
 - 五项功能落地：
   1. `ChatListPanel.tsx` ⋯ 菜单改 fixed 外部视窗坐标自适应定位，解决滚动到底部被列表截断的问题；
   2. `attached-text.ts` 新增 `[DSH_VSCODE_CONTEXT]`，首轮提问静默注入 VS Code 环境指导，促使模型输出绝对路径代码引用；
   3. IDE 注入与长文本封装为 `[DSH_ATTACHED_TEXT]`，在 `MessageBubble.tsx` 中折叠渲染为 `[📄 文本附件 (N 行) | 展开/收起]` 卡片，对话框不展开长文本；
   4. `TodoPanel.tsx` 增加 Header 统计行并支持折叠/展开；
-  5. `SegmentRail.tsx` 合并为单条指示块，鼠标 hover 弹出包含全部提问的浮层列表（预览长度 20 字符），点击跳转定位。
+  5. `SegmentRail.tsx` 右缘指示条 hover 弹出包含全部提问的导航浮层（预览长度 20 字符），点击跳转定位。
 - 测试：单测 101/101 全绿；build/smoke 绿；打包 `dsh-vscode-sidebar-0.0.13.vsix` 并已安装至本地 VS Code。
 
 ### 08-19 0.0.12 返工收尾（代码块恢复灰底）

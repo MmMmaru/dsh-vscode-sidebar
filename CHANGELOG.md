@@ -3,6 +3,49 @@
 本插件所有重要变更记录。格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)；
 版本号与 `package.json` 的 `version` 保持一致。
 
+## [0.1.0] - 2026-08-25
+
+### 新增与优化
+
+- **设置界面对齐 Web 端**：
+  - 初始仅展示已配置（或自定义）的模型提供方，不再全量堆叠所有未配置 provider；
+  - 底部提供「添加预定义提供方」与「添加自定义提供方」操作入口；
+  - 设置弹窗调整为上下左右各占 2/3（66.67%）居中展示，圆角优化为 16px（与输入框保持一致），配备更柔和的层次阴影。
+- **全量英文国际化支持（i18n）**：
+  - 引入 `i18n` 多语言模块，覆盖会话、对话流、输入框、设置、审批与计划等完整 UI；
+  - 设置中切换「语言：中文 / English」即时生效。
+- **对话操作栏显示时机优化**：
+  - Assistant 气泡底部的「复制」「分叉新对话」动作栏仅在当前轮次结束/落定后展示，流式生成及运行中隐藏。
+- **输入框体验美化**：
+  - 底部输入卡片宽度收窄 5%（`width: 95%` 居中），四周添加双层细腻阴影效果。
+
+### 测试
+
+- 新增 `ui-adjustments.test.ts`（i18n 字典对齐与多语言格式化测试）；
+- 全量单测 118/118 绿。
+
+## [0.0.15] - 2026-08-22
+
+### 优化（工具调用 / 思考组件严格对齐 dsh 设计）
+
+- **折叠行统一「图标↔chevron」悬停切换**：Think、工具、Context injection、轮次组四类折叠头共享 dsh DisclosureRow 的 leading 槽——静止显示类型图标，悬停/聚焦时淡入右向 chevron，展开后常显向下 chevron；行头不再铺悬停底色，视觉更干净。
+- **图标字形与映射严格对齐 dsh**：
+  - 修复 `IconThink` 缺失的外圈闭环子路径，字形与 dsh `IconThinkOutline14` 逐字一致；
+  - 引入原版 `IconApi`（terminal/bash 变体）、`IconBrowse`（read 变体 / context injection 行）、`IconSparkle`（generic/others 通用工具变体）；
+  - `web` 变体细分：`web_fetch` 用 `IconBrowse`，`web_search` 用 `IconGlobe`；
+  - 提问工具（`ask_user_question` 等）对齐 `IconQuestion` 并显示「提问」标题；
+  - 全部图标统一在 16px 盒内按 `size={14}` 居中渲染；
+  - 错误指示点对齐 dsh `StateDot`（10px 盒 + 0.15 光晕外层 + 实心内核）。
+- **统一在跑信号为扫光动画（sweep）**：pending 工具行、streaming Think 行、live 轮次组的头部以底色光带从左至右掠过（dsh ToolRow/ReasoningRow 的 shimmer 模式），取代原 spinner 与呼吸闪烁；`prefers-reduced-motion` 下自动静止。TurnStatusLine 保留小环不受影响。
+- **Think 行流式摘要跟随写入端**：流式期间摘要取最新一行并钉住横向滚动到行尾（`data-follow-end` 时用 clip 代替省略号，最新文字始终可见），落定后回到首行；去掉了加粗标签与斜体摘要，正文缩进去掉左边线（dsh thinkBody 样式）。
+- **工具行按变体出友好标题**：收起行标题从裸工具名改为 Bash / Read / Edit / Search / Web / Check / 提问 分类名（dsh VARIANT_TITLES 风格），未知工具保持 "Tool call" 标题并把真实名称放进摘要槽（`name · 摘要`）；标题字重降为 400。
+- **单文件路径摘要可点击打开**：read/write 等单文件工具的路径摘要是下划线链接，点击经 IDE 打开对应文件（会话 cwd 解析）；错误行的失败摘要永不作为链接。行头改用 div[role=button] + Enter/Space 键盘支持与 `aria-expanded`（嵌套链接需要真实 button）。
+- **通用 IN/OUT 卡片对齐 dsh ioCard**：IN/OUT 两段各自封顶独立滚动，gutter 标签 sticky 在滚动顶部，两段之间用横跨整卡的 1px 细线分隔。
+
+### 测试
+
+- 新增 `conversation-disclosure.test.ts` 10 例：guessKind/toolSummary 纯函数行为、leading 槽切换契约、sweep 动画及 reduced-motion 守卫、变体标题表、路径链接错误豁免、Think follow-end、IO 卡分隔线、图标严格映射断言；全量单测 116/116 绿。
+
 ## [0.0.13] - 2026-08-19
 
 ### 新增
