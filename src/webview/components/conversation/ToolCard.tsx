@@ -271,6 +271,9 @@ function GenericCard(props: { node: ToolCallNode; view: Extract<ToolCallView | T
   return (
     <div className="tool-card tool-card-generic">
       {input !== '' && <IoSection label="IN" text={input} />}
+      {/* Full-width hairline between the two sections (dsh ioCard divider);
+          it sits outside the padded sections so it spans the whole card. */}
+      {input !== '' && output !== null && <div className="tool-io-divider" aria-hidden />}
       {output !== null && (
         <IoSection label="OUT" text={output} error={props.node.status === 'error'} />
       )}

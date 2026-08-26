@@ -193,16 +193,19 @@ test('RJ-2: segment rail marks user messages with hover preview and jump', async
   await expect(dash).toHaveCSS('width', '10px')
   await expect(dash).toHaveCSS('height', '2px')
 
-  // Hover the second tick: a one-line preview, truncated to 10 code points + ….
+  // Hover the second tick: pops up full conversation navigation menu with all items.
   await marks.nth(1).hover()
-  const tip = page.locator('.segment-rail-tip')
-  await expect(tip).toBeVisible()
-  await expect(tip).toHaveText('RJ-RAIL 问题…')
+  const menu = page.locator('.segment-rail-menu')
+  await expect(menu).toBeVisible()
+  const items = page.locator('.segment-rail-menu-item')
+  await expect(items).toHaveCount(2)
+  await expect(items.nth(0)).toContainText('RJ-RAIL 问题一：弹窗太慢')
+  await expect(items.nth(1)).toContainText('RJ-RAIL 问题二：删除按钮没反应')
 
-  // Moving the mouse away hides the tip. The rail container is
+  // Moving the mouse away hides the menu. The rail container is
   // pointer-events:none, so hover the stream itself instead.
   await viewport.hover({ position: { x: 20, y: 20 } })
-  await expect(tip).toHaveCount(0)
+  await expect(menu).toHaveCount(0)
 
   // Clicking the tick scrolls the message near the top of the region and
   // unpins bottom-follow (the 回到底部 button appears).

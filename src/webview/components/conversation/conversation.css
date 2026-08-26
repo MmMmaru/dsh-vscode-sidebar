@@ -50,7 +50,7 @@
   height: 100%;
 }
 
-/* --- SegmentRail: right-edge overview block of user messages --- */
+/* --- SegmentRail: right-edge overview cluster of user messages --- */
 
 .segment-rail {
   position: absolute;
@@ -60,9 +60,9 @@
   display: flex;
   align-items: center;
   width: 22px;
-  /* bar 推到滚动条左侧，避免视觉压住滚动条。 */
+  /* tick 推到滚动条左侧，避免视觉压住滚动条。 */
   padding-right: 12px;
-  /* 容器不拦截指针，滚动条拖动穿透到下层滚动区；block 自行恢复。 */
+  /* 容器不拦截指针，滚动条拖动穿透到下层滚动区；tick 按钮自行恢复。 */
   pointer-events: none;
   overflow: visible;
   /* Dimmed until hovered. */
@@ -70,35 +70,63 @@
   transition: opacity 150ms ease-out;
 }
 
-.segment-rail:hover {
+.segment-rail:hover,
+.segment-rail.segment-rail-open {
   opacity: 1;
 }
 
-/* Single solid indicator block */
-.segment-rail-block {
+/* Ticks cluster: vertically centered, N slots of 10px capped at 120px. */
+.segment-rail-cluster {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+}
+
+.segment-rail-mark {
+  flex: 1 1 0;
+  min-height: 0;
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 100%;
-  pointer-events: auto;
+  padding: 0;
+  background: transparent;
+  border: none;
   cursor: pointer;
-  padding: 2px 0;
+  /* rail 容器 pointer-events:none，tick 恢复可点。 */
+  pointer-events: auto;
+  color: var(--dsh-fg-muted);
 }
 
-.segment-rail-bar {
+.segment-rail-mark:hover,
+.segment-rail-mark-active {
+  color: var(--dsh-accent);
+}
+
+.segment-rail-dash {
+  /* rail 内宽仅 10px（22 - 12 padding），必须禁止 flex 收缩保住 10px 宽度。 */
   flex: none;
-  width: 8px;
-  height: 100%;
-  border-radius: 4px;
-  background: var(--dsh-fg-muted, #888);
-  transition: background 150ms ease-out;
+  width: 10px;
+  height: 2px;
+  border-radius: 1px;
+  background: currentColor;
+  transition: background 150ms ease-out, transform 150ms ease-out;
 }
 
-.segment-rail-block:hover .segment-rail-bar {
+.segment-rail-mark:hover .segment-rail-dash {
   background: var(--dsh-accent, #3794ff);
+  transform: scaleX(1.2);
 }
 
-/* Floating full conversation list on hover */
+/* Floating full conversation list on hover.
+   Placement rides the static transform (translate(-100%, -50%)), so the
+   entrance animation must be fade-only: any keyframe that touches transform
+   overrides the placement during playback and the panel visibly snaps into
+   position after it ends ("弹一下再跳位"). */
+@keyframes segment-menu-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
 .segment-rail-menu {
   position: fixed;
   transform: translate(-100%, -50%);
@@ -115,16 +143,18 @@
   z-index: 500;
   pointer-events: auto;
   overflow: hidden;
-  animation: ovl-enter 150ms ease-out;
+  animation: segment-menu-in 150ms ease-out;
 }
 
-.segment-rail-menu-header {
-  padding: 6px 10px;
-  font-size: 0.82em;
-  font-weight: 600;
-  color: var(--dsh-fg-muted, #888);
-  border-bottom: 1px solid var(--dsh-border-soft, rgba(255, 255, 255, 0.08));
-  background: rgba(0, 0, 0, 0.08);
+/* Hover bridge between rail and menu to prevent gap flicker */
+.segment-rail-menu::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  right: -16px;
+  bottom: 0;
+  width: 16px;
+  pointer-events: auto;
 }
 
 .segment-rail-menu-list {
@@ -132,7 +162,7 @@
   flex-direction: column;
   padding: 4px;
   overflow-y: auto;
-  max-height: calc(70vh - 35px);
+  max-height: 70vh;
   gap: 2px;
 }
 
@@ -153,13 +183,6 @@
 
 .segment-rail-menu-item:hover {
   background: var(--vscode-list-hoverBackground, rgba(255, 255, 255, 0.08));
-}
-
-.segment-rail-menu-idx {
-  flex: none;
-  color: var(--dsh-fg-muted, #888);
-  font-size: 0.85em;
-  min-width: 18px;
 }
 
 .segment-rail-menu-text {
@@ -616,6 +639,8 @@
 
 /* 行内图标与文字垂直居中对齐（baseline 会让 SVG 图标浮到文字上方）。 */
 .reasoning-header {
+  position: relative; /* running sweep 的锚点 */
+  overflow: hidden;
   display: flex;
   align-items: center;
   gap: 6px;
@@ -625,63 +650,125 @@
   color: inherit;
   padding: 2px 0;
   text-align: left;
+  cursor: pointer;
 }
 
-.reasoning-icon,
-.tool-row-icon,
-.ctx-row-icon {
+/*
+ * Shared leading 16px slot for every disclosure head (Think / tool /
+ * context / round): idle glyph at rest; hovering or keyboard-focusing the
+ * head cross-fades it into a right-pointing chevron — dsh 的展开可供性。
+ * 展开态常显 chevron 并转回向下。running sweep 锚定在各头部行上（见下）。
+ */
+.row-leading {
+  position: relative;
   flex: none;
   width: 16px;
+  height: 16px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  color: var(--dsh-fg-muted);
 }
 
-.reasoning-chevron,
-.tool-row-chevron {
-  flex: none;
+.row-leading-idle {
   display: inline-flex;
   align-items: center;
-  color: var(--dsh-fg-muted);
-  /* 收起时指右，展开时转回向下（dsh DisclosureRow 约定）。 */
-  transform: rotate(-90deg);
-  transition: transform 0.15s ease;
+  justify-content: center;
+  opacity: 1;
+  transition: opacity 100ms ease;
 }
 
-.reasoning-row:hover .reasoning-icon,
-.reasoning-row:hover .reasoning-chevron,
-.tool-row-head:hover .tool-row-icon,
-.tool-row-head:hover .tool-row-chevron {
-  color: var(--dsh-fg);
+.row-leading-chevron {
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  opacity: 0;
+  /* 收起时指右，展开时转回向下（dsh DisclosureRow 约定）。 */
+  transform: rotate(-90deg);
+  transition: opacity 100ms ease, transform 150ms ease;
+}
+
+.disclosure-head:hover .row-leading-idle,
+.disclosure-head:focus-visible .row-leading-idle,
+.disclosure-open .row-leading-idle {
+  opacity: 0;
+}
+
+.disclosure-head:hover .row-leading-chevron,
+.disclosure-head:focus-visible .row-leading-chevron,
+.disclosure-open .row-leading-chevron {
+  opacity: 1;
+}
+
+.disclosure-open .row-leading-chevron {
+  transform: rotate(0deg);
+}
+
+/*
+ * Running glare sweep（dsh ToolRow/ReasoningRow 的 shimmer 模式）：一条固定
+ * 宽度的底色光带从行左掠到行右，作为 pending/streaming/live 轮的统一在跑
+ * 信号，取代 spinner 与呼吸闪烁；prefers-reduced-motion 下静止。
+ */
+@keyframes dsh-row-sweep {
+  0% {
+    left: -300px;
+  }
+  90%,
+  100% {
+    left: 100%;
+  }
+}
+
+.reasoning-running .reasoning-header::after,
+.tool-row-pending .tool-row-head::after,
+.round-group-live .round-head::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -300px;
+  width: 300px;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    color-mix(in srgb, var(--dsh-bg) 60%, transparent) 55%,
+    transparent 100%
+  );
+  animation: dsh-row-sweep 2.6s ease-out infinite;
+  pointer-events: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .reasoning-running .reasoning-header::after,
+  .tool-row-pending .tool-row-head::after,
+  .round-group-live .round-head::after {
+    animation: none;
+  }
 }
 
 .reasoning-label {
-  font-weight: 600;
+  font-weight: 400;
 }
 
+/*
+ * Collapsed Think summary: ellipsized at rest; while streaming it follows the
+ * write edge（scrollLeft 钉在行尾），clip 让最新文字保持可见而不是被省略号
+ * 吃掉尾部。
+ */
 .reasoning-summary {
   flex: 1;
   min-width: 0;
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
-  font-style: italic;
 }
 
-.reasoning-running .reasoning-summary {
-  animation: dsh-fade-pulse 1.6s ease-in-out infinite;
-}
-
-.reasoning-chevron-open,
-.tool-row-chevron-open {
-  transform: rotate(0deg);
+.reasoning-summary[data-follow-end] {
+  text-overflow: clip;
 }
 
 .reasoning-body {
   margin: 4px 0 4px 22px;
   padding-left: 8px;
-  border-left: 2px solid var(--dsh-border);
   white-space: pre-wrap;
   word-break: break-word;
   font-size: 0.9em;
@@ -690,6 +777,8 @@
 /* --- Round group: a whole think/tool-call round folded into one row --- */
 
 .round-head {
+  position: relative; /* live round sweep 的锚点 */
+  overflow: hidden;
   display: flex;
   align-items: center;
   gap: 6px;
@@ -699,12 +788,11 @@
   color: var(--dsh-fg);
   padding: 2px 0;
   text-align: left;
+  cursor: pointer;
 }
 
-.round-head:hover {
-  background: var(--vscode-list-hoverBackground, rgba(255, 255, 255, 0.06));
-  border-radius: var(--dsh-radius);
-}
+/* 悬停不再铺底色：展开可供性由 leading 槽的图标↔chevron 切换承担，
+   在跑信号由共享 sweep 承担（dsh 行样式）。 */
 
 .round-summary {
   flex: 1;
@@ -713,11 +801,6 @@
   white-space: nowrap;
   text-overflow: ellipsis;
   color: var(--dsh-fg-muted);
-}
-
-/* Live round (streaming / awaiting tool result): breathing summary. */
-.round-group-live .round-summary {
-  animation: dsh-fade-pulse 1.6s ease-in-out infinite;
 }
 
 .round-body {
@@ -729,7 +812,14 @@
 
 /* --- Tool rows --- */
 
+/*
+ * Tool row head: div[role=button]（路径链接是真实 button，不能嵌套在
+ * button 里），自带 Enter/Space 键盘支持；悬停不铺底色，展开可供性由
+ * leading 槽的图标↔chevron 切换承担，pending 信号由共享 sweep 承担。
+ */
 .tool-row-head {
+  position: relative; /* pending sweep 的锚点 */
+  overflow: hidden;
   display: flex;
   align-items: center;
   gap: 6px;
@@ -739,16 +829,13 @@
   color: var(--dsh-fg);
   padding: 2px 0;
   text-align: left;
+  cursor: pointer;
 }
 
-.tool-row-head:hover {
-  background: var(--vscode-list-hoverBackground, rgba(255, 255, 255, 0.06));
-  border-radius: var(--dsh-radius);
-}
-
+/* dsh ToolRow 的标题字重（400）：行名是分类标签，不是强调文本。 */
 .tool-row-name {
   flex: none;
-  font-weight: 600;
+  font-weight: 400;
 }
 
 .tool-row-summary {
@@ -760,18 +847,64 @@
   color: var(--dsh-fg-muted);
 }
 
+/* 单文件工具的路径摘要：与 .summary 同几何的下划线链接，点击经 IDE 打开
+   （dsh ToolRow fileLink 模式）。 */
+.tool-row-path {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  background: none;
+  border: none;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  text-align: left;
+  color: var(--dsh-fg-muted);
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, var(--dsh-fg) 30%, transparent);
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+
+.tool-row-path:hover {
+  color: var(--dsh-fg);
+  text-decoration-color: currentColor;
+}
+
 .tool-row-summary-error {
   color: var(--dsh-danger);
 }
 
+/* dsh StateDot error 样式：10px 容器 + 0.10 透明度光晕外层 + 实心中心圆。 */
 .tool-dot-error {
+  position: relative;
   display: inline-block;
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--dsh-danger);
+  flex: none;
+  width: 10px;
+  height: 10px;
+  color: var(--dsh-danger);
 }
 
+.tool-dot-error::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: currentColor;
+  opacity: 0.15;
+}
+
+.tool-dot-error::after {
+  content: '';
+  position: absolute;
+  inset: 20%;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+/* TurnStatusLine 的在跑小环（工具行已改用 sweep，不再使用）。 */
 .tool-spinner {
   display: inline-block;
   width: 10px;
@@ -789,12 +922,6 @@
 @keyframes dsh-spin {
   to {
     transform: rotate(360deg);
-  }
-}
-
-@keyframes dsh-fade-pulse {
-  50% {
-    opacity: 0.45;
   }
 }
 
@@ -1060,33 +1187,59 @@
   font-size: 0.85em;
 }
 
-/* Generic IN/OUT card */
+/*
+ * Generic IN/OUT card（dsh ioCard 模式）：每个 section 是「gutter 标签 +
+ * 内容」的网格，自身封顶并独立滚动——长输入不会把短输出顶出视野；
+ * IN/OUT 之间的 1px 细线由 .tool-io-divider 承担（横跨整卡宽度）。
+ */
 
 .tool-io-section {
-  display: flex;
-  gap: 8px;
-  padding: 6px 8px;
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  column-gap: 14px;
+  align-items: baseline;
+  padding: 8px 10px;
+  max-height: 150px;
+  overflow-y: auto;
 }
 
-.tool-io-section + .tool-io-section {
-  border-top: 1px solid var(--dsh-border);
+/* 卡内滚动条：细轨低对比度，滑块用透明边框内缩，不贴圆角边缘。 */
+.tool-io-section::-webkit-scrollbar {
+  width: 8px;
 }
 
+.tool-io-section::-webkit-scrollbar-track {
+  background: transparent;
+  margin: 6px 0;
+}
+
+.tool-io-section::-webkit-scrollbar-thumb {
+  border: 2px solid transparent;
+  background-clip: padding-box;
+  border-radius: 6px;
+  background-color: color-mix(in srgb, var(--dsh-fg) 14%, transparent);
+}
+
+/* gutter 标签比正文暗一档（是标签不是内容），sticky 在 section 滚动时保持
+   可读；align-self:start 让 sticky 有块级起点。 */
 .tool-io-label {
-  flex: none;
-  width: 28px;
+  position: sticky;
+  top: 0;
+  align-self: start;
   color: var(--dsh-fg-muted);
   font-size: 0.8em;
-  padding-top: 2px;
   user-select: none;
 }
 
 .tool-io-text {
-  flex: 1;
-  max-height: 240px;
-  overflow-y: auto;
+  min-width: 0;
   white-space: pre-wrap;
   word-break: break-word;
+}
+
+.tool-io-divider {
+  height: 1px;
+  background: var(--dsh-border-soft);
 }
 
 .tool-io-text[data-error] {
@@ -1105,6 +1258,7 @@
   color: var(--dsh-fg-muted);
   padding: 2px 0;
   text-align: left;
+  cursor: pointer;
 }
 
 .ctx-row-label {

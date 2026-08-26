@@ -12,7 +12,7 @@ import type { SessionId } from '../../../extension/protocol/brand'
 import { useAppStore } from '../../store'
 import type { CompactionNode, ContextInjectionNode, ConversationNode, ErrorNode, ReasoningNode, RetryNode, ToolCallNode } from '../../types'
 import { AssistantBubble, MessageBubble } from './MessageBubble'
-import { IconChevron, IconQuestion, IconThink } from './icons'
+import { IconBrowse, IconChevron, IconChecklist, IconThink } from './icons'
 import { ReasoningRow } from './ReasoningRow'
 import { groupRounds, roundLabel, roundSummary } from './rounds'
 import { SegmentRail } from './SegmentRail'
@@ -34,15 +34,20 @@ function ContextInjectionRow(props: { node: ContextInjectionNode }): JSX.Element
   const label = props.node.form !== undefined ? `${props.node.plugin} · ${props.node.form}` : props.node.plugin
   return (
     <div className="ctx-row">
-      <button type="button" className="ctx-row-head" onClick={() => setOpen((v) => !v)}>
-        <span className="ctx-row-icon" aria-hidden>
-          <IconQuestion size={13} />
+      <button
+        type="button"
+        className={`disclosure-head ctx-row-head${open ? ' disclosure-open' : ''}`}
+        aria-expanded={open}
+        onClick={() => setOpen((v) => !v)}
+      >
+        <span className="row-leading" aria-hidden>
+          <span className="row-leading-idle">
+            <IconBrowse size={14} />
+          </span>
+          <IconChevron size={14} className="row-leading-chevron" />
         </span>
         <span className="ctx-row-label">Context injection</span>
         <span className="tool-row-summary">{label}</span>
-        <span className={`tool-row-chevron${open ? ' tool-row-chevron-open' : ''}`} aria-hidden>
-          <IconChevron size={12} />
-        </span>
       </button>
       {open && <pre className="ctx-row-body">{props.node.text}</pre>}
     </div>
@@ -55,23 +60,29 @@ function ContextInjectionRow(props: { node: ContextInjectionNode }): JSX.Element
  * output prose (TODO 0.0.12 R2). Expanding reveals the individual rows, which
  * keep their own per-row detail toggles. A live round (still streaming or
  * awaiting a tool result) starts expanded and auto-collapses when it settles.
+ * The leading glyph follows the round's composition: pure thinking keeps the
+ * bulb, any tool call shows the checklist.
  */
 function RoundGroup(props: { id: string; nodes: Array<ReasoningNode | ToolCallNode>; live: boolean }): JSX.Element {
   const [open, setOpen] = useState(props.live)
   useEffect(() => {
     if (!props.live) setOpen(false)
   }, [props.live])
+  const hasTools = props.nodes.some((n) => n.kind === 'tool-call')
   return (
     <div className={`round-group${props.live ? ' round-group-live' : ''}`}>
-      <button type="button" className="round-head" aria-expanded={open} onClick={() => setOpen((v) => !v)}>
-        <span className="tool-row-icon" aria-hidden>
-          <IconThink size={13} />
+      <button
+        type="button"
+        className={`disclosure-head round-head${open ? ' disclosure-open' : ''}`}
+        aria-expanded={open}
+        onClick={() => setOpen((v) => !v)}
+      >
+        <span className="row-leading" aria-hidden>
+          <span className="row-leading-idle">{hasTools ? <IconChecklist size={14} /> : <IconThink size={14} />}</span>
+          <IconChevron size={14} className="row-leading-chevron" />
         </span>
         <span className="reasoning-label">{roundLabel(props.nodes)}</span>
         <span className="round-summary">{roundSummary(props.nodes)}</span>
-        <span className={`tool-row-chevron${open ? ' tool-row-chevron-open' : ''}`} aria-hidden>
-          <IconChevron size={12} />
-        </span>
       </button>
       {open && (
         <div className="round-body">
