@@ -14,6 +14,9 @@
   position: fixed;
   inset: 0;
   z-index: 10;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .settings-mask {
@@ -23,13 +26,17 @@
 }
 
 .settings-dialog {
-  position: absolute;
-  inset: 4px;
+  position: relative;
+  width: 66.67%;
+  height: 66.67%;
+  max-width: 66.67%;
+  max-height: 66.67%;
   display: flex;
   overflow: hidden;
   background: var(--dsh-bg-raised);
   border: 1px solid var(--dsh-border);
-  border-radius: var(--dsh-radius);
+  border-radius: 16px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.32), 0 2px 8px rgba(0, 0, 0, 0.16);
 }
 
 /* --- nav rail --- */
