@@ -2,9 +2,8 @@
  * ModelsSection (W6): the provider list with configured dots and custom tags,
  * one inline editor card at a time (API key + baseURL), the add-provider and
  * add-custom-provider entries, and a confirmed removal flow (credential unset
- * first, then the settings path). First-run posture: with no usable provider,
- * the first provider's editor card stays expanded. Reference: dsh web
- * ui-settings-models ModelsSection (narrowed for the ~360px sidebar).
+ * first, then the settings path).
+ * Reference: dsh web ui-settings-models ModelsSection.
  */
 
 import { useState, type JSX } from 'react'
@@ -14,6 +13,7 @@ import { deriveKeyRef, type ProviderTarget } from '../../store/settings'
 import { ConfirmModal } from '../common/ConfirmModal'
 import { CustomProviderCard } from './CustomProviderCard'
 import { ProviderEditorCard } from './ProviderEditorCard'
+import { useI18n } from '../../i18n'
 
 /** Read the value at a path inside a plain object (redacted namespace value). */
 function valueAt(source: unknown, path: string[]): unknown {
@@ -33,6 +33,7 @@ function providerLabel(target: ProviderTarget): string {
 }
 
 export function ModelsSection(): JSX.Element {
+  const { t } = useI18n()
   const providers = useAppStore((s) => s.providers)
   const namespaces = useAppStore((s) => s.namespaces)
   const credentials = useAppStore((s) => s.credentials)
@@ -48,7 +49,6 @@ export function ModelsSection(): JSX.Element {
   const [deleting, setDeleting] = useState(false)
   const [deleteFailure, setDeleteFailure] = useState<string | null>(null)
   const [savedName, setSavedName] = useState<string | null>(null)
-  const [dismissedSetup, setDismissedSetup] = useState<ReadonlySet<string>>(new Set())
 
   /** The credential ref one provider's profile resolves keys through. */
   const refOf = (provider: ConfigurableProviderView): string => {
@@ -59,6 +59,19 @@ export function ModelsSection(): JSX.Element {
       : undefined
     return typeof named === 'string' && named.length > 0 ? named : deriveKeyRef(provider.provider)
   }
+
+  const isConfigured = (p: ConfigurableProviderView): boolean => {
+    if (p.declared === true) return true
+    if (credentials[refOf(p)]?.configured === true) return true
+    const ns = namespaces.find((n) => n.ns === p.settingsNs)
+    if (ns !== undefined && p.settingsPath.length > 0 && valueAt(ns.value, p.settingsPath) !== undefined) {
+      return true
+    }
+    return false
+  }
+
+  const configured = providers.filter(isConfigured)
+  const addable = providers.filter((p) => !isConfigured(p) && p.settingsNs !== '')
 
   const targetOf = (provider: ConfigurableProviderView): ProviderTarget => {
     const ref = refOf(provider)
@@ -84,11 +97,6 @@ export function ModelsSection(): JSX.Element {
     if (changed) announceSaved(target)
   }
 
-  const closeSetup = (changed: boolean, target: ProviderTarget): void => {
-    setDismissedSetup((prev) => new Set([...prev, target.provider]))
-    if (changed) announceSaved(target)
-  }
-
   const confirmDelete = (): void => {
     if (deleteTarget === null || deleting) return
     setDeleting(true)
@@ -100,11 +108,6 @@ export function ModelsSection(): JSX.Element {
       })
       .finally(() => { setDeleting(false) })
   }
-
-  // First-run posture: nothing can serve requests yet -> the first provider's
-  // editor card IS its presence on the page.
-  const anyUsable = providers.some((p) => credentials[refOf(p)]?.configured === true)
-  const addable = providers.filter((p) => credentials[refOf(p)]?.configured !== true)
 
   const startEdit = (provider: ConfigurableProviderView): void => {
     setSavedName(null)
@@ -127,55 +130,45 @@ export function ModelsSection(): JSX.Element {
 
   return (
     <div className="settings-section" data-region="ModelsSection">
-      <h2 className="settings-section-title">模型</h2>
-      <p className="settings-section-intro">填入各提供方的 API 密钥即可使用其模型。</p>
-      {!settingsWritable && <p className="settings-notice">设置为只读：当前环境不允许修改。</p>}
+      <h2 className="settings-section-title">{t('modelsTitle')}</h2>
+      <p className="settings-section-intro">{t('modelsIntro')}</p>
+      {!settingsWritable && <p className="settings-notice">{t('modelsReadOnlyNotice')}</p>}
       {savedName !== null && (
-        <p className="settings-saved" role="status" aria-live="polite">{`已保存 ${savedName}`}</p>
+        <p className="settings-saved" role="status" aria-live="polite">{t('modelsSaved', { name: savedName })}</p>
       )}
       <ul className="settings-provider-list">
-        {providers.map((provider) => {
+        {configured.map((provider) => {
           const target = targetOf(provider)
           const ref = refOf(provider)
-          const configured = credentials[ref]?.configured === true
-          if (!anyUsable && provider === providers[0] && !dismissedSetup.has(provider.provider)) {
-            return (
-              <li key={provider.provider} className="settings-provider-card">
-                <div className="settings-provider-head">
-                  <span className="settings-provider-name">{provider.displayName}</span>
-                </div>
-                <ProviderEditorCard target={target} onClose={(changed) => { closeSetup(changed, target) }} />
-              </li>
-            )
-          }
+          const isCredConfigured = credentials[ref]?.configured === true
           const open = !adding && !declaring && editingId === provider.provider
           return (
             <li key={provider.provider} className="settings-provider-card">
               <div className="settings-provider-head">
                 <span className="settings-provider-identity">
                   <span
-                    className={`settings-dot ${configured ? 'settings-dot-ok' : 'settings-dot-missing'}`}
+                    className={`settings-dot ${isCredConfigured ? 'settings-dot-ok' : 'settings-dot-missing'}`}
                     role="img"
-                    aria-label={configured ? '已配置' : '未配置'}
-                    title={configured ? '已配置' : '未配置'}
+                    aria-label={isCredConfigured ? t('modelsDotOk') : t('modelsDotMissing')}
+                    title={isCredConfigured ? t('modelsDotOk') : t('modelsDotMissing')}
                   />
                   <span className="settings-provider-name">{provider.displayName}</span>
-                  {provider.declared === true && <span className="settings-tag">自定义</span>}
+                  {provider.declared === true && <span className="settings-tag">{t('modelsTagCustom')}</span>}
                 </span>
                 <span className="settings-provider-actions">
                   <button
                     type="button"
                     className="settings-btn settings-btn-small"
-                    aria-label={`编辑 ${providerLabel(target)}`}
+                    aria-label={`${t('edit')} ${providerLabel(target)}`}
                     onClick={() => { startEdit(provider) }}
                   >
-                    编辑
+                    {t('edit')}
                   </button>
                   {provider.declared === true && (
                     <button
                       type="button"
                       className="settings-btn settings-btn-small settings-btn-danger"
-                      aria-label={`删除 ${providerLabel(target)}`}
+                      aria-label={`${t('delete')} ${providerLabel(target)}`}
                       disabled={!settingsWritable}
                       onClick={() => {
                         setSavedName(null)
@@ -183,7 +176,7 @@ export function ModelsSection(): JSX.Element {
                         setDeleteTarget(target)
                       }}
                     >
-                      删除
+                      {t('delete')}
                     </button>
                   )}
                 </span>
@@ -192,7 +185,7 @@ export function ModelsSection(): JSX.Element {
             </li>
           )
         })}
-        {providers.length === 0 && <li className="settings-empty">没有可用的提供方。</li>}
+        {configured.length === 0 && <li className="settings-empty">{t('modelsNoConfigured')}</li>}
       </ul>
       <div className="settings-add-block">
         {declaring ? (
@@ -206,11 +199,11 @@ export function ModelsSection(): JSX.Element {
         ) : adding && addTarget !== undefined ? (
           <div className="settings-editor">
             <div className="settings-field">
-              <div className="settings-field-label">提供方</div>
+              <div className="settings-field-label">{t('modelsProviderLabel')}</div>
               <select
                 className="settings-input"
                 value={addTarget.provider}
-                aria-label="提供方"
+                aria-label={t('modelsProviderLabel')}
                 onChange={(e) => { setAddTargetId(e.target.value) }}
               >
                 {addable.map((p) => (
@@ -232,7 +225,7 @@ export function ModelsSection(): JSX.Element {
               disabled={addable.length === 0 || !settingsWritable}
               onClick={startAdd}
             >
-              添加提供方
+              {t('modelsAddProvider')}
             </button>
             <button
               type="button"
@@ -245,18 +238,18 @@ export function ModelsSection(): JSX.Element {
                 setDeclaring(true)
               }}
             >
-              添加自定义提供方
+              {t('modelsAddCustomProvider')}
             </button>
           </div>
         )}
       </div>
       {deleteTarget !== null && (
         <ConfirmModal
-          title={`删除 ${providerLabel(deleteTarget)}`}
+          title={t('modelsDeleteTitle', { name: providerLabel(deleteTarget) })}
           description={deleteTarget.credentialRef === undefined
-            ? '将删除该提供方的配置。此操作不可撤销。'
-            : '将删除该提供方的配置，并同时移除已保存的 API 密钥。此操作不可撤销。'}
-          confirmLabel={`删除 ${deleteTarget.displayName}`}
+            ? t('modelsDeleteDesc')
+            : t('modelsDeleteWithKeyDesc')}
+          confirmLabel={`${t('delete')} ${deleteTarget.displayName}`}
           busy={deleting}
           failure={deleteFailure}
           onConfirm={confirmDelete}

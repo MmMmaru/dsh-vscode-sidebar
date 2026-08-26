@@ -7,6 +7,7 @@
 import { useState, type JSX } from 'react'
 import { useAppStore } from '../../store'
 import { deriveKeyRef } from '../../store/settings'
+import { useI18n } from '../../i18n'
 
 export interface CustomProviderCardProps {
   /** Route ids already taken (validation). */
@@ -18,6 +19,7 @@ export interface CustomProviderCardProps {
 const PROTOCOLS = ['openai', 'anthropic'] as const
 
 export function CustomProviderCard({ taken, onClose }: CustomProviderCardProps): JSX.Element {
+  const { t, lang } = useI18n()
   const namespace = useAppStore((s) => s.namespaces.find((n) => n.ns === 'llm-pi-ai'))
   const mutateSettings = useAppStore((s) => s.mutateSettings)
   const setCredential = useAppStore((s) => s.setCredential)
@@ -34,9 +36,9 @@ export function CustomProviderCard({ taken, onClose }: CustomProviderCardProps):
   const idFailure = routeId.length === 0
     ? null
     : !/^[a-z0-9][a-z0-9-]*$/.test(routeId)
-      ? '标识只能包含小写字母、数字与连字符'
+      ? (lang === 'zh' ? '标识只能包含小写字母、数字与连字符' : 'Identifier may only contain lowercase letters, numbers and hyphens')
       : taken.includes(routeId)
-        ? '该标识已被占用'
+        ? (lang === 'zh' ? '该标识已被占用' : 'Identifier already in use')
         : null
   const canSubmit = routeId.length > 0 && idFailure === null && baseURL.trim().length > 0 && !busy
 
@@ -67,48 +69,48 @@ export function CustomProviderCard({ taken, onClose }: CustomProviderCardProps):
   return (
     <div className="settings-editor" data-region="CustomProviderCard">
       <div className="settings-field">
-        <div className="settings-field-label">提供方标识</div>
+        <div className="settings-field-label">{t('customId')}</div>
         <input
           className="settings-input"
           type="text"
           value={id}
-          placeholder="例如 my-lab"
-          aria-label="提供方标识"
+          placeholder={lang === 'zh' ? '例如 my-lab' : 'e.g. my-lab'}
+          aria-label={t('customId')}
           disabled={busy}
           onChange={(e) => { setId(e.target.value) }}
         />
         {idFailure !== null && <p className="settings-error">{idFailure}</p>}
       </div>
       <div className="settings-field">
-        <div className="settings-field-label">显示名称</div>
+        <div className="settings-field-label">{t('customDisplayName')}</div>
         <input
           className="settings-input"
           type="text"
           value={displayName}
-          placeholder={routeId || '同标识'}
-          aria-label="显示名称"
+          placeholder={routeId || (lang === 'zh' ? '同标识' : 'Same as ID')}
+          aria-label={t('customDisplayName')}
           disabled={busy}
           onChange={(e) => { setDisplayName(e.target.value) }}
         />
       </div>
       <div className="settings-field">
-        <div className="settings-field-label">Base URL</div>
+        <div className="settings-field-label">{t('providerBaseUrl')}</div>
         <input
           className="settings-input"
           type="text"
           value={baseURL}
           placeholder="https://example.com/v1"
-          aria-label="Base URL"
+          aria-label={t('providerBaseUrl')}
           disabled={busy}
           onChange={(e) => { setBaseURL(e.target.value) }}
         />
       </div>
       <div className="settings-field">
-        <div className="settings-field-label">协议</div>
+        <div className="settings-field-label">{t('customProtocol')}</div>
         <select
           className="settings-input"
           value={api}
-          aria-label="协议"
+          aria-label={t('customProtocol')}
           disabled={busy}
           onChange={(e) => { setApi(e.target.value) }}
         >
@@ -116,22 +118,22 @@ export function CustomProviderCard({ taken, onClose }: CustomProviderCardProps):
         </select>
       </div>
       <div className="settings-field">
-        <div className="settings-field-label">API 密钥（可选）</div>
+        <div className="settings-field-label">{lang === 'zh' ? 'API 密钥（可选）' : 'API Key (optional)'}</div>
         <input
           className="settings-input"
           type="password"
           autoComplete="off"
           value={keyDraft}
-          placeholder="可稍后再填"
-          aria-label="API 密钥"
+          placeholder={lang === 'zh' ? '可稍后再填' : 'Optional'}
+          aria-label={t('providerKey')}
           disabled={busy}
           onChange={(e) => { setKeyDraft(e.target.value) }}
         />
       </div>
-      {failure !== null && <p className="settings-error">{`保存失败：${failure}`}</p>}
+      {failure !== null && <p className="settings-error">{t('saveFailed', { error: failure })}</p>}
       <div className="settings-editor-actions">
         <button type="button" className="settings-btn" disabled={busy} onClick={() => { onClose(false) }}>
-          取消
+          {t('cancel')}
         </button>
         <button
           type="button"
@@ -139,7 +141,7 @@ export function CustomProviderCard({ taken, onClose }: CustomProviderCardProps):
           disabled={!canSubmit}
           onClick={() => { void save() }}
         >
-          {busy ? '保存中…' : '添加'}
+          {busy ? (lang === 'zh' ? '保存中…' : 'Saving…') : (lang === 'zh' ? '添加' : 'Add')}
         </button>
       </div>
     </div>

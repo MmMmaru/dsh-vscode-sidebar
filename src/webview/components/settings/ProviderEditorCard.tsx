@@ -8,6 +8,7 @@
 import { useState, type JSX } from 'react'
 import { useAppStore } from '../../store'
 import { deriveKeyRef, type ProviderTarget } from '../../store/settings'
+import { useI18n } from '../../i18n'
 
 export interface ProviderEditorCardProps {
   target: ProviderTarget
@@ -26,6 +27,7 @@ function valueAt(source: unknown, path: string[]): unknown {
 }
 
 export function ProviderEditorCard({ target, onClose }: ProviderEditorCardProps): JSX.Element {
+  const { t, lang } = useI18n()
   const namespace = useAppStore((s) => s.namespaces.find((n) => n.ns === target.settingsNs))
   const credential = useAppStore((s) => s.credentials[target.credentialRef ?? deriveKeyRef(target.provider)])
   const mutateSettings = useAppStore((s) => s.mutateSettings)
@@ -71,37 +73,41 @@ export function ProviderEditorCard({ target, onClose }: ProviderEditorCardProps)
     }
   }
 
+  const keyPlaceholder = credential?.configured === true
+    ? (lang === 'zh' ? '已配置（输入以更换）' : 'Configured (type to replace)')
+    : (lang === 'zh' ? '输入 API 密钥' : 'Enter API Key')
+
   return (
     <div className="settings-editor" data-region="ProviderEditorCard">
       <div className="settings-field">
-        <div className="settings-field-label">API 密钥</div>
+        <div className="settings-field-label">{t('providerKey')}</div>
         <input
           className="settings-input"
           type="password"
           autoComplete="off"
           value={keyDraft}
-          placeholder={credential?.configured === true ? '已配置（输入以更换）' : '输入 API 密钥'}
-          aria-label="API 密钥"
+          placeholder={keyPlaceholder}
+          aria-label={t('providerKey')}
           disabled={busy}
           onChange={(e) => { setKeyDraft(e.target.value) }}
         />
       </div>
       <div className="settings-field">
-        <div className="settings-field-label">Base URL</div>
+        <div className="settings-field-label">{t('providerBaseUrl')}</div>
         <input
           className="settings-input"
           type="text"
           value={baseURLDraft}
           placeholder="https://api.deepseek.com"
-          aria-label="Base URL"
+          aria-label={t('providerBaseUrl')}
           disabled={busy}
           onChange={(e) => { setBaseURLDraft(e.target.value) }}
         />
       </div>
-      {failure !== null && <p className="settings-error">{`保存失败：${failure}`}</p>}
+      {failure !== null && <p className="settings-error">{t('saveFailed', { error: failure })}</p>}
       <div className="settings-editor-actions">
         <button type="button" className="settings-btn" disabled={busy} onClick={() => { onClose(false) }}>
-          取消
+          {t('cancel')}
         </button>
         <button
           type="button"
@@ -109,7 +115,7 @@ export function ProviderEditorCard({ target, onClose }: ProviderEditorCardProps)
           disabled={busy || !dirty}
           onClick={() => { void save() }}
         >
-          {busy ? '保存中…' : '保存'}
+          {busy ? (lang === 'zh' ? '保存中…' : 'Saving…') : t('save')}
         </button>
       </div>
     </div>
