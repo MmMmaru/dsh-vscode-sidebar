@@ -3,6 +3,16 @@
 本插件所有重要变更记录。格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)；
 版本号与 `package.json` 的 `version` 保持一致。
 
+## [0.1.1] - 2026-08-25
+
+### 优化
+
+- **设置与会话管理窗口尺寸调整为 3/4**：
+  - 设置弹窗改为宽高各占 75%（`width: 75%`，`height: 75%`）居中展示；
+  - 会话管理下拉面板改为居中宽度 75%、高度 75vh（`width: 75%`，`height: 75vh`）展示；
+- **全面同步圆角配置为 16px**：
+  - 设置弹窗、会话管理弹窗、确认提示框（ConfirmModal）、计划审查/审批面板（ovl-card）、GoalBar、排队栏（QueueDock）、SubagentDock、任务清单（TodoPanel）等浮层卡片统一对齐输入框圆角（`16px`），全局 `--dsh-radius-lg` 升级为 `16px`。
+
 ## [0.1.0] - 2026-08-25
 
 ### 新增与优化

@@ -2,7 +2,7 @@
   "name": "dsh-vscode-sidebar",
   "displayName": "DeepSeek Harness Sidebar",
   "description": "VSCode sidebar client for the DeepSeek harness (dsh) web host",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "publisher": "XuRongSheng",
   "license": "MIT",
   "repository": {
