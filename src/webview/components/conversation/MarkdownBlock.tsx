@@ -18,6 +18,9 @@
 import { Children, cloneElement, isValidElement, useState, type JSX, type ReactElement, type ReactNode } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
+import remarkMath from 'remark-math'
+import rehypeKatex from 'rehype-katex'
+import 'katex/dist/katex.min.css'
 import { splitFileRefs, parseFileHref, type FileRef } from '../../../shared/file-refs'
 import { openFileInIde } from '../../bridge'
 import { useAppStore } from '../../store'
@@ -153,13 +156,17 @@ function renderStreamingRefs(text: string, keyBase: string): ReactNode[] {
 /**
  * Recursively replace text leaves with ref-split content, so references render
  * clickable even inside inline code / emphasis / links. Elements without text
- * children (e.g. images) are left untouched.
+ * children (e.g. images) and math formula spans (KaTeX) are left untouched.
  */
 function withFileRefs(children: ReactNode, keyBase: string): ReactNode[] {
   return Children.toArray(children).flatMap((child, i) => {
     if (typeof child === 'string') return renderRefs(child, `${keyBase}-${i}`)
     if (isValidElement(child)) {
-      const el = child as React.ReactElement<{ children?: ReactNode }>
+      const el = child as React.ReactElement<{ className?: unknown; children?: ReactNode }>
+      const className = typeof el.props.className === 'string' ? el.props.className : ''
+      if (className.includes('katex') || className.includes('math')) {
+        return child
+      }
       const kid = el.props.children
       if (kid !== undefined) {
         const kids = Children.toArray(kid)
@@ -183,7 +190,8 @@ export function MarkdownBlock(props: { text: string; streaming: boolean }): JSX.
   return (
     <div className="md-body">
       <ReactMarkdown
-        remarkPlugins={[remarkGfm]}
+        remarkPlugins={[remarkGfm, remarkMath]}
+        rehypePlugins={[rehypeKatex]}
         components={{
           pre: (p) => <>{p.children}</>,
           p: (p) => <p>{withFileRefs(p.children, 'p')}</p>,

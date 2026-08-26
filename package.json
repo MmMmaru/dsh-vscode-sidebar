@@ -104,6 +104,7 @@
     "package": "vsce package"
   },
   "devDependencies": {
+    "@types/katex": "^0.16.8",
     "@types/node": "^24.0.0",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
@@ -121,8 +122,11 @@
     "ws": "^8.21.3"
   },
   "dependencies": {
+    "katex": "^0.18.4",
     "react-markdown": "^10.1.0",
+    "rehype-katex": "^7.0.1",
     "remark-gfm": "^4.0.1",
+    "remark-math": "^6.0.0",
     "zustand": "^5.0.15"
   }
 }

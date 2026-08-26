@@ -17,6 +17,12 @@ const base = {
   target: 'node20',
   sourcemap: true,
   external: ['vscode'],
+  loader: {
+    '.woff': 'empty',
+    '.woff2': 'empty',
+    '.ttf': 'empty',
+    '.css': 'empty',
+  },
   logLevel: 'info',
 }
 

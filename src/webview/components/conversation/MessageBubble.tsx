@@ -158,12 +158,18 @@ function ForkIcon(): JSX.Element {
   )
 }
 
+export interface AssistantBubbleProps {
+  node: AssistantTextNode
+  /** Whether this assistant node is the final text response in its turn. */
+  isFinalInTurn?: boolean
+}
+
 /**
  * Assistant message chrome: the markdown body plus a trailing ghost action
  * row — copy the raw markdown, and fork the session at this node's seq
- * (hidden while the conversation is in progress, only shown when finished).
+ * (hidden while the conversation is in progress, only shown on the final text of a settled turn).
  */
-export function AssistantBubble(props: { node: AssistantTextNode }): JSX.Element {
+export function AssistantBubble({ node, isFinalInTurn = true }: AssistantBubbleProps): JSX.Element {
   const { t } = useI18n()
   const activeSessionId = useAppStore((s) => s.activeSessionId)
   const turnStatus = useAppStore((s) => s.turnStatus)
@@ -174,7 +180,7 @@ export function AssistantBubble(props: { node: AssistantTextNode }): JSX.Element
   const [copied, setCopied] = useState(false)
 
   const copy = (): void => {
-    void navigator.clipboard.writeText(props.node.text).then(() => {
+    void navigator.clipboard.writeText(node.text).then(() => {
       setCopied(true)
       setTimeout(() => setCopied(false), 1500)
     })
@@ -182,15 +188,16 @@ export function AssistantBubble(props: { node: AssistantTextNode }): JSX.Element
 
   const fork = (): void => {
     if (activeSessionId === null) return
-    void forkSession(activeSessionId, props.node.seq)
+    void forkSession(activeSessionId, node.seq)
   }
 
-  const isOngoing = props.node.streaming || turnStatus !== 'idle' || sessionRunning
+  const isOngoing = node.streaming || turnStatus !== 'idle' || sessionRunning
+  const showActions = isFinalInTurn && !isOngoing
 
   return (
     <div className="msg-assistant">
-      <MarkdownBlock text={props.node.text} streaming={props.node.streaming} />
-      {!isOngoing && (
+      <MarkdownBlock text={node.text} streaming={node.streaming} />
+      {showActions && (
         <div className="msg-actions">
           <button type="button" className="msg-action" onClick={copy} title={t('copy')}>
             {copied ? <span className="msg-action-copied">{t('copied')}</span> : <CopyIcon />}

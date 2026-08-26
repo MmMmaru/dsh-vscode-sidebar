@@ -134,13 +134,13 @@ function ErrorRow(props: { node: ErrorNode }): JSX.Element {
  * children (FileRefChip, AssistantBubble actions) keep their own
  * subscriptions, so memo does not stale them. Exported for tests.
  */
-export const NodeView = memo(function NodeView(props: { node: ConversationNode }): JSX.Element {
-  const { node } = props
+export const NodeView = memo(function NodeView(props: { node: ConversationNode; isFinalInTurn?: boolean }): JSX.Element {
+  const { node, isFinalInTurn } = props
   switch (node.kind) {
     case 'user-message':
       return <MessageBubble node={node} />
     case 'assistant-text':
-      return <AssistantBubble node={node} />
+      return <AssistantBubble node={node} isFinalInTurn={isFinalInTurn} />
     case 'reasoning':
       return <ReasoningRow node={node} />
     case 'tool-call':
@@ -223,6 +223,29 @@ export function ConversationView({ sessionId }: ConversationViewProps): JSX.Elem
   /** Think/tool-call runs folded into collapsible rounds (see rounds.ts). */
   const flowItems = useMemo(() => groupRounds(nodes), [nodes])
 
+  /**
+   * Identifies the final assistant-text node in each turn. Mid-turn narration
+   * before a tool-call or earlier text nodes in a multi-message response stay chrome-free.
+   */
+  const finalAssistantNodeIds = useMemo(() => {
+    const ids = new Set<string>()
+    let currentLastAssistantId: string | null = null
+    for (const node of nodes) {
+      if (node.kind === 'user-message') {
+        if (currentLastAssistantId !== null) {
+          ids.add(currentLastAssistantId)
+          currentLastAssistantId = null
+        }
+      } else if (node.kind === 'assistant-text') {
+        currentLastAssistantId = node.id
+      }
+    }
+    if (currentLastAssistantId !== null) {
+      ids.add(currentLastAssistantId)
+    }
+    return ids
+  }, [nodes])
+
   /** SegmentRail click: scroll the message row into view and unpin bottom-follow. */
   const jumpToNode = (nodeId: string): void => {
     const el = scrollRef.current
@@ -257,7 +280,7 @@ export function ConversationView({ sessionId }: ConversationViewProps): JSX.Elem
             {flowItems.map((item) =>
               item.kind === 'node' ? (
                 <div key={item.node.id} className={`conv-node conv-node-${item.node.kind}`} data-node-id={item.node.id}>
-                  <NodeView node={item.node} />
+                  <NodeView node={item.node} isFinalInTurn={finalAssistantNodeIds.has(item.node.id)} />
                 </div>
               ) : (
                 <div key={item.id} className="conv-node conv-node-round" data-node-id={item.id}>
