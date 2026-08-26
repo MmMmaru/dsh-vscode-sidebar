@@ -11,7 +11,7 @@ import type { MuxFrame } from '../../extension/protocol/events'
 import type { HostDescription } from '../../extension/protocol/host'
 import type { PromptContentPart, QueueAction } from '../../extension/protocol/sessions'
 import type { SessionModels } from '../../extension/protocol/sessions'
-import { VSCODE_CONTEXT_PROMPT, wrapAttachedText } from '../../shared/attached-text'
+import { VSCODE_CONTEXT_PROMPT, parseUserMessage, wrapAttachedText } from '../../shared/attached-text'
 import { fetchIdeContent, rpc } from '../bridge'
 import { formatIdeInsert, hasIdeBlock } from '../ide-insert'
 import type { Attachment, ModelInfo, PermissionMode, QueuedMessage } from '../types'
@@ -73,10 +73,26 @@ function toQueuedMessage(item: { id: MessageId; placement: QueuedMessage['placem
  * carries an inserted IDE block. Best-effort — any failure (no editor,
  * timeout) silently leaves the prompt untouched.
  * @param text - the draft text.
+ * @param enabled - whether send-time IDE context is toggled on.
+ * @param lang - UI language for fallback phrasing.
  * @returns the prompt text, enriched when editor context is available.
  */
-async function enrichWithIdeContext(text: string, enabled: boolean): Promise<string> {
-  if (!enabled || hasIdeBlock(text)) return text
+async function enrichWithIdeContext(text: string, enabled: boolean, lang: 'zh' | 'en' = 'zh'): Promise<string> {
+  if (hasIdeBlock(text)) {
+    const parsed = parseUserMessage(text)
+    if (parsed.cleanText.trim() === '' && parsed.attachedTexts.length > 0) {
+      const first = parsed.attachedTexts[0]
+      if (first !== undefined) {
+        const prefix = lang === 'en'
+          ? `Please analyze ${first.name}:`
+          : `请分析 ${first.name}：`
+        return `${prefix}\n\n${text.trim()}`
+      }
+    }
+    return text
+  }
+
+  if (!enabled) return text
   let content
   try {
     content = await fetchIdeContent('selection')
@@ -85,15 +101,28 @@ async function enrichWithIdeContext(text: string, enabled: boolean): Promise<str
   }
   if (content.error !== undefined) return text
   if (content.fromSelection === true && content.text.trim() !== '') {
-    const block = formatIdeInsert('selection', content.text, content.path)
-    return text.trim() === '' ? block : `${text.trim()}\n\n${block}`
+    const fileName = content.path ? (content.path.slice(content.path.lastIndexOf('/') + 1) || 'selection.txt') : 'selection.txt'
+    const block = wrapAttachedText(fileName, content.text, content.path)
+    if (text.trim() === '') {
+      const prefix = lang === 'en'
+        ? `Please analyze the selected code from ${fileName}:`
+        : `请分析来自 ${fileName} 的选中代码：`
+      return `${prefix}\n\n${block}`
+    }
+    return `${text.trim()}\n\n${block}`
   }
   // No selection: the payload still carries the active file path (the
   // 'selection' kind falls back to the whole document); attach only the path.
   if (content.path !== undefined) {
     const fileName = content.path.slice(content.path.lastIndexOf('/') + 1) || 'file.txt'
-    const block = wrapAttachedText(fileName, `### 当前文件：${content.path}`, content.path)
-    return text.trim() === '' ? block : `${text.trim()}\n\n${block}`
+    const block = wrapAttachedText(fileName, `### ${lang === 'en' ? 'Current file' : '当前文件'}：${content.path}`, content.path)
+    if (text.trim() === '') {
+      const prefix = lang === 'en'
+        ? `Please check the current file ${fileName}:`
+        : `请查看当前文件 ${fileName}：`
+      return `${prefix}\n\n${block}`
+    }
+    return `${text.trim()}\n\n${block}`
   }
   return text
 }
@@ -139,14 +168,17 @@ export const createComposerSlice: StateCreator<AppStore, [], [], ComposerSlice> 
     // A prompt whose content is exactly one text block starting with `/` is a
     // slash command the HOST executes (goal/compact/plan...); IDE context must
     // not be appended or the host rejects it as an unknown command.
+    const lang = get().uiPrefs.language ?? 'zh'
     const enriched = text.startsWith('/')
       ? text
-      : await enrichWithIdeContext(text, get().ideContextEnabled)
+      : await enrichWithIdeContext(text, get().ideContextEnabled, lang)
     
     // Inject VS Code sidebar environment instructions on the first prompt of a session.
+    // Placing it at the END ensures that the user's actual question/intent is at the top,
+    // so the host's title generator extracts a clean, meaningful session title.
     const isFirstPrompt = !text.startsWith('/') && !get().nodes.some((n) => n.kind === 'user-message')
     const prompt = isFirstPrompt
-      ? `${VSCODE_CONTEXT_PROMPT}\n\n${enriched}`
+      ? `${enriched}\n\n${VSCODE_CONTEXT_PROMPT}`
       : enriched
 
     const content: PromptContentPart[] = [

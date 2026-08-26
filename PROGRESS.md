@@ -1,13 +1,14 @@
 # 进展记录
 
-### 08-25 0.1.1 设置与会话管理窗口 3/4 尺寸、16px 圆角同步、KaTeX 公式与动作栏修整
+### 08-25 0.1.1 设置与会话管理窗口 3/4 尺寸、16px 圆角同步、KaTeX 公式与标题优化
 - 优化与落地：
-  1. **LaTeX 数学公式高保真渲染**：引入 `remark-math`、`rehype-katex` 及 `katex` 样式，完美支持复杂行内与块级数学公式（如求和、连乘、带编号 `\tag{1}` 等）；
-  2. **对话操作栏位置精准控制**：通过 `finalAssistantNodeIds`，仅在每轮最终落定的 assistant-text 节点下挂载复制/分叉按钮，中间叙述节点与运行中节点不再显示；
-  3. **设置窗口尺寸调整至 3/4**：`settings-dialog` 设置为 `width: 75%`，`height: 75%` 居中展示；
-  4. **会话管理窗口尺寸调整至 3/4**：`chat-list-dropdown` 设置为 `width: 75%`，`height: 75vh` 居中展示；
-  5. **圆角全面对齐 16px**：所有卡片与浮层（设置弹窗、会话下拉、确认模态、审批卡片、计划审查卡片、GoalBar、QueueDock、SubagentDock、TodoPanel）统一应用 16px 圆角。
-- 测试：单测全量 120/120 绿，打包 `dsh-vscode-sidebar-0.1.1.vsix` 并安装至本地 VS Code。
+  1. **会话标题生成优化**：重构 prompt 拼接结构，用户提问正文置顶，环境指导与附加文件后置；针对纯文件/代码上下文场景自动补充自然语义引导词（中/英），彻底解决开启 IDE 上下文后标题被 `[DSH_VSCODE_CONTEXT]` 或标签污染的问题；
+  2. **LaTeX 数学公式高保真渲染**：引入 `remark-math`、`rehype-katex` 及 `katex` 样式，完美支持复杂行内与块级数学公式（如求和、连乘、带编号 `\tag{1}` 等）；
+  3. **对话操作栏位置精准控制**：通过 `finalAssistantNodeIds`，仅在每轮最终落定的 assistant-text 节点下挂载复制/分叉按钮，中间叙述节点与运行中节点不再显示；
+  4. **设置窗口尺寸调整至 3/4**：`settings-dialog` 设置为 `width: 75%`，`height: 75%` 居中展示；
+  5. **会话管理窗口尺寸调整至 3/4**：`chat-list-dropdown` 设置为 `width: 75%`，`height: 75vh` 居中展示；
+  6. **圆角全面对齐 16px**：所有卡片与浮层（设置弹窗、会话下拉、确认模态、审批卡片、计划审查卡片、GoalBar、QueueDock、SubagentDock、TodoPanel）统一应用 16px 圆角。
+- 测试：单测全量 121/121 绿，打包 `dsh-vscode-sidebar-0.1.1.vsix` 并安装至本地 VS Code。
 
 ### 08-25 0.1.0 设置面板对齐/英文国际化/对话按钮时机与输入框美化
 - 按照最新需求完成五项 UI 与架构优化：
