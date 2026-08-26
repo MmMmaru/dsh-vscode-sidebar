@@ -19,8 +19,10 @@
 .chat-list-dropdown {
   position: absolute;
   top: 34px;
-  left: 50%;
-  transform: translateX(-50%);
+  left: 0;
+  right: 0;
+  margin: 0 auto;
+  transform-origin: center top;
   width: 75%;
   height: 75vh;
   max-height: 75vh;
