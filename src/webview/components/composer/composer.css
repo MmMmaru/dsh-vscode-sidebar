@@ -25,6 +25,10 @@
   background: var(--dsh-bg-raised);
   border: 1px solid var(--dsh-border);
   border-radius: 16px;
+  width: 95%;
+  margin: 0 auto;
+  box-sizing: border-box;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.16), 0 1px 4px rgba(0, 0, 0, 0.08);
 }
 
 .composer-card.drag-active {
