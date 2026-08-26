@@ -14,6 +14,7 @@ import { rpc } from '../../bridge'
 import { useAppStore } from '../../store'
 import type { AssistantTextNode, UserMessageNode } from '../../types'
 import { MarkdownBlock } from './MarkdownBlock'
+import { useI18n } from '../../i18n'
 
 /** Format epoch ms as HH:MM. */
 function formatTime(time: number): string {
@@ -23,6 +24,7 @@ function formatTime(time: number): string {
 
 /** One history image: lazy-loads its bytes via session.attachment. */
 function AttachmentImage(props: { attachment: ImageAttachmentRef }): JSX.Element {
+  const { lang } = useI18n()
   const activeSessionId = useAppStore((s) => s.activeSessionId)
   const [src, setSrc] = useState<string | null>(null)
 
@@ -44,11 +46,12 @@ function AttachmentImage(props: { attachment: ImageAttachmentRef }): JSX.Element
     }
   }, [activeSessionId, props.attachment.attachmentId])
 
-  if (src === null) return <span className="msg-user-image-placeholder">{props.attachment.name ?? '图片'}</span>
-  return <img src={src} alt={props.attachment.name ?? '附件图片'} />
+  if (src === null) return <span className="msg-user-image-placeholder">{props.attachment.name ?? (lang === 'zh' ? '图片' : 'Image')}</span>
+  return <img src={src} alt={props.attachment.name ?? (lang === 'zh' ? '附件图片' : 'Attachment image')} />
 }
 
 function AttachedTextCard(props: { block: AttachedTextBlock }): JSX.Element {
+  const { t, lang } = useI18n()
   const [expanded, setExpanded] = useState(false)
   return (
     <div className="msg-attached-text-card">
@@ -57,8 +60,8 @@ function AttachedTextCard(props: { block: AttachedTextBlock }): JSX.Element {
         <span className="msg-attached-text-name" title={props.block.path ?? props.block.name}>
           {props.block.name}
         </span>
-        <span className="msg-attached-text-meta">{props.block.lines} 行</span>
-        <span className="msg-attached-text-toggle">{expanded ? '收起' : '展开'}</span>
+        <span className="msg-attached-text-meta">{props.block.lines} {t('linesUnit')}</span>
+        <span className="msg-attached-text-toggle">{expanded ? t('collapse') : t('expand')}</span>
       </div>
       {expanded && (
         <div className="msg-attached-text-body">
@@ -70,6 +73,7 @@ function AttachedTextCard(props: { block: AttachedTextBlock }): JSX.Element {
 }
 
 export function MessageBubble(props: { node: UserMessageNode }): JSX.Element {
+  const { t } = useI18n()
   const [copied, setCopied] = useState(false)
   const texts = props.node.blocks.filter((b) => b.type === 'text')
   const images = props.node.blocks.filter((b) => b.type === 'image')
@@ -102,7 +106,7 @@ export function MessageBubble(props: { node: UserMessageNode }): JSX.Element {
       )}
       {cleanText !== '' && <div className="msg-user-bubble">{cleanText}</div>}
       <div className="msg-user-meta">
-        <button type="button" className="msg-copy" onClick={copy} title="复制">
+        <button type="button" className="msg-copy" onClick={copy} title={t('copy')}>
           {copied ? '✓' : '⧉'}
         </button>
         <span className="msg-time">{formatTime(props.node.time)}</span>
@@ -157,11 +161,16 @@ function ForkIcon(): JSX.Element {
 /**
  * Assistant message chrome: the markdown body plus a trailing ghost action
  * row — copy the raw markdown, and fork the session at this node's seq
- * (hidden while the node is still streaming).
+ * (hidden while the conversation is in progress, only shown when finished).
  */
 export function AssistantBubble(props: { node: AssistantTextNode }): JSX.Element {
+  const { t } = useI18n()
   const activeSessionId = useAppStore((s) => s.activeSessionId)
+  const turnStatus = useAppStore((s) => s.turnStatus)
   const forkSession = useAppStore((s) => s.forkSession)
+  const sessionRunning = useAppStore(
+    (s) => s.sessions.find((meta) => meta.sessionId === s.activeSessionId)?.running === true,
+  )
   const [copied, setCopied] = useState(false)
 
   const copy = (): void => {
@@ -176,19 +185,21 @@ export function AssistantBubble(props: { node: AssistantTextNode }): JSX.Element
     void forkSession(activeSessionId, props.node.seq)
   }
 
+  const isOngoing = props.node.streaming || turnStatus !== 'idle' || sessionRunning
+
   return (
     <div className="msg-assistant">
       <MarkdownBlock text={props.node.text} streaming={props.node.streaming} />
-      <div className="msg-actions">
-        <button type="button" className="msg-action" onClick={copy} title="复制">
-          {copied ? <span className="msg-action-copied">已复制</span> : <CopyIcon />}
-        </button>
-        {!props.node.streaming && (
-          <button type="button" className="msg-action" onClick={fork} title="分叉新对话">
+      {!isOngoing && (
+        <div className="msg-actions">
+          <button type="button" className="msg-action" onClick={copy} title={t('copy')}>
+            {copied ? <span className="msg-action-copied">{t('copied')}</span> : <CopyIcon />}
+          </button>
+          <button type="button" className="msg-action" onClick={fork} title={t('forkNewChat')}>
             <ForkIcon />
           </button>
-        )}
-      </div>
+        </div>
+      )}
     </div>
   )
 }
