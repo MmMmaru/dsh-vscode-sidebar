@@ -19,16 +19,18 @@
 .chat-list-dropdown {
   position: absolute;
   top: 34px;
-  left: 4px;
-  right: 4px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 75%;
+  height: 75vh;
+  max-height: 75vh;
   z-index: 30;
   display: flex;
   flex-direction: column;
-  max-height: 60vh;
   background: var(--dsh-bg-raised);
   border: 1px solid var(--dsh-border-soft);
-  border-radius: var(--dsh-radius-lg);
-  box-shadow: var(--dsh-shadow-card);
+  border-radius: 16px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.32), 0 2px 8px rgba(0, 0, 0, 0.16);
   padding-bottom: 4px;
   animation: ovl-enter 180ms ease-out;
 }

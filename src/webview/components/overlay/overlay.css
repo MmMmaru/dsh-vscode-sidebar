@@ -30,7 +30,7 @@
   z-index: 41; /* above .ovl-mask (no ancestor creates a stacking context) */
   margin-bottom: var(--dsh-gap);
   border: 1px solid var(--dsh-border-soft);
-  border-radius: var(--dsh-radius-lg);
+  border-radius: 16px;
   background: var(--dsh-bg-raised);
   box-shadow: var(--dsh-shadow-card);
   overflow: hidden;

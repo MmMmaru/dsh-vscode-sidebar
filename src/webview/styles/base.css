@@ -20,7 +20,7 @@
   --dsh-gap: 8px;
   /* Floating surfaces (takeover cards, dropdowns, menus, confirm dialogs):
      softer border, larger radius, layered shadow — the "raised card" look. */
-  --dsh-radius-lg: 10px;
+  --dsh-radius-lg: 16px;
   --dsh-border-soft: color-mix(in srgb, var(--dsh-border) 55%, transparent);
   --dsh-shadow-card: 0 8px 24px rgba(0, 0, 0, 0.28), 0 2px 6px rgba(0, 0, 0, 0.18);
 }

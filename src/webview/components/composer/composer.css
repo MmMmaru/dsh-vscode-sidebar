@@ -353,7 +353,7 @@
   padding: 12px;
   background: var(--dsh-bg-raised);
   border: 1px solid var(--dsh-border);
-  border-radius: 10px;
+  border-radius: 16px;
 }
 
 .composer-dialog-title {
@@ -573,7 +573,7 @@
 
 .queue-dock {
   border: 1px solid var(--dsh-border);
-  border-radius: 10px;
+  border-radius: 16px;
   background: var(--dsh-bg-raised);
   overflow: hidden;
 }
@@ -665,7 +665,7 @@
 
 .subagent-dock {
   border: 1px solid var(--dsh-border);
-  border-radius: 10px;
+  border-radius: 16px;
   background: var(--dsh-bg-raised);
   overflow: hidden;
 }
@@ -741,7 +741,7 @@
   margin: 0;
   padding: 4px 6px;
   border: 1px solid var(--dsh-border-soft, var(--dsh-border));
-  border-radius: 8px;
+  border-radius: 16px;
   background: var(--dsh-bg-raised);
   display: flex;
   flex-direction: column;

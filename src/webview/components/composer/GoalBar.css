@@ -12,7 +12,7 @@
   padding: 4px 6px 4px 10px;
   overflow: hidden;
   border: 1px solid var(--dsh-border);
-  border-radius: 10px;
+  border-radius: 16px;
   background: var(--dsh-bg-raised);
   color: var(--dsh-fg);
 }
