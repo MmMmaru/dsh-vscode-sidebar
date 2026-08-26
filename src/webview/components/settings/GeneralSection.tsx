@@ -9,6 +9,7 @@
 import { useState, type JSX } from 'react'
 import { useAppStore } from '../../store'
 import type { UiPrefs } from '../../store/settings'
+import { useI18n } from '../../i18n'
 
 interface OptionRowProps<K extends keyof UiPrefs> {
   label: string
@@ -19,6 +20,7 @@ interface OptionRowProps<K extends keyof UiPrefs> {
 
 /** One preference row: label + segmented options, writing on selection. */
 function OptionRow<K extends keyof UiPrefs>({ label, description, prefKey, options }: OptionRowProps<K>): JSX.Element {
+  const { t } = useI18n()
   const value = useAppStore((s) => s.uiPrefs[prefKey])
   const source = useAppStore((s) => s.uiPrefSources[prefKey])
   const setUiPref = useAppStore((s) => s.setUiPref)
@@ -49,17 +51,19 @@ function OptionRow<K extends keyof UiPrefs>({ label, description, prefKey, optio
           </button>
         ))}
       </div>
-      {failure !== null && <p className="settings-error">{`保存失败：${failure}`}</p>}
+      {failure !== null && <p className="settings-error">{t('saveFailed', { error: failure })}</p>}
     </div>
   )
 }
 
 export function GeneralSection(): JSX.Element {
+  const { t } = useI18n()
+
   return (
     <div className="settings-section" data-region="GeneralSection">
-      <h2 className="settings-section-title">通用</h2>
+      <h2 className="settings-section-title">{t('generalTitle')}</h2>
       <OptionRow
-        label="语言"
+        label={t('generalLanguage')}
         prefKey="language"
         options={[
           { value: 'zh', label: '中文' },
@@ -67,30 +71,30 @@ export function GeneralSection(): JSX.Element {
         ]}
       />
       <OptionRow
-        label="外观"
+        label={t('generalAppearance')}
         prefKey="appearance"
         options={[
-          { value: 'vscode', label: '跟随 VSCode' },
-          { value: 'light', label: '浅色' },
-          { value: 'dark', label: '深色' },
+          { value: 'vscode', label: t('generalMatchVscode') },
+          { value: 'light', label: t('generalLight') },
+          { value: 'dark', label: t('generalDark') },
         ]}
       />
       <OptionRow
-        label="繁忙时 Enter 键行为"
-        description="仅在智能体运行时生效"
+        label={t('generalBusyEnter')}
+        description={t('generalBusyEnterDesc')}
         prefKey="busyEnter"
         options={[
-          { value: 'queue', label: '排队发送' },
-          { value: 'steer', label: '立即插话' },
+          { value: 'queue', label: t('generalBusyEnterQueue') },
+          { value: 'steer', label: t('generalBusyEnterSteer') },
         ]}
       />
       <OptionRow
-        label="新会话默认权限模式"
+        label={t('generalDefaultPerm')}
         prefKey="permissionMode"
         options={[
-          { value: 'read-only', label: 'Read Only' },
-          { value: 'workspace-write', label: 'Workspace Write' },
-          { value: 'full-access', label: 'Full access' },
+          { value: 'read-only', label: t('permReadOnly') },
+          { value: 'workspace-write', label: t('permWorkspaceWrite') },
+          { value: 'full-access', label: t('permFullAccess') },
         ]}
       />
     </div>

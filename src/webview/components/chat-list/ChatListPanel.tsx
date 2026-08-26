@@ -14,16 +14,17 @@ import { useAppStore } from '../../store'
 import { waitingSessionId as firstWaitingSessionId } from '../../store/overlay'
 import type { SessionMeta } from '../../types'
 import { ConfirmModal } from '../common/ConfirmModal'
+import { useI18n } from '../../i18n'
 import './chat-list.css'
 
 /** Compact relative time: 刚刚 / N分钟 / N小时 / Nd. */
-function relativeTime(updatedAt: number): string {
+function relativeTime(updatedAt: number, lang: 'zh' | 'en' = 'zh'): string {
   const diff = Date.now() - updatedAt
   const minutes = Math.floor(diff / 60_000)
-  if (minutes < 1) return '刚刚'
-  if (minutes < 60) return `${minutes}分钟`
+  if (minutes < 1) return lang === 'zh' ? '刚刚' : 'just now'
+  if (minutes < 60) return lang === 'zh' ? `${minutes}分钟` : `${minutes}m`
   const hours = Math.floor(minutes / 60)
-  if (hours < 24) return `${hours}小时`
+  if (hours < 24) return lang === 'zh' ? `${hours}小时` : `${hours}h`
   return `${Math.floor(hours / 24)}d`
 }
 
@@ -53,7 +54,6 @@ function Icon(props: { name: 'clock' | 'gear' | 'pencil' | 'dots' | 'search' }):
         <path d="M8 4.5V8l2.5 1.5" />
       </>
     ),
-    // Classic cog: lucide "settings" outline (24px grid) scaled by 2/3 to the 16px grid.
     gear: (
       <>
         <path d="M8.15 1.33h-.29a1.33 1.33 0 0 0-1.33 1.33v.12a1.33 1.33 0 0 1-.67 1.15l-.29.17a1.33 1.33 0 0 1-1.33 0l-.1-.05a1.33 1.33 0 0 0-1.82.49l-.15.25a1.33 1.33 0 0 0 .49 1.82l.1.07a1.33 1.33 0 0 1 .67 1.15v.34a1.33 1.33 0 0 1-.67 1.16l-.1.06a1.33 1.33 0 0 0-.49 1.82l.15.25a1.33 1.33 0 0 0 1.82.49l.1-.05a1.33 1.33 0 0 1 1.33 0l.29.17a1.33 1.33 0 0 1 .67 1.15V13.33a1.33 1.33 0 0 0 1.33 1.33h.29a1.33 1.33 0 0 0 1.33-1.33v-.12a1.33 1.33 0 0 1 .67-1.15l.29-.17a1.33 1.33 0 0 1 1.33 0l.1.05a1.33 1.33 0 0 0 1.82-.49l.15-.26a1.33 1.33 0 0 0-.49-1.82l-.1-.05a1.33 1.33 0 0 1-.67-1.16v-.33a1.33 1.33 0 0 1 .67-1.16l.1-.06a1.33 1.33 0 0 0 .49-1.82l-.15-.25a1.33 1.33 0 0 0-1.82-.49l-.1.05a1.33 1.33 0 0 1-1.33 0l-.29-.17a1.33 1.33 0 0 1-.67-1.15V2.67a1.33 1.33 0 0 0-1.33-1.33z" />
@@ -66,7 +66,6 @@ function Icon(props: { name: 'clock' | 'gear' | 'pencil' | 'dots' | 'search' }):
         <path d="M9.5 4l2.5 2.5" />
       </>
     ),
-    // Filled dots (solid circles read better than hairline stroked dots).
     dots: (
       <>
         <circle cx="3.5" cy="8" r="1.6" fill="currentColor" stroke="none" />
@@ -91,6 +90,7 @@ function Icon(props: { name: 'clock' | 'gear' | 'pencil' | 'dots' | 'search' }):
 /** One session row with its hover "⋯" menu. `onSelected` lets a host layer (the history dropdown) close itself on pick. */
 function SessionRow(props: { session: SessionMeta; waitingSessionId: SessionId | null; onSelected?: () => void }): JSX.Element {
   const { session } = props
+  const { t, lang } = useI18n()
   const activeSessionId = useAppStore((s) => s.activeSessionId)
   const selectSession = useAppStore((s) => s.selectSession)
   const renameSession = useAppStore((s) => s.renameSession)
@@ -124,7 +124,7 @@ function SessionRow(props: { session: SessionMeta; waitingSessionId: SessionId |
     }
   }, [menuOpen])
 
-  const title = session.title ?? '新会话'
+  const title = session.title ?? (lang === 'zh' ? '新会话' : 'New Chat')
   const active = session.sessionId === activeSessionId
 
   const submitRename = (): void => {
@@ -178,7 +178,7 @@ function SessionRow(props: { session: SessionMeta; waitingSessionId: SessionId |
       >
         <StatusIndicator session={session} waitingSessionId={props.waitingSessionId} />
         <span className="session-title">{title}</span>
-        {!session.blank && <span className="session-time">{relativeTime(session.updatedAt)}</span>}
+        {!session.blank && <span className="session-time">{relativeTime(session.updatedAt, lang)}</span>}
         <span
           className="session-menu-trigger"
           role="button"
@@ -214,7 +214,7 @@ function SessionRow(props: { session: SessionMeta; waitingSessionId: SessionId |
               setRenaming(true)
             }}
           >
-            重命名
+            {t('rename')}
           </button>
           <button
             type="button"
@@ -223,7 +223,7 @@ function SessionRow(props: { session: SessionMeta; waitingSessionId: SessionId |
               void forkSession(session.sessionId)
             }}
           >
-            分叉新对话
+            {t('fork')}
           </button>
           <button
             type="button"
@@ -234,15 +234,17 @@ function SessionRow(props: { session: SessionMeta; waitingSessionId: SessionId |
               setConfirming(true)
             }}
           >
-            删除
+            {t('delete')}
           </button>
         </div>
       )}
       {confirming && (
         <ConfirmModal
-          title="删除会话"
-          description={`会话「${title}」将被归档，从列表中移除。此操作不可撤销。`}
-          confirmLabel="删除"
+          title={t('deleteSession')}
+          description={lang === 'zh'
+            ? `会话「${title}」将被归档，从列表中移除。此操作不可撤销。`
+            : `Conversation "${title}" will be archived and removed from the list. This cannot be undone.`}
+          confirmLabel={t('delete')}
           busy={deleting}
           failure={deleteFailure}
           onConfirm={() => void confirmDelete()}
@@ -255,6 +257,7 @@ function SessionRow(props: { session: SessionMeta; waitingSessionId: SessionId |
 
 /** The panel: header buttons + an inline recent list (start screen only) + a dropdown full-history layer. */
 export function ChatListPanel(): JSX.Element {
+  const { t, lang } = useI18n()
   const sessions = useAppStore((s) => s.sessions)
   const activeSessionId = useAppStore((s) => s.activeSessionId)
   const newChat = useAppStore((s) => s.newChat)
@@ -302,15 +305,19 @@ export function ChatListPanel(): JSX.Element {
   // Background sessions still executing; drives the history button badge.
   const runningCount = sessions.filter((s) => s.running).length
 
+  const historyBtnTitle = runningCount > 0
+    ? (lang === 'zh' ? `历史会话（${runningCount} 个运行中）` : `History (${runningCount} running)`)
+    : (lang === 'zh' ? '历史会话' : 'History')
+
   return (
     <section className="region-chat-list chat-list" data-region="ChatListPanel" ref={panelRef}>
       <div className="chat-list-header">
-        <span className="chat-list-title">Chats</span>
+        <span className="chat-list-title">{t('chatsTitle')}</span>
         <span className="chat-list-actions">
           <button
             type="button"
             className={`icon-btn${expanded ? ' icon-btn-active' : ''}`}
-            title={runningCount > 0 ? `历史会话（${runningCount} 个运行中）` : '历史会话'}
+            title={historyBtnTitle}
             onClick={() => setExpanded((v) => !v)}
           >
             {runningCount > 0 ? (
@@ -322,10 +329,10 @@ export function ChatListPanel(): JSX.Element {
               <Icon name="clock" />
             )}
           </button>
-          <button type="button" className="icon-btn" title="设置" onClick={openSettings}>
+          <button type="button" className="icon-btn" title={t('openSettings')} onClick={openSettings}>
             <Icon name="gear" />
           </button>
-          <button type="button" className="icon-btn" title="新建对话" onClick={() => void newChat()}>
+          <button type="button" className="icon-btn" title={t('newChat')} onClick={() => void newChat()}>
             <Icon name="pencil" />
           </button>
         </span>
@@ -341,7 +348,7 @@ export function ChatListPanel(): JSX.Element {
           </ul>
           {filtered.length > 5 && (
             <button type="button" className="chat-list-viewall" onClick={() => setExpanded(true)}>
-              View all ({filtered.length})
+              {lang === 'zh' ? `查看全部 (${filtered.length})` : `View all (${filtered.length})`}
             </button>
           )}
         </>
@@ -352,7 +359,7 @@ export function ChatListPanel(): JSX.Element {
             <Icon name="search" />
             <input
               autoFocus
-              placeholder="搜索会话…"
+              placeholder={t('searchSessionsPlaceholder')}
               value={query}
               onChange={(e) => setQuery(e.target.value)}
             />
@@ -366,7 +373,11 @@ export function ChatListPanel(): JSX.Element {
                 onSelected={() => setExpanded(false)}
               />
             ))}
-            {filtered.length === 0 && <li className="chat-list-empty">无匹配会话</li>}
+            {filtered.length === 0 && (
+              <li className="chat-list-empty">
+                {lang === 'zh' ? '无匹配会话' : 'No matching conversations'}
+              </li>
+            )}
           </ul>
         </div>
       )}

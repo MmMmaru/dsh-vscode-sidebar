@@ -6,8 +6,10 @@
 
 import { useState, type JSX } from 'react'
 import { useAppStore } from '../../store'
+import { useI18n } from '../../i18n'
 
 export function PresetsSection(): JSX.Element {
+  const { t, lang } = useI18n()
   const presets = useAppStore((s) => s.presets)
   const defaultPresetId = useAppStore((s) => s.defaultPresetId)
   const settingsWritable = useAppStore((s) => s.settingsWritable)
@@ -29,13 +31,13 @@ export function PresetsSection(): JSX.Element {
 
   return (
     <div className="settings-section" data-region="PresetsSection">
-      <h2 className="settings-section-title">Agent 预设</h2>
-      <p className="settings-section-intro">选择此后新建会话的默认预设。运行中的会话保持它开始时的预设。</p>
-      {failure !== null && <p className="settings-error">{`保存失败：${failure}`}</p>}
+      <h2 className="settings-section-title">{t('presetsTitle')}</h2>
+      <p className="settings-section-intro">{t('presetsIntro')}</p>
+      {failure !== null && <p className="settings-error">{t('saveFailed', { error: failure })}</p>}
       {presets.length === 0 ? (
-        <p className="settings-empty">当前部署没有可用的预设。</p>
+        <p className="settings-empty">{t('presetsEmpty')}</p>
       ) : (
-        <ul className="settings-preset-list" role="radiogroup" aria-label="默认预设">
+        <ul className="settings-preset-list" role="radiogroup" aria-label={t('presetsTitle')}>
           {presets.map((preset) => {
             const selected = preset.id === defaultPresetId
             const broken = preset.broken !== undefined
@@ -61,10 +63,10 @@ export function PresetsSection(): JSX.Element {
                     {preset.description !== undefined && (
                       <span className="settings-preset-desc">{preset.description}</span>
                     )}
-                    {broken && <span className="settings-error">{`不可用：${preset.broken ?? ''}`}</span>}
+                    {broken && <span className="settings-error">{t('presetsBroken', { reason: preset.broken ?? '' })}</span>}
                   </span>
                   <span className={`settings-tag${preset.trust === 'user' ? ' settings-tag-user' : ''}`}>
-                    {preset.trust === 'user' ? '本地' : '内置'}
+                    {preset.trust === 'user' ? (lang === 'zh' ? '本地' : 'User') : (lang === 'zh' ? '内置' : 'Builtin')}
                   </span>
                 </button>
               </li>

@@ -10,6 +10,7 @@ import { GeneralSection } from './GeneralSection'
 import { ModelsSection } from './ModelsSection'
 import { PluginsSection } from './PluginsSection'
 import { PresetsSection } from './PresetsSection'
+import { useI18n } from '../../i18n'
 import './settings.css'
 
 export interface SettingsPanelProps {
@@ -18,13 +19,6 @@ export interface SettingsPanelProps {
 }
 
 type SectionId = 'general' | 'models' | 'plugins' | 'presets'
-
-const SECTIONS: Array<{ id: SectionId; label: string }> = [
-  { id: 'general', label: '通用' },
-  { id: 'models', label: '模型' },
-  { id: 'plugins', label: '插件' },
-  { id: 'presets', label: '预设' },
-]
 
 /** Nav glyph by section id (16px outline icons, currentColor). */
 function NavIcon({ id }: { id: SectionId }): JSX.Element {
@@ -61,8 +55,16 @@ function NavIcon({ id }: { id: SectionId }): JSX.Element {
 }
 
 export function SettingsPanel({ onClose }: SettingsPanelProps): JSX.Element {
+  const { t } = useI18n()
   const [active, setActive] = useState<SectionId>('general')
   const titleId = useId()
+
+  const sections: Array<{ id: SectionId; label: string }> = [
+    { id: 'general', label: t('navGeneral') },
+    { id: 'models', label: t('navModels') },
+    { id: 'plugins', label: t('navPlugins') },
+    { id: 'presets', label: t('navPresets') },
+  ]
 
   // Escape closes; the listener lifetime is the panel's.
   useEffect(() => {
@@ -78,9 +80,9 @@ export function SettingsPanel({ onClose }: SettingsPanelProps): JSX.Element {
       <div className="settings-mask" aria-hidden="true" onClick={onClose} />
       <div className="settings-dialog" role="dialog" aria-modal="true" aria-labelledby={titleId}>
         <nav className="settings-nav">
-          <div className="settings-nav-title" id={titleId}>设置</div>
+          <div className="settings-nav-title" id={titleId}>{t('settingsTitle')}</div>
           <div className="settings-nav-list">
-            {SECTIONS.map((section) => (
+            {sections.map((section) => (
               <button
                 key={section.id}
                 type="button"
@@ -96,13 +98,13 @@ export function SettingsPanel({ onClose }: SettingsPanelProps): JSX.Element {
         </nav>
         <div className="settings-content">
           <div className="settings-content-header">
-            <button type="button" className="settings-close" aria-label="关闭" onClick={onClose}>
+            <button type="button" className="settings-close" aria-label={t('close')} onClick={onClose}>
               <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
-                <path d="M3 3l8 8M11 3l-8 8" stroke="currentColor" strokeLinecap="round" />
+                <path d="M2 2l10 10M12 2L2 12" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
               </svg>
             </button>
           </div>
-          <div className="settings-body" data-section={active}>
+          <div className="settings-body">
             {active === 'general' && <GeneralSection />}
             {active === 'models' && <ModelsSection />}
             {active === 'plugins' && <PluginsSection />}

@@ -9,6 +9,7 @@
 import type { JSX } from 'react'
 import type { SettingsNamespaceView } from '../../../extension/protocol/settings'
 import { useAppStore } from '../../store'
+import { useI18n } from '../../i18n'
 
 /** Namespaces owned by other settings sections, excluded from the plugin list. */
 const NON_PLUGIN_NS = /^(llm-|ui-theme$|locale$|ui-conversation$|permission$|agent-presets$|ui-onboarding$)/
@@ -27,27 +28,32 @@ function descriptionOf(ns: SettingsNamespaceView): string | null {
 }
 
 export function PluginsSection(): JSX.Element {
+  const { t, lang } = useI18n()
   const namespaces = useAppStore((s) => s.namespaces)
   const plugins = namespaces.filter(isPluginNamespace)
 
   return (
     <div className="settings-section" data-region="PluginsSection">
-      <h2 className="settings-section-title">插件</h2>
-      <p className="settings-section-intro">可配置插件清单。插件设置的编辑能力暂未提供。</p>
+      <h2 className="settings-section-title">{t('pluginsTitle')}</h2>
+      <p className="settings-section-intro">{t('pluginsIntro')}</p>
       {plugins.length === 0 ? (
-        <p className="settings-empty">没有可配置的插件。</p>
+        <p className="settings-empty">{t('pluginsEmpty')}</p>
       ) : (
         <ul className="settings-plugin-list">
           {plugins.map((ns) => (
             <li key={ns.ns} className="settings-plugin-card">
               <div className="settings-plugin-head">
                 <span className="settings-plugin-name">{ns.ns}</span>
-                {ns.applies === 'restart' && <span className="settings-tag">重启生效</span>}
+                {ns.applies === 'restart' && (
+                  <span className="settings-tag">{lang === 'zh' ? '重启生效' : 'Restart required'}</span>
+                )}
               </div>
               {descriptionOf(ns) !== null && <p className="settings-plugin-desc">{descriptionOf(ns)}</p>}
               {ns.secrets.length > 0 && (
                 <p className="settings-plugin-desc">
-                  {`凭据：${ns.secrets.map((s) => `${s.path.join('.')}（${s.set ? '已配置' : '未配置'}）`).join('、')}`}
+                  {lang === 'zh'
+                    ? `凭据：${ns.secrets.map((s) => `${s.path.join('.')}（${s.set ? '已配置' : '未配置'}）`).join('、')}`
+                    : `Credentials: ${ns.secrets.map((s) => `${s.path.join('.')} (${s.set ? 'configured' : 'not configured'})`).join(', ')}`}
                 </p>
               )}
             </li>

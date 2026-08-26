@@ -10,8 +10,10 @@ import { ComposerCard } from './components/composer/ComposerCard'
 import { ConversationView } from './components/conversation/ConversationView'
 import { SettingsPanel } from './components/settings/SettingsPanel'
 import { useAppStore } from './store'
+import { useI18n } from './i18n'
 
 export function App(): JSX.Element {
+  const { t } = useI18n()
   const initialized = useAppStore((s) => s.initialized)
   const hostStatus = useAppStore((s) => s.hostStatus)
   const activeSessionId = useAppStore((s) => s.activeSessionId)
@@ -26,7 +28,7 @@ export function App(): JSX.Element {
     <main className="app-shell">
       {hostStatus !== 'ready' && (
         <div className={`host-banner host-banner-${hostStatus}`}>
-          {hostStatus === 'starting' ? '正在连接 dsh host…' : 'dsh host 已断开，等待重连…'}
+          {hostStatus === 'starting' ? t('connectingHost') : t('hostDisconnected')}
         </div>
       )}
       <ChatListPanel />
@@ -38,7 +40,7 @@ export function App(): JSX.Element {
                 <path d="M2 3.5A1.5 1.5 0 0 1 3.5 2h9A1.5 1.5 0 0 1 14 3.5v6a1.5 1.5 0 0 1-1.5 1.5H6l-3.2 2.4a.5.5 0 0 1-.8-.4z" />
               </svg>
             </div>
-            <div>{initialized ? '选择或新建一个会话' : '加载中…'}</div>
+            <div>{initialized ? t('selectOrCreateSession') : t('loading')}</div>
           </div>
         </section>
       ) : (

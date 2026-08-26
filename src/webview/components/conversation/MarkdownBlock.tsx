@@ -21,9 +21,11 @@ import remarkGfm from 'remark-gfm'
 import { splitFileRefs, parseFileHref, type FileRef } from '../../../shared/file-refs'
 import { openFileInIde } from '../../bridge'
 import { useAppStore } from '../../store'
+import { useI18n } from '../../i18n'
 
 /** Pre/code renderer that adds a hover copy button to fenced blocks. */
 function CodeBlock(props: { className?: string; children?: React.ReactNode }): JSX.Element {
+  const { t } = useI18n()
   const [copied, setCopied] = useState(false)
   const text = String(props.children ?? '').replace(/\n$/, '')
   const lang = /language-(\w+)/.exec(props.className ?? '')?.[1]
@@ -40,7 +42,7 @@ function CodeBlock(props: { className?: string; children?: React.ReactNode }): J
       <div className="md-codeblock-header">
         <span>{lang ?? 'text'}</span>
         <button type="button" className="md-copy-btn" onClick={copy}>
-          {copied ? '已复制' : '复制'}
+          {copied ? t('codeCopied') : t('codeCopy')}
         </button>
       </div>
       <pre>
