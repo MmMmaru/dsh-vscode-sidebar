@@ -6,7 +6,7 @@
   2. **LaTeX 数学公式高保真渲染**：引入 `remark-math`、`rehype-katex` 及 `katex` 样式，完美支持复杂行内与块级数学公式（如求和、连乘、带编号 `\tag{1}` 等）；
   3. **对话操作栏位置精准控制**：通过 `finalAssistantNodeIds`，仅在每轮最终落定的 assistant-text 节点下挂载复制/分叉按钮，中间叙述节点与运行中节点不再显示；
   4. **设置窗口尺寸调整至 3/4**：`settings-dialog` 设置为 `width: 75%`，`height: 75%` 居中展示；
-  5. **会话管理窗口尺寸调整至 3/4**：`chat-list-dropdown` 设置为 `width: 75%`，`height: 75vh` 居中展示；
+  5. **会话管理下拉面板回退**：尺寸恢复原样（左右各 4px、最大高度 60vh），仅保留圆角同步至输入框配置（16px）；
   6. **圆角全面对齐 16px**：所有卡片与浮层（设置弹窗、会话下拉、确认模态、审批卡片、计划审查卡片、GoalBar、QueueDock、SubagentDock、TodoPanel）统一应用 16px 圆角。
 - 测试：单测全量 121/121 绿，打包 `dsh-vscode-sidebar-0.1.1.vsix` 并安装至本地 VS Code。
 
