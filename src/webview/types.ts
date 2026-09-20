@@ -103,6 +103,16 @@ export interface ContextInjectionNode extends NodeBase {
   text: string
 }
 
+/** Slash-command execution card (`command/run` + `command/done`). */
+export interface CommandNode extends NodeBase {
+  kind: 'command'
+  commandId: string
+  name: string
+  args?: string | null
+  status: 'running' | 'success' | 'error'
+  text?: string
+}
+
 /**
  * Context compaction marker. Reserved for W3: the vendored event vocabulary
  * signals compaction through surface `replace` ops; the projector materializes
@@ -140,6 +150,7 @@ export type ConversationNode =
   | ReasoningNode
   | ToolCallNode
   | ContextInjectionNode
+  | CommandNode
   | CompactionNode
   | RetryNode
   | ErrorNode

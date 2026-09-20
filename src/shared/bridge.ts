@@ -53,6 +53,13 @@ export interface InitPayload {
   cwd: string
   /** dsh host app version reported by `host.describe`. */
   hostVersion: string
+  /** Current configured/active port for dsh host. */
+  port?: number
+  /**
+   * Custom environment variables configured for the spawned dsh host
+   * (`dsh.env`); empty/absent when none are set.
+   */
+  env?: Record<string, string>
   /** Full session list; the webview filters by `cwd`. */
   sessions: SessionMeta[]
   /**
@@ -84,6 +91,18 @@ export interface IdeContentPayload {
 export type WebviewMessage =
   /** webview mounted; requests initialization. */
   | { type: 'ready' }
+  /** Open the Settings full editor panel tab. */
+  | { type: 'open-settings-tab' }
+  /** Update the DSH base port setting in VS Code configuration. */
+  | { type: 'set-port'; port: number }
+  /** Restart the dsh host process (kills spawned instance or reconnects). */
+  | { type: 'restart-host' }
+  /**
+   * Update the custom host environment (`dsh.env`) in VS Code configuration.
+   * Values are persisted and injected into the next spawned host process; a
+   * host that is already running keeps its old environment.
+   */
+  | { type: 'set-env'; env: Record<string, string> }
   /** Passthrough dsh RPC; `method` is e.g. `session.list`. Answered by `rpc-result`. */
   | { type: 'rpc'; id: string; method: string; params?: unknown }
   /**
@@ -123,6 +142,14 @@ export type WebviewMessage =
 export type ExtensionMessage =
   /** Initialization data answering `ready`. */
   | ({ type: 'init' } & InitPayload)
+  /** Port updated notification. */
+  | { type: 'port-changed'; port: number }
+  /**
+   * Custom host environment updated notification; carries the cleaned map the
+   * extension actually stored (invalid entries already dropped), so the editor
+   * can settle on the persisted truth.
+   */
+  | { type: 'env-changed'; env: Record<string, string> }
   /** RPC answer paired by `id`. */
   | { type: 'rpc-result'; id: string; result?: unknown; error?: string }
   /** dsh event stream passthrough. */

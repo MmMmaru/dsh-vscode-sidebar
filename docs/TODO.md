@@ -29,7 +29,9 @@
 - [x] 优化开启插入ide上下文后的会话标题生成（真实提问置顶，环境与上下文后置包装，支持中英自然前缀）
 
 ### bug
-- [x] 26. [#5](https://github.com/MmMmaru/dsh-vscode-sidebar/issues/5) 对话管理界面依然显示 ide 上下文注入内容（已通过提示词正文置顶与纯上下文自然语义化修复）
+- [x] 26. [#5](https://github.com/MmMmaru/dsh-vscode-sidebar/issues/5) 对话管理界面依然显示 ide 上下文注入内容
+  - 0.1.1 「环境指导后置」不彻底：dsh 标题源读取整条首消息，末尾的 `[DSH_VSCODE_CONTEXT]` 仍会被 LLM 标题生成当作素材；
+  - 0.1.3 终案：环境指导不再注入首条消息（首条=用户真实输入），推迟到后续提问注入，标题不再出现插件上下文内容；绝对路径引用指导保留。
 
 ### 美化
 - [ ] 32. TODO栏目颜色代表执行与代办
@@ -43,7 +45,9 @@
 ### 低优先
 
 - [ ] 25. [#2](https://github.com/MmMmaru/dsh-vscode-sidebar/issues/2) 解决 node use env 的问题（与 #7 proxy 加载相关）
+（0.1.5 已提供**手动**注入口子：`dsh.env` 配置项 + 设置→通用环境变量编辑器，spawn 时合并进 host 环境；本条要的「node/真实环境自动探测」仍未做）
 - [ ] 7. [#7](https://github.com/MmMmaru/dsh-vscode-sidebar/issues/7) proxy 自动加载（环境变量自动注入，见 issue body）
+（同上：手动注入已可用——在设置里填 `HTTP_PROXY`/`HTTPS_PROXY` 即生效于新 spawn 的 host；「自动从系统/环境读取」待做）
 - [ ] 24. dsh后端中断后卡住，在bash执行情况下。
 - [ ] 28. 删除候选发送列表部分时候出现无效
 - [ ] 17. 英文切换支持

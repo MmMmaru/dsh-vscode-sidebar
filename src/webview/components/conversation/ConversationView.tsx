@@ -10,7 +10,7 @@
 import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState, type JSX } from 'react'
 import type { SessionId } from '../../../extension/protocol/brand'
 import { useAppStore } from '../../store'
-import type { CompactionNode, ContextInjectionNode, ConversationNode, ErrorNode, ReasoningNode, RetryNode, ToolCallNode } from '../../types'
+import type { CommandNode, CompactionNode, ContextInjectionNode, ConversationNode, ErrorNode, ReasoningNode, RetryNode, ToolCallNode } from '../../types'
 import { AssistantBubble, MessageBubble } from './MessageBubble'
 import { IconBrowse, IconChevron, IconChecklist, IconThink } from './icons'
 import { ReasoningRow } from './ReasoningRow'
@@ -65,9 +65,25 @@ function ContextInjectionRow(props: { node: ContextInjectionNode }): JSX.Element
  */
 function RoundGroup(props: { id: string; nodes: Array<ReasoningNode | ToolCallNode>; live: boolean }): JSX.Element {
   const [open, setOpen] = useState(props.live)
+  const userToggledRef = useRef(false)
+  const prevLiveRef = useRef(props.live)
+
   useEffect(() => {
-    if (!props.live) setOpen(false)
+    // If the user manually toggled, preserve their choice and do not auto-collapse.
+    if (userToggledRef.current) return
+    if (prevLiveRef.current && !props.live) {
+      setOpen(false)
+    } else if (!prevLiveRef.current && props.live) {
+      setOpen(true)
+    }
+    prevLiveRef.current = props.live
   }, [props.live])
+
+  const toggle = (): void => {
+    userToggledRef.current = true
+    setOpen((v) => !v)
+  }
+
   const hasTools = props.nodes.some((n) => n.kind === 'tool-call')
   return (
     <div className={`round-group${props.live ? ' round-group-live' : ''}`}>
@@ -75,7 +91,7 @@ function RoundGroup(props: { id: string; nodes: Array<ReasoningNode | ToolCallNo
         type="button"
         className={`disclosure-head round-head${open ? ' disclosure-open' : ''}`}
         aria-expanded={open}
-        onClick={() => setOpen((v) => !v)}
+        onClick={toggle}
       >
         <span className="row-leading" aria-hidden>
           <span className="row-leading-idle">{hasTools ? <IconChecklist size={14} /> : <IconThink size={14} />}</span>
@@ -97,11 +113,40 @@ function RoundGroup(props: { id: string; nodes: Array<ReasoningNode | ToolCallNo
   )
 }
 
-/** Compaction marker line ("已压缩 N 条历史" style). */
-function CompactionRow(props: { node: CompactionNode }): JSX.Element {
+/** Command invocation card (e.g. /goal, /compact, /plan). */
+function CommandRow(props: { node: CommandNode }): JSX.Element {
+  const { node } = props
+  const [open, setOpen] = useState(false)
+  const isRunning = node.status === 'running'
+  const isError = node.status === 'error'
+  const text = node.text
+  const hasBody = text !== undefined && text.includes('\n')
+  const summary = text
+    ? (text.includes('\n') ? text.split('\n')[0] : text)
+    : (isRunning ? '执行中...' : isError ? '执行失败' : '执行完成')
+
   return (
-    <div className="marker-row marker-compaction">
-      <span aria-hidden>🗜</span> 已压缩历史{props.node.summary !== undefined ? `：${props.node.summary}` : ''}
+    <div className={`command-row-card${isError ? ' command-row-error' : ''}`} data-state={node.status}>
+      <button
+        type="button"
+        className={`disclosure-head command-head${open ? ' disclosure-open' : ''}${hasBody ? '' : ' disclosure-static'}`}
+        aria-expanded={hasBody ? open : undefined}
+        onClick={hasBody ? () => setOpen((v) => !v) : undefined}
+      >
+        <span className="row-leading" aria-hidden>
+          {isError ? (
+            <span className="tool-dot-error" />
+          ) : isRunning ? (
+            <span className="command-spinner" />
+          ) : (
+            <span className="command-icon">/</span>
+          )}
+          {hasBody && <IconChevron size={14} className="row-leading-chevron" />}
+        </span>
+        <span className="command-name">/{node.name}{node.args ? ` ${node.args}` : ''}</span>
+        <span className={`command-summary${isError ? ' command-summary-error' : ''}`}>{summary}</span>
+      </button>
+      {open && hasBody && <pre className="command-body">{text}</pre>}
     </div>
   )
 }
@@ -134,7 +179,7 @@ function ErrorRow(props: { node: ErrorNode }): JSX.Element {
  * children (FileRefChip, AssistantBubble actions) keep their own
  * subscriptions, so memo does not stale them. Exported for tests.
  */
-export const NodeView = memo(function NodeView(props: { node: ConversationNode; isFinalInTurn?: boolean }): JSX.Element {
+export const NodeView = memo(function NodeView(props: { node: ConversationNode; isFinalInTurn?: boolean }): JSX.Element | null {
   const { node, isFinalInTurn } = props
   switch (node.kind) {
     case 'user-message':
@@ -147,8 +192,10 @@ export const NodeView = memo(function NodeView(props: { node: ConversationNode; 
       return <ToolCallRow node={node} />
     case 'context-injection':
       return <ContextInjectionRow node={node} />
+    case 'command':
+      return <CommandRow node={node} />
     case 'compaction':
-      return <CompactionRow node={node} />
+      return null
     case 'retry':
       return <RetryRow node={node} />
     case 'error':

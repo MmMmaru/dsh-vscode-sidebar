@@ -143,18 +143,17 @@
   align-items: center;
   justify-content: space-between;
   gap: 6px;
+  position: relative;
+  z-index: 10;
 }
 
-/* The left tool group absorbs extra width and clips from its right edge, so
-   a too-tight row trims the LAST-hidden chip (permission — the first to hide)
-   instead of squeezing icons or pushing the send button out. */
+/* The left tool group absorbs extra width while preserving menu visibility. */
 .composer-tools {
   display: flex;
   align-items: center;
   gap: 4px;
-  flex: 1 1 0;
+  flex: 1 1 auto;
   min-width: 0;
-  overflow: hidden;
 }
 
 /* The right group never shrinks: the send button always stays visible. */
@@ -230,8 +229,8 @@
 .composer-menu {
   position: absolute;
   bottom: calc(100% + 6px);
-  min-width: 200px;
-  max-width: 280px;
+  min-width: 180px;
+  max-width: min(280px, calc(100vw - 32px));
   max-height: 300px;
   overflow-y: auto;
   padding: 4px;
@@ -239,7 +238,7 @@
   border: 1px solid var(--dsh-border);
   border-radius: var(--dsh-radius);
   box-shadow: 0 -4px 16px rgba(0, 0, 0, 0.3);
-  z-index: 8;
+  z-index: 15;
 }
 
 .permission-select .composer-menu {
@@ -263,6 +262,18 @@
   color: var(--dsh-fg);
   text-align: left;
   cursor: pointer;
+}
+
+.composer-menu-item-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  color: var(--dsh-fg-muted);
+}
+
+.composer-menu-item.selected .composer-menu-item-icon {
+  color: var(--dsh-accent);
 }
 
 .composer-menu-item:hover:not(:disabled),
@@ -517,6 +528,63 @@
 }
 
 /* --- attachment rail --- */
+
+.composer-attached-text-rail {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0 0 6px 0;
+  padding: 0;
+}
+
+.composer-attached-text-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 8px;
+  background: var(--dsh-bg-raised, rgba(255, 255, 255, 0.06));
+  border: 1px solid var(--dsh-border-soft, rgba(255, 255, 255, 0.12));
+  border-radius: var(--dsh-radius, 6px);
+  font-size: 0.82em;
+  color: var(--dsh-fg, #ccc);
+  max-width: 100%;
+}
+
+.composer-attached-text-icon {
+  font-size: 1.1em;
+}
+
+.composer-attached-text-name {
+  font-weight: 500;
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.composer-attached-text-lines {
+  color: var(--dsh-fg-muted, #888);
+  font-size: 0.85em;
+}
+
+.composer-attached-text-remove {
+  background: transparent;
+  border: none;
+  color: var(--dsh-fg-muted, #888);
+  cursor: pointer;
+  padding: 0 2px;
+  margin-left: 2px;
+  font-size: 11px;
+  border-radius: 3px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.composer-attached-text-remove:hover {
+  color: var(--dsh-fg, #fff);
+  background: rgba(255, 255, 255, 0.15);
+}
 
 .attachment-rail {
   display: flex;
@@ -844,21 +912,22 @@
 
 /* --- narrow-width responsive toolbar ---
    The webview width tracks the sidebar width, so viewport media queries are
-   the width signal. As the panel narrows, toolbar extras hide in priority
-   order (access select → model → context meter → IDE toggle → attach button);
-   the send button and the input never hide. Breakpoints sit just above the
-   measured real content width (Full access + "DeepSeek V4 Flash · Max" model
-   chip + context ring ≈ 440px incl. card padding), so everything stays
-   visible until the row genuinely no longer fits. */
+   the width signal. As the panel narrows, toolbar extras collapse/hide
+   (context percentage & permission label collapse first, then model effort,
+   context meter, IDE toggle, attach button); the send button, model selector,
+   and permission icon never hide. */
 
-@media (max-width: 460px) {
-  [data-composer-tool='permission'] {
+@media (max-width: 480px) {
+  .context-meter-pct {
+    display: none;
+  }
+  [data-composer-tool='permission'] .composer-chip-label {
     display: none;
   }
 }
 
-@media (max-width: 360px) {
-  [data-composer-tool='model'] {
+@media (max-width: 380px) {
+  [data-composer-tool='model'] .composer-chip-effort {
     display: none;
   }
 }
@@ -869,23 +938,14 @@
   }
 }
 
-@media (max-width: 280px) {
+@media (max-width: 260px) {
   [data-composer-tool='ide'] {
     display: none;
   }
 }
 
-@media (max-width: 240px) {
+@media (max-width: 220px) {
   [data-composer-tool='attach'] {
-    display: none;
-  }
-}
-
-/* The ring keeps its icon on narrow panels but drops the percentage text
-   (still on the ring's title tooltip): ~31px saved, enough for the full
-   toolbar to fit at the 460px permission breakpoint. */
-@media (max-width: 480px) {
-  .context-meter-pct {
     display: none;
   }
 }

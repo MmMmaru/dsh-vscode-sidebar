@@ -26,15 +26,36 @@ import type { HostFrame, MuxFrame } from '../../src/extension/protocol/events'
 import type { RpcId } from '../../src/extension/protocol/rpc'
 import type { SessionId } from '../../src/extension/protocol/brand'
 import type { ExtensionMessage, IdeContentPayload, WebviewMessage } from '../../src/shared/bridge'
-import { setActiveEditor, workspace as stubWorkspace, errorNotifications, lastReveal, openedFiles, type StubTextEditor } from './vscode-stub'
+import {
+  setActiveEditor,
+  setConfiguration,
+  configuration,
+  workspace as stubWorkspace,
+  errorNotifications,
+  lastReveal,
+  openedFiles,
+  type StubTextEditor,
+} from './vscode-stub'
 
 /** First candidate port for the test host (never 3080). */
 const HOST_BASE_PORT = 3200
+
+/** Optional boot-time seed for one harness run. */
+export interface HarnessOptions {
+  /**
+   * Values written into the stubbed VS Code configuration BEFORE the host is
+   * spawned (`dsh.env`, ...). Mirrors the real extension reading configuration
+   * in activate(): anything seeded here is what the startup path sees.
+   */
+  config?: Record<string, unknown>
+}
 
 /** Control surface the spec drives. */
 export interface Harness {
   /** URL of the served webview page (index.html + media bundle). */
   pageUrl: string
+  /** Same page rendered in the settings view mode (the settings editor tab). */
+  settingsPageUrl: string
   /** Real workspace root the stub reports (realpath of the plugin dir). */
   workspacePath: string
   /** A real temp directory used as the "foreign workspace" in isolation tests. */
@@ -60,6 +81,8 @@ export interface Harness {
   openedFiles(): string[]
   /** Last revealRange call of the code-jump opener, for jump assertions. */
   lastReveal(): { range: { start: { line: number }; end: { line: number } }; type: number } | null
+  /** Current stubbed VS Code configuration, keyed in dotted form (`dsh.env`). */
+  configuration(): Record<string, unknown>
   /** Tear down: close servers, kill our own host, delete temp dirs. */
   stop(): Promise<void>
 }
@@ -94,7 +117,13 @@ function createStubWebview(send: (message: ExtensionMessage) => void): StubWebvi
   }
 }
 
-export async function startHarness(): Promise<Harness> {
+/**
+ * Boot one e2e harness: real extension-host code, a real isolated dsh host, and
+ * the static page server.
+ * @param options - optional boot-time configuration seed (see HarnessOptions).
+ * @returns the harness control surface; call stop() in the fixture teardown.
+ */
+export async function startHarness(options: HarnessOptions = {}): Promise<Harness> {
   const workspacePath = await realpath(process.cwd())
   const foreignPath = path.join(await mkdtemp(path.join(tmpdir(), 'dsh-e2e-foreign-')), 'other-workspace')
   const tmpRoot = await mkdtemp(path.join(tmpdir(), 'dsh-e2e-home-'))
@@ -111,15 +140,24 @@ export async function startHarness(): Promise<Harness> {
   await mkdir(path.join(tmpRoot, 'storages'), { recursive: true })
   stubWorkspace.workspaceFolders = [{ uri: { fsPath: workspacePath } }]
 
+  // Seed configuration before anything reads it (the real activate() path does
+  // the same at extension start); the host spawn below therefore inherits it.
+  for (const [key, value] of Object.entries(options.config ?? {})) setConfiguration(key, value)
+
   const log = { appendLine: (): void => undefined }
   const hostManager = new HostManager(log)
   hostManager.basePort = HOST_BASE_PORT
+  hostManager.customEnv = (options.config?.['dsh.env'] ?? {}) as Record<string, string>
   const client = new DshClient()
   const bridge = new Bridge(client, hostManager)
 
   // --- static file server + webview WebSocket bridge (one port) ---
   const mediaDir = path.resolve(process.cwd(), 'media')
-  const pageHtml = (port: number): string => `<!DOCTYPE html>
+  // The extension injects window.__DSH_VIEW_MODE__ per webview (renderHtml): the
+  // settings editor tab renders SettingsPage instead of the sidebar shell. The
+  // served page mirrors that with ?view=settings so a spec can drive the real
+  // settings surface without a VS Code editor tab.
+  const pageHtml = (port: number, viewMode: string): string => `<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8">
@@ -127,65 +165,46 @@ export async function startHarness(): Promise<Harness> {
   <link rel="stylesheet" href="/style.css">
   <title>DSH E2E</title>
 </head>
-<body>
+<body data-ws-port="${port}" data-view-mode="${viewMode}">
   <div id="root"></div>
-  <script>
-    // E2E bridge adapter: stands in for the VSCode webview host. The app's
-    // acquireVsCodeApi postMessage travels to the Node harness over WS, and
-    // harness messages are re-dispatched through window.postMessage exactly
-    // like the real VSCode webview message channel. Messages posted before
-    // the socket opens (the app sends "ready" at boot) are queued.
-    (function () {
-      const ws = new WebSocket('ws://127.0.0.1:' + ${port} + '/ws')
-      const queue = []
-      window.__e2eWs = ws
-      window.acquireVsCodeApi = function () {
-        return {
-          postMessage: function (message) {
-            if (ws.readyState === WebSocket.OPEN) {
-              ws.send(JSON.stringify({ type: 'webview', message: message }))
-            } else {
-              queue.push(message)
-            }
-          },
-        }
-      }
-      ws.onopen = function () {
-        while (queue.length > 0) ws.send(JSON.stringify({ type: 'webview', message: queue.shift() }))
-      }
-      ws.onmessage = function (event) {
-        const data = JSON.parse(event.data)
-        if (data.type === 'host') window.postMessage(data.message, '*')
-      }
-    })()
-  </script>
+  <script src="/adapter.js"></script>
   <script type="module" src="/main.js"></script>
 </body>
 </html>`
 
   const server = createServer((req, res) => {
     const url = req.url ?? '/'
-    if (url === '/') {
+    if (url === '/' || url.startsWith('/?')) {
       res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' })
-      res.end(pageHtml(serverPort()))
+      const viewMode = new URL(url, 'http://127.0.0.1').searchParams.get('view') ?? 'sidebar'
+      res.end(pageHtml(serverPort(), viewMode))
       return
     }
-    const file = url === '/main.js' ? 'main.js' : url === '/style.css' ? 'style.css' : null
-    if (file === null) {
+    // The adapter is a real file in tests/e2e: keeping it out of an inline
+    // <script> means no template-literal escaping can corrupt it.
+    const served =
+      url === '/adapter.js'
+        ? { file: path.join(process.cwd(), 'tests', 'e2e', 'page-adapter.js'), media: false }
+        : url === '/main.js'
+          ? { file: path.join(mediaDir, 'main.js'), media: true }
+          : url === '/style.css'
+            ? { file: path.join(mediaDir, 'style.css'), media: false }
+            : null
+    if (served === null) {
       res.writeHead(404)
       res.end('not found')
       return
     }
     void import('node:fs/promises').then(async ({ readFile }) => {
       try {
-        const body = await readFile(path.join(mediaDir, file))
+        const body = await readFile(served.file)
         res.writeHead(200, {
-          'content-type': file.endsWith('.js') ? 'application/javascript' : 'text/css',
+          'content-type': served.file.endsWith('.js') ? 'application/javascript' : 'text/css',
         })
         res.end(body)
       } catch {
         res.writeHead(404)
-        res.end('missing media build — run `npm run build:webview` first')
+        res.end(served.media ? 'missing media build — run `npm run build:webview` first' : 'not found')
       }
     })
   })
@@ -240,6 +259,7 @@ export async function startHarness(): Promise<Harness> {
 
   return {
     pageUrl: `http://127.0.0.1:${serverPort()}/`,
+    settingsPageUrl: `http://127.0.0.1:${serverPort()}/?view=settings`,
     workspacePath,
     foreignPath,
     ensureWarm,
@@ -262,6 +282,7 @@ export async function startHarness(): Promise<Harness> {
     errorNotifications: () => errorNotifications(),
     openedFiles: () => openedFiles(),
     lastReveal: () => lastReveal(),
+    configuration: () => configuration(),
     stop: async () => {
       wss.close()
       await new Promise<void>((resolve) => server.close(() => resolve()))

@@ -66,4 +66,46 @@ test('AssistantBubble only shows action buttons on final message when settled', 
   }
   const finalHtml = renderToStaticMarkup(React.createElement(AssistantBubble, { node: finalNode, isFinalInTurn: true }))
   assert.ok(finalHtml.includes('msg-actions'), 'final assistant node must render msg-actions when settled')
+
+  // Also verify that when another turn is actively running, a settled node still renders its actions
+  useAppStore.setState({ turnStatus: 'running' })
+  const runningHtml = renderToStaticMarkup(React.createElement(AssistantBubble, { node: finalNode, isFinalInTurn: true }))
+  assert.ok(runningHtml.includes('msg-actions'), 'settled node must keep msg-actions even when turnStatus is running')
+})
+
+test('GeneralSection renders port setting field with configured port', async () => {
+  const { GeneralSection } = await import('../src/webview/components/settings/GeneralSection')
+  const { useAppStore } = await import('../src/webview/store')
+  useAppStore.setState({ port: 3080 })
+
+  const html = renderToStaticMarkup(React.createElement(GeneralSection))
+  assert.ok(html.includes('data-pref="port"'), 'GeneralSection must render port field')
+  assert.ok(html.includes('value="3080"'), 'GeneralSection must display current port value')
+})
+
+test('composer tools do not clip popup menus (overflow: hidden removed)', async () => {
+  const { readFileSync } = await import('node:fs')
+  const css = readFileSync('src/webview/components/composer/composer.css', 'utf8')
+  const toolsBlock = /\.composer-tools\s*\{[^}]*\}/.exec(css)?.[0] ?? ''
+  assert.ok(toolsBlock !== '', '.composer-tools rule must exist')
+  assert.doesNotMatch(toolsBlock, /overflow:\s*hidden/, '.composer-tools must not have overflow: hidden')
+})
+
+test('permission tool is not display:none on narrow screens (only label collapses)', async () => {
+  const { readFileSync } = await import('node:fs')
+  const css = readFileSync('src/webview/components/composer/composer.css', 'utf8')
+  assert.doesNotMatch(css, /\[data-composer-tool='permission'\]\s*\{\s*display:\s*none;?\s*\}/, 'permission tool container must never be display: none')
+  assert.match(css, /\[data-composer-tool='permission'\]\s*\.composer-chip-label\s*\{\s*display:\s*none;?\s*\}/, 'permission chip label collapses under narrow media query')
+})
+
+test('PermissionGlyph renders distinct SVG icons for full-access, read-only and workspace-write', async () => {
+  const { PermissionGlyph } = await import('../src/webview/components/composer/PermissionSelect')
+  const fullHtml = renderToStaticMarkup(React.createElement(PermissionGlyph, { mode: 'full-access' }))
+  const readHtml = renderToStaticMarkup(React.createElement(PermissionGlyph, { mode: 'read-only' }))
+  const writeHtml = renderToStaticMarkup(React.createElement(PermissionGlyph, { mode: 'workspace-write' }))
+  assert.ok(fullHtml.includes('<svg'))
+  assert.ok(readHtml.includes('<svg'))
+  assert.ok(writeHtml.includes('<svg'))
+  assert.notEqual(fullHtml, readHtml)
+  assert.notEqual(fullHtml, writeHtml)
 })

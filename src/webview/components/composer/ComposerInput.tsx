@@ -16,6 +16,7 @@
 import { useEffect, useMemo, useRef, useState, type JSX } from 'react'
 import type { SkillEntry } from '../../../extension/protocol/views'
 import type { SessionId } from '../../../extension/protocol/brand'
+import { isLongText } from '../../../shared/attached-text'
 import { rpc } from '../../bridge'
 
 /** Minimum visible rows (the textarea also starts with rows=2). */
@@ -176,10 +177,12 @@ export interface ComposerInputProps {
   sessionId: SessionId | null
   /** Pasted image files, forwarded to the card's intake pre-check. */
   onPasteFiles: (files: File[]) => void
+  /** Pasted long text, condensed to a .txt attachment by the owning card. */
+  onPasteLongText?: (text: string) => void
 }
 
 export function ComposerInput({
-  value, onChange, onSend, onStop, running, disabled, sessionId, onPasteFiles,
+  value, onChange, onSend, onStop, running, disabled, sessionId, onPasteFiles, onPasteLongText,
 }: ComposerInputProps): JSX.Element {
   const textareaRef = useRef<HTMLTextAreaElement | null>(null)
   /** IME guard ref: outlives renders; cleared one tick late for Safari's ordering. */
@@ -312,7 +315,14 @@ export function ComposerInput({
       .filter((file): file is File => file !== null)
     if (files.length > 0) {
       onPasteFiles(files)
-      if (e.clipboardData.getData('text/plain') === '') e.preventDefault()
+      e.preventDefault()
+      return
+    }
+
+    const plainText = e.clipboardData.getData('text/plain')
+    if (plainText && onPasteLongText && isLongText(plainText)) {
+      e.preventDefault()
+      onPasteLongText(plainText)
     }
   }
 

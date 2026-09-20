@@ -261,7 +261,7 @@ export function ChatListPanel(): JSX.Element {
   const sessions = useAppStore((s) => s.sessions)
   const activeSessionId = useAppStore((s) => s.activeSessionId)
   const newChat = useAppStore((s) => s.newChat)
-  const openSettings = useAppStore((s) => s.openSettings)
+  const openSettingsTab = useAppStore((s) => s.openSettingsTab)
   const overlayBySession = useAppStore((s) => s.overlayBySession)
   const [expanded, setExpanded] = useState(false)
   const [query, setQuery] = useState('')
@@ -329,7 +329,7 @@ export function ChatListPanel(): JSX.Element {
               <Icon name="clock" />
             )}
           </button>
-          <button type="button" className="icon-btn" title={t('openSettings')} onClick={openSettings}>
+          <button type="button" className="icon-btn" title={t('openSettings')} onClick={openSettingsTab}>
             <Icon name="gear" />
           </button>
           <button type="button" className="icon-btn" title={t('newChat')} onClick={() => void newChat()}>

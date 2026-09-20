@@ -75,22 +75,11 @@ export const window = {
     fakeEditor(document),
 }
 
-export const workspace = {
-  /** Programmable workspace root (session ownership anchor of the bridge). */
-  workspaceFolders: undefined as { uri: { fsPath: string } }[] | undefined,
-  getConfiguration: () => ({ get: (): undefined => undefined }),
-  openTextDocument: async (
-    file: string,
-  ): Promise<{ uri: { fsPath: string }; lineCount: number; lineAt(line: number): { text: string } }> => {
-    openedDocuments.push(file)
-    // A stand-in document: the opener only reads lineCount and the last
-    // line's text length to build the reveal range.
-    return {
-      uri: { fsPath: file },
-      lineCount: 1000,
-      lineAt: (line: number) => ({ text: `line ${line + 1} placeholder content` }),
-    }
-  },
+/** Mirrors the real enum: only Global / Workspace / WorkspaceFolder exist. */
+export enum ConfigurationTarget {
+  Global = 1,
+  Workspace = 2,
+  WorkspaceFolder = 3,
 }
 
 export class Disposable {
@@ -103,6 +92,59 @@ export class Disposable {
   dispose(): void {
     this.onDispose?.()
   }
+}
+
+/**
+ * In-memory configuration plane, enough for the real read/write paths the
+ * extension uses (`dsh.port`, `dsh.env`): a nested store, `update` writing the
+ * Global target, and change events so `onDidChangeConfiguration` subscribers
+ * (the extension's live env/port refresh) behave like the real host.
+ */
+const configurationStore = new Map<string, unknown>()
+const configurationListeners = new Set<(event: { affectsConfiguration(section: string): boolean }) => void>()
+
+/** Test control: the stored configuration as a plain object (dotted keys). */
+export function configuration(): Record<string, unknown> {
+  return Object.fromEntries(configurationStore)
+}
+
+/** Test control: seed configuration before the extension reads it. */
+export function setConfiguration(key: string, value: unknown): void {
+  configurationStore.set(key, value)
+}
+
+export const workspace = {
+  /** Programmable workspace root (session ownership anchor of the bridge). */
+  workspaceFolders: undefined as { uri: { fsPath: string } }[] | undefined,
+  getConfiguration: (section: string) => ({
+    get: <T>(key: string, fallback?: T): T => {
+      const value = configurationStore.get(`${section}.${key}`)
+      return value === undefined ? (fallback as T) : (value as T)
+    },
+    has: (key: string): boolean => configurationStore.has(`${section}.${key}`),
+    update: async (key: string, value: unknown): Promise<void> => {
+      const full = `${section}.${key}`
+      if (value === undefined) configurationStore.delete(full)
+      else configurationStore.set(full, value)
+      for (const listener of configurationListeners) listener({ affectsConfiguration: (s) => s === full || s === section })
+    },
+  }),
+  onDidChangeConfiguration: (cb: (event: { affectsConfiguration(section: string): boolean }) => void): Disposable => {
+    configurationListeners.add(cb)
+    return new Disposable(() => configurationListeners.delete(cb))
+  },
+  openTextDocument: async (
+    file: string,
+  ): Promise<{ uri: { fsPath: string }; lineCount: number; lineAt(line: number): { text: string } }> => {
+    openedDocuments.push(file)
+    // A stand-in document: the opener only reads lineCount and the last
+    // line's text length to build the reveal range.
+    return {
+      uri: { fsPath: file },
+      lineCount: 1000,
+      lineAt: (line: number) => ({ text: `line ${line + 1} placeholder content` }),
+    }
+  },
 }
 
 export const Uri = {

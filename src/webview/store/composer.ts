@@ -11,7 +11,7 @@ import type { MuxFrame } from '../../extension/protocol/events'
 import type { HostDescription } from '../../extension/protocol/host'
 import type { PromptContentPart, QueueAction } from '../../extension/protocol/sessions'
 import type { SessionModels } from '../../extension/protocol/sessions'
-import { VSCODE_CONTEXT_PROMPT, parseUserMessage, wrapAttachedText } from '../../shared/attached-text'
+import { assemblePromptText, parseUserMessage, wrapAttachedText } from '../../shared/attached-text'
 import { fetchIdeContent, rpc } from '../bridge'
 import { formatIdeInsert, hasIdeBlock } from '../ide-insert'
 import type { Attachment, ModelInfo, PermissionMode, QueuedMessage } from '../types'
@@ -165,6 +165,46 @@ export const createComposerSlice: StateCreator<AppStore, [], [], ComposerSlice> 
     if (get().activeSessionId === null) await get().newChat()
     const sessionId = get().activeSessionId
     if (sessionId === null) throw new Error('no active session')
+
+    // Slash commands: if the message is a single line starting with `/`,
+    // execute it via commands/execute RPC directly on the host!
+    const trimmed = text.trim()
+    if (trimmed.startsWith('/') && !trimmed.includes('\n')) {
+      const encodedImages = attachments.map((a) => ({
+        mediaType: a.mediaType,
+        data: a.data,
+        name: a.name,
+      }))
+
+      try {
+        const execResult = await rpc<{ commandId?: string; result?: { kind: 'success' | 'error'; text?: string } } | undefined>(
+          'commands/execute',
+          { args: { agentId: sessionId, line: trimmed, images: encodedImages } },
+        )
+
+        // If execResult is defined, the host recognized and executed the slash command.
+        if (execResult !== undefined && execResult !== null) {
+          if (execResult.result?.kind === 'error' && execResult.result.text) {
+            get().appendError(execResult.result.text)
+          }
+          return
+        }
+      } catch (err: unknown) {
+        const errMsg = err instanceof Error ? err.message : String(err)
+        // If it was a real RPC execution error from the command, report it.
+        if (
+          !errMsg.includes('unknown') &&
+          !errMsg.includes('unhandled rpc') &&
+          !errMsg.includes('no active Remote method') &&
+          !errMsg.includes('definition-unavailable') &&
+          !errMsg.includes('not found')
+        ) {
+          get().appendError(errMsg)
+          return
+        }
+      }
+    }
+
     // A prompt whose content is exactly one text block starting with `/` is a
     // slash command the HOST executes (goal/compact/plan...); IDE context must
     // not be appended or the host rejects it as an unknown command.
@@ -172,14 +212,13 @@ export const createComposerSlice: StateCreator<AppStore, [], [], ComposerSlice> 
     const enriched = text.startsWith('/')
       ? text
       : await enrichWithIdeContext(text, get().ideContextEnabled, lang)
-    
-    // Inject VS Code sidebar environment instructions on the first prompt of a session.
-    // Placing it at the END ensures that the user's actual question/intent is at the top,
-    // so the host's title generator extracts a clean, meaningful session title.
-    const isFirstPrompt = !text.startsWith('/') && !get().nodes.some((n) => n.kind === 'user-message')
-    const prompt = isFirstPrompt
-      ? `${enriched}\n\n${VSCODE_CONTEXT_PROMPT}`
-      : enriched
+
+    // The VS Code environment guide is deferred to prompts AFTER the session's
+    // first one: the host derives the session title from the FIRST human
+    // message, and a first message polluted with the guide (its reordered
+    // "user-first" form included) still leaks plugin context into titles.
+    const hasPriorUserMessage = get().nodes.some((n) => n.kind === 'user-message')
+    const prompt = assemblePromptText(enriched, hasPriorUserMessage, text.startsWith('/'))
 
     const content: PromptContentPart[] = [
       { type: 'text', text: prompt },
@@ -218,7 +257,10 @@ export const createComposerSlice: StateCreator<AppStore, [], [], ComposerSlice> 
     set({ selectedModel: selected })
   },
 
-  setPermissionMode: (mode) => set({ permissionMode: mode }),
+  setPermissionMode: (mode) => {
+    set({ permissionMode: mode })
+    void get().setUiPref('permissionMode', mode).catch(() => undefined)
+  },
 
   setIdeContextEnabled: (enabled) => {
     writeIdeContextEnabled(enabled)

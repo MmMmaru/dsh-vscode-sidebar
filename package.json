@@ -2,7 +2,7 @@
   "name": "dsh-vscode-sidebar",
   "displayName": "DeepSeek Harness Sidebar",
   "description": "VSCode sidebar client for the DeepSeek harness (dsh) web host",
-  "version": "0.1.1",
+  "version": "0.1.5",
   "publisher": "XuRongSheng",
   "license": "MIT",
   "repository": {
@@ -74,17 +74,30 @@
           "default": 3080,
           "description": "Base port for the local dsh web host; occupied ports are skipped in order."
         },
+        "dsh.token": {
+          "type": "string",
+          "default": "",
+          "description": "Optional authentication token used when connecting to an existing dsh web host requiring Bearer token auth."
+        },
         "dsh.keepHostOnExit": {
           "type": "boolean",
           "default": false,
           "description": "Keep the dsh host process alive when VSCode shuts down (only applies when the extension spawned it)."
+        },
+        "dsh.env": {
+          "type": "object",
+          "default": {},
+          "additionalProperties": {
+            "type": "string"
+          },
+          "markdownDescription": "Custom environment variables for the dsh host process this extension spawns (KEY -> value), editable from the extension's Settings tab under General. They are merged over the extension host's own environment, so `PATH` and friends stay inherited. A host that is already running keeps its old environment: restart the host (or reload the window) for changes to take effect."
         }
       }
     }
   },
   "dsh": {
     "compatibleVersionPrefixes": [
-      "0.1.0-rc.",
+      "0.1.",
       "0.0.1"
     ]
   },

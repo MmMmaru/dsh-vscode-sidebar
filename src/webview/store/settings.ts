@@ -13,7 +13,7 @@ import type {
   SettingsNamespaceView,
   SettingsPathOpView,
 } from '../../extension/protocol/settings'
-import { rpc } from '../bridge'
+import { openSettingsTab, rpc } from '../bridge'
 import type { PermissionMode } from '../types'
 import type { AppStore } from './index'
 
@@ -167,6 +167,7 @@ export interface SettingsSlice {
   uiPrefSources: Record<keyof UiPrefs, UiPrefSource>
 
   openSettings: () => void
+  openSettingsTab: () => void
   closeSettings: () => void
   /** Load namespaces + providers + credentials + presets (modal open). */
   loadSettings: () => Promise<void>
@@ -204,6 +205,9 @@ export const createSettingsSlice: StateCreator<AppStore, [], [], SettingsSlice> 
   openSettings: () => {
     set({ settingsOpen: true })
     void get().loadSettings()
+  },
+  openSettingsTab: () => {
+    openSettingsTab()
   },
   closeSettings: () => set({ settingsOpen: false }),
 

@@ -172,11 +172,7 @@ export interface AssistantBubbleProps {
 export function AssistantBubble({ node, isFinalInTurn = true }: AssistantBubbleProps): JSX.Element {
   const { t } = useI18n()
   const activeSessionId = useAppStore((s) => s.activeSessionId)
-  const turnStatus = useAppStore((s) => s.turnStatus)
   const forkSession = useAppStore((s) => s.forkSession)
-  const sessionRunning = useAppStore(
-    (s) => s.sessions.find((meta) => meta.sessionId === s.activeSessionId)?.running === true,
-  )
   const [copied, setCopied] = useState(false)
 
   const copy = (): void => {
@@ -191,8 +187,9 @@ export function AssistantBubble({ node, isFinalInTurn = true }: AssistantBubbleP
     void forkSession(activeSessionId, node.seq)
   }
 
-  const isOngoing = node.streaming || turnStatus !== 'idle' || sessionRunning
-  const showActions = isFinalInTurn && !isOngoing
+  // Show copy and fork actions on the final assistant text of a turn when that node is settled (not streaming).
+  // History nodes keep their actions even when a subsequent turn is streaming.
+  const showActions = isFinalInTurn && !node.streaming
 
   return (
     <div className="msg-assistant">

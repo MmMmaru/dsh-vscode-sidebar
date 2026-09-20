@@ -76,7 +76,7 @@ async function buildE2eHarness() {
   // from the source so there is no drift between the two).
   await writeFile(
     resolvePath(outdir, 'harness.d.mts'),
-    `import type { Harness } from '../../tests/e2e/harness'\nexport type { Harness, StubTextEditor } from '../../tests/e2e/harness'\nexport declare function startHarness(): Promise<Harness>\n`,
+    `import type { Harness, HarnessOptions } from '../../tests/e2e/harness'\nexport type { Harness, HarnessOptions, StubTextEditor } from '../../tests/e2e/harness'\nexport declare function startHarness(options?: HarnessOptions): Promise<Harness>\n`,
   )
 }
 

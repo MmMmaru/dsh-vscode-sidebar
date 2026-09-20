@@ -8,11 +8,35 @@
 import * as vscode from 'vscode'
 import { Bridge } from './bridge'
 import { DshClient } from './dsh-client'
-import { HostManager } from './host-manager'
+import { HostManager, normalizeEnv } from './host-manager'
 import { SidebarProvider, renderHtml } from './sidebar-provider'
 
 let host: HostManager | null = null
 let client: DshClient | null = null
+
+let settingsPanel: vscode.WebviewPanel | null = null
+
+/**
+ * Open the settings panel in an expanded editor tab.
+ */
+export function openSettingsPanel(context: vscode.ExtensionContext, bridge: Bridge): void {
+  if (settingsPanel !== null) {
+    settingsPanel.reveal(vscode.ViewColumn.Active)
+    return
+  }
+  const panel = vscode.window.createWebviewPanel('dsh.settings', 'DeepSeek Settings', vscode.ViewColumn.Active, {
+    enableScripts: true,
+    localResourceRoots: [vscode.Uri.joinPath(context.extensionUri, 'media')],
+    retainContextWhenHidden: true,
+  })
+  settingsPanel = panel
+  panel.webview.html = renderHtml(panel.webview, context.extensionUri, 'settings')
+  const attached = bridge.attach(panel.webview)
+  panel.onDidDispose(() => {
+    attached.dispose()
+    settingsPanel = null
+  })
+}
 
 /**
  * VSCode activation hook: build the connection layer and register views/commands.
@@ -22,9 +46,18 @@ export function activate(context: vscode.ExtensionContext): void {
   const log = vscode.window.createOutputChannel('DSH')
   const hostManager = new HostManager(log)
   hostManager.basePort = vscode.workspace.getConfiguration('dsh').get<number>('port', 3080)
+  const tokenConfig = vscode.workspace.getConfiguration('dsh').get<string>('token', '')
+  if (tokenConfig.trim()) {
+    hostManager.token = tokenConfig.trim()
+  }
+  hostManager.customEnv = normalizeEnv(vscode.workspace.getConfiguration('dsh').get<Record<string, unknown>>('env')).env
   const dshClient = new DshClient()
   dshClient.onLog = (line: string) => log.appendLine(line)
-  const bridge = new Bridge(dshClient, hostManager)
+  const bridge = new Bridge(dshClient, hostManager, (action) => {
+    if (action === 'open-settings-tab') {
+      openSettingsPanel(context, bridge)
+    }
+  })
   const provider = new SidebarProvider(context, bridge)
 
   host = hostManager
@@ -32,16 +65,33 @@ export function activate(context: vscode.ExtensionContext): void {
 
   context.subscriptions.push(
     log,
-    vscode.window.registerWebviewViewProvider(SidebarProvider.viewType, provider),
+    vscode.window.registerWebviewViewProvider(SidebarProvider.viewType, provider, {
+      webviewOptions: { retainContextWhenHidden: true },
+    }),
+    vscode.workspace.onDidChangeConfiguration((e) => {
+      if (e.affectsConfiguration('dsh.port')) {
+        const newPort = vscode.workspace.getConfiguration('dsh').get<number>('port', 3080)
+        hostManager.basePort = newPort
+      }
+      if (e.affectsConfiguration('dsh.token')) {
+        const newToken = vscode.workspace.getConfiguration('dsh').get<string>('token', '')
+        hostManager.token = newToken.trim() || undefined
+      }
+      // Kept for hosts spawned later: the running host already has its
+      // environment, so the new values take effect on the next spawn.
+      if (e.affectsConfiguration('dsh.env')) {
+        hostManager.customEnv = normalizeEnv(
+          vscode.workspace.getConfiguration('dsh').get<Record<string, unknown>>('env'),
+        ).env
+      }
+    }),
     vscode.commands.registerCommand('dsh.newChat', () => {
       provider.reveal()
       const target = provider.activeWebview
       if (target) bridge.postCommand('newChat', [target])
     }),
     vscode.commands.registerCommand('dsh.openSettings', () => {
-      provider.reveal()
-      const target = provider.activeWebview
-      if (target) bridge.postCommand('openSettings', [target])
+      openSettingsPanel(context, bridge)
     }),
     vscode.commands.registerCommand('dsh.openFullPanel', () => openFullPanel(context, bridge)),
     vscode.commands.registerCommand('dsh.insertSelection', () => {

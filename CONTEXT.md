@@ -39,11 +39,19 @@ Webview (React+zustand)  ←postMessage bridge→  Extension Host (Node)  ←HTT
 - [tests/context-meter-stats.test.tsx](tests/context-meter-stats.test.tsx): 0.0.9 新增——ContextMeter 弹层 5 例（内容/外点/Esc/空数据）。
 - [tests/e2e/session-row-hover.spec.ts](tests/e2e/session-row-hover.spec.ts): 0.0.9 新增——HOV-1 hover 前后行盒逐像素相等（注意 Playwright `toBeVisible` 不看 opacity，会假阳性）/ HOV-2 徽标 2px。
 
+### 0.1.5 自定义 host 环境变量（本次新增）
+
+- 语义：VS Code 配置 `dsh.env`（string→string）在 `HostManager.spawn()` 时以 `env: { ...process.env, ...customEnv }` 合并进 host 进程——**posix spawn 传 `env` 会整体替换**，漏了 `...process.env` 就会丢 `PATH` 导致 host 起不来；只作用于**下一次** spawn，运行中的 host 不变（不重启后端）。
+- 数据流：设置→通用 `EnvRow` → store `setEnv`（乐观写入+失败回滚）→ bridge `set-env` → `extension/bridge.ts handleSetEnv` 写 `ConfigurationTarget.Global`（整表覆盖，对齐 VS Code `Configuration#update`）→ 回 `env-changed` → store 更新；启动时 `InitPayload.env` 下发（`readConfiguredEnv()`/`normalizeEnv()`）。
+- 校验（`normalizeEnv`）：名需匹配 `^[A-Za-z_][A-Za-z0-9_]*$`、值非空字符串，丢弃项计数上报（`N 项无效配置已忽略`）；spawn 日志只打变量**名**（值多为密钥）。
+- UI 契约：行增删改就地编辑；名疑似密钥（KEY/TOKEN/SECRET/PASSWORD/PASSWD/CREDENTIAL）默认 `type=password`，眼睛可临时查看（**打码只影响显示，值始终随行携带**）；非法名/重名/空值行标红且 Save 保持禁用，刚添加的空行是占位（`originalName` 必须 `undefined`，否则会被判成「空名已存在行」立刻报错——已修的 bug）；保存提示「重启 host 后生效」。
+- 待办关联：这是**手动**注入口子；#7/#25 要的「自动探测系统代理/node 环境」仍未做（见 docs/TODO.md 同条批注）。
+
 ### 相关文件
 
 **入口与宿主（src/extension/）**
 
-- [package.json](package.json): 扩展清单（当前 0.0.9）——activitybar 容器 `dsh`、视图 `dsh.sidebar`、5 命令、`dsh.port`/`dsh.keepHostOnExit` 配置、`dsh.compatibleVersionPrefixes` 兼容前缀。
+- [package.json](package.json): 扩展清单（当前 0.0.9）——activitybar 容器 `dsh`、视图 `dsh.sidebar`、5 命令、`dsh.port`/`dsh.keepHostOnExit`/`dsh.env`（0.1.5 自定义 host 环境变量，见上）配置、`dsh.compatibleVersionPrefixes` 兼容前缀。
 - [src/extension/extension.ts](src/extension/extension.ts): activate 装配 HostManager/DshClient/Bridge/SidebarProvider + 注册视图与 5 命令；deactivate 按 keepHostOnExit 决定杀不杀本插件 spawn 的 host。
 - [src/extension/host-manager.ts](src/extension/host-manager.ts): host 探测/spawn/进程组杀；坑：npm 的 0.1.0-rc.6 自报版本 "0.0.1"，兼容前缀 `['0.1.0-rc.', '0.0.1']`。
 - [src/extension/dsh-client.ts](src/extension/dsh-client.ts): HTTP RPC（30s 超时、`RpcBusinessError`）+ 双 WS 事件流 + `/api/respond` 应答 + `emitMuxFrame`/`emitHostFrame` e2e 注入钩子。
@@ -94,18 +102,18 @@ Webview (React+zustand)  ←postMessage bridge→  Extension Host (Node)  ←HTT
 
 **settings / common / 全局样式**
 
-- [src/webview/components/settings/SettingsPanel.tsx](src/webview/components/settings/SettingsPanel.tsx) + GeneralSection/ModelsSection/ProviderEditorCard/CustomProviderCard/PluginsSection/PresetsSection: 设置弹窗（左导航 + 内容列；PluginsSection 编辑能力 W6 遗留未做）。
+- [src/webview/components/settings/SettingsPanel.tsx](src/webview/components/settings/SettingsPanel.tsx) + GeneralSection/ModelsSection/ProviderEditorCard/CustomProviderCard/PluginsSection/PresetsSection: 设置弹窗（左导航 + 内容列；PluginsSection 编辑能力 W6 遗留未做）；[SettingsPage.tsx](src/webview/components/settings/SettingsPage.tsx) 是 0.1.4 起在编辑器标签页里复用的整页外壳（`__DSH_VIEW_MODE__==='settings'`），GeneralSection 内的 `EnvRow` 即 0.1.5 环境变量编辑器。
 - [src/webview/components/common/ConfirmModal.tsx](src/webview/components/common/ConfirmModal.tsx): 破坏性操作确认框（0.0.8 从 settings 提升共用）；类名仍 `settings-confirm*`，样式在 settings.css 全局生效。
 - [src/webview/styles/base.css](src/webview/styles/base.css): 全局 token（0.0.8 新增 `--dsh-radius-lg`/`--dsh-border-soft`/`--dsh-shadow-card` + `@keyframes ovl-enter`）+ 三层 shell 布局 + `.status-dot` 基类。
 
 **测试（tests/）**
 
 - 单测：composer-input / dsh-client / file-refs / goal / host-manager / overlay-retention / respond-mapping / todo-fixes / segment-rail / status-indicator / context-meter-stats + [fake-host.ts](tests/fake-host.ts)（进程内假 host）。
-- e2e：[harness.ts](tests/e2e/harness.ts)（真实扩展宿主 + 隔离 host，DSH_HOME 必须手动 mkdir `storages`）+ e2e/switch-repro/goal/composer-commands/code-jump-segments/overlay-style/session-delete/session-row-hover spec。
-- e2e 三大坑（详见 `.agents/skills/dsh-vscode-e2e/SKILL.md`）：① 注入提问必须同 rpcId 补发 `question/resolved` 清 retention，否则下用例连锁失败；② 改产品代码必须重跑 build:webview（页面加载构建产物），改 harness/stub 必须重跑 esbuild --e2e；③ 用例共享一个 worker/host，计数断言用相对值、会话标题用唯一前缀。
+- e2e：[harness.ts](tests/e2e/harness.ts)（真实扩展宿主 + 隔离 host，DSH_HOME 必须手动 mkdir `storages`；`startHarness({config})` 预置桩配置、`harness.configuration()` 回读）+ [page-adapter.js](tests/e2e/page-adapter.js)（页面侧 `acquireVsCodeApi` 适配器，端口/视图模式经 `<body data-ws-port|data-view-mode>` 传入）+ e2e/switch-repro/goal/composer-commands/code-jump-segments/overlay-style/session-delete/session-row-hover/env-setting spec。
+- e2e 四大坑（详见 `.agents/skills/dsh-vscode-e2e/SKILL.md`）：① 注入提问必须同 rpcId 补发 `question/resolved` 清 retention，否则下用例连锁失败；② 改产品代码必须重跑 build:webview（页面加载构建产物），改 harness/stub 必须重跑 esbuild --e2e；③ 用例共享一个 worker/host，计数断言用相对值、会话标题用唯一前缀；④ 页面适配器必须是独立文件 `tests/e2e/page-adapter.js`——内联 `<script>` 版本在本机 Chromium 下从未执行（现象：`acquireVsCodeApi` 未注入、页面回退 mock bridge、真实 RPC 用例全超时）。
 
 **工程化**
 
 - [esbuild.config.mjs](esbuild.config.mjs): 四目标（默认/--watch/--tests/--e2e）。
 - 文档惯例：CHANGELOG（与 package.json 版本严格一致）/ docs/TODO.md（编号全局唯一，分待办与已完成按版本）/ PROGRESS.md（`### MM-DD hh:mm` 追加）。
-- 版本脉络：0.0.1 首发 → 0.0.2 接管面板视觉 → 0.0.3 IDE 注入+工作区隔离+E2E 体系 → 0.0.4 Goal条/斜杠/Esc/窄宽度 → 0.0.6 断点重标定 → 0.0.7 代码跳转+SegmentRail → 0.0.8 弹窗美化/状态指示器/删除修复/rail 概览化 → 0.0.9 统计并入上下文弹层/滚动条同列/rail 加粗/徽标加粗/hover 零重排。
+- 版本脉络：0.0.1 首发 → 0.0.2 接管面板视觉 → 0.0.3 IDE 注入+工作区隔离+E2E 体系 → 0.0.4 Goal条/斜杠/Esc/窄宽度 → 0.0.6 断点重标定 → 0.0.7 代码跳转+SegmentRail → 0.0.8 弹窗美化/状态指示器/删除修复/rail 概览化 → 0.0.9 统计并入上下文弹层/滚动条同列/rail 加粗/徽标加粗/hover 零重排 → 0.1.x 设置独立标签页/斜杠命令真实执行/长文本附件 → 0.1.5 自定义 host 环境变量（设置→通用）+ e2e 页面适配器改独立文件。

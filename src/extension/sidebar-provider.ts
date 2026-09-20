@@ -60,7 +60,7 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
  * @param extensionUri - the extension root URI.
  * @returns the full HTML document.
  */
-export function renderHtml(webview: vscode.Webview, extensionUri: vscode.Uri): string {
+export function renderHtml(webview: vscode.Webview, extensionUri: vscode.Uri, viewMode: 'sidebar' | 'settings' | 'full' = 'sidebar'): string {
   const scriptUri = webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, 'media', 'main.js'))
   const styleUri = webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, 'media', 'style.css'))
   const nonce = crypto.randomUUID().replaceAll('-', '')
@@ -75,6 +75,7 @@ export function renderHtml(webview: vscode.Webview, extensionUri: vscode.Uri): s
 </head>
 <body>
   <div id="root"></div>
+  <script nonce="${nonce}">window.__DSH_VIEW_MODE__ = "${viewMode}";</script>
   <script nonce="${nonce}" type="module" src="${scriptUri.toString()}"></script>
 </body>
 </html>`

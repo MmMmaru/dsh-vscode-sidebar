@@ -6,6 +6,8 @@
  *      cancels the running turn (same action as the stop button).
  */
 
+;(globalThis as { __DSH_MOCK__?: boolean }).__DSH_MOCK__ = true
+
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import type { SkillEntry } from '../src/extension/protocol/views'
@@ -17,8 +19,6 @@ import {
   filterSkills,
   resolveEscape,
 } from '../src/webview/components/composer/ComposerInput'
-
-;(globalThis as { __DSH_MOCK__?: boolean }).__DSH_MOCK__ = true
 
 const SKILLS: readonly SkillEntry[] = [
   { name: 'review', description: '代码审查', modelInvocable: true },
@@ -77,4 +77,24 @@ test('resolveEscape: popup owns Escape first, then a running turn, else ignore',
   assert.equal(resolveEscape(true, true), 'close-popup')
   assert.equal(resolveEscape(false, true), 'cancel')
   assert.equal(resolveEscape(false, false), 'ignore')
+})
+
+// ---------------------------------------------------------------------------
+// ③ Slash command execution
+// ---------------------------------------------------------------------------
+
+test('sendPrompt executes /compact via commands/execute without sending to model', async () => {
+  ;(globalThis as { __DSH_MOCK__?: boolean }).__DSH_MOCK__ = true
+  const { useAppStore } = await import('../src/webview/store')
+  const sid = 's-demo' as import('../src/extension/protocol/brand').SessionId
+  useAppStore.setState({ activeSessionId: sid, nodes: [], uiPrefs: { language: 'zh', appearance: 'vscode', busyEnter: 'queue', permissionMode: 'workspace-write' } })
+  await useAppStore.getState().sendPrompt('/compact', [])
+})
+
+test('sendPrompt executes /goal <objective> via commands/execute', async () => {
+  ;(globalThis as { __DSH_MOCK__?: boolean }).__DSH_MOCK__ = true
+  const { useAppStore } = await import('../src/webview/store')
+  const sid = 's-demo' as import('../src/extension/protocol/brand').SessionId
+  useAppStore.setState({ activeSessionId: sid, goal: undefined, nodes: [], uiPrefs: { language: 'zh', appearance: 'vscode', busyEnter: 'queue', permissionMode: 'workspace-write' } })
+  await useAppStore.getState().sendPrompt('/goal 自动化测试目标', [])
 })

@@ -62,6 +62,8 @@ export class DshClient {
   onLog: ((line: string) => void) | null = null
 
   private baseUrl: string | null = null
+  private token: string | null = null
+  private cookie: string | null = null
   private muxSocket: WebSocket | null = null
   private hostSocket: WebSocket | null = null
   private readonly muxListeners = new Set<(frame: MuxFrame) => void>()
@@ -83,6 +85,8 @@ export class DshClient {
   async connect(info: HostInfo): Promise<void> {
     this.disposed = false
     this.baseUrl = `http://127.0.0.1:${info.port}`
+    this.token = info.token ?? null
+    this.cookie = info.cookie ?? null
     await this.openSockets()
   }
 
@@ -104,9 +108,16 @@ export class DshClient {
       method,
       payload: params ?? {},
     }
+    const headers: Record<string, string> = { 'content-type': 'application/json' }
+    if (this.token !== null) {
+      headers['Authorization'] = `Bearer ${this.token}`
+    }
+    if (this.cookie !== null) {
+      headers['Cookie'] = this.cookie
+    }
     const response = await fetch(`${this.baseUrl}/api/${method}`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers,
       body: JSON.stringify(request),
       signal: AbortSignal.timeout(RPC_TIMEOUT_MS),
     })
@@ -259,9 +270,16 @@ export class DshClient {
   private async respond(rpcId: RpcId, value: unknown): Promise<void> {
     if (this.baseUrl === null) throw new Error('dsh client is not connected')
     const message: ClientResponse = { type: 'client-response', rpcId, result: { ok: true, value } }
+    const headers: Record<string, string> = { 'content-type': 'application/json' }
+    if (this.token !== null) {
+      headers['Authorization'] = `Bearer ${this.token}`
+    }
+    if (this.cookie !== null) {
+      headers['Cookie'] = this.cookie
+    }
     const response = await fetch(`${this.baseUrl}/api/respond`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers,
       body: JSON.stringify(message),
       signal: AbortSignal.timeout(RPC_TIMEOUT_MS),
     })
@@ -299,7 +317,9 @@ export class DshClient {
    * @param onPreOpenError - reject hook valid only before the socket first opens.
    */
   private openSocket(path: string, onOpen: () => void, onPreOpenError: (error: unknown) => void): WebSocket {
-    const url = `ws://127.0.0.1:${new URL(this.baseUrl as string).port}${path}`
+    const port = new URL(this.baseUrl as string).port
+    const query = this.token ? `?token=${encodeURIComponent(this.token)}` : ''
+    const url = `ws://127.0.0.1:${port}${path}${query}`
     const socket = new WebSocket(url)
     let everOpened = false
     socket.addEventListener('open', () => {

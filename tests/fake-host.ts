@@ -30,6 +30,8 @@ export interface FakeHostOptions {
   failRpcs?: boolean
   /** Echo a wrong rpcId in unary responses (protocol violation for testing). */
   corruptRpcId?: boolean
+  /** Require token authentication for RPCs and WebSocket connections. */
+  requiredToken?: string
 }
 
 /** The fake host handle: server, sockets, and captured traffic. */
@@ -68,6 +70,16 @@ export async function startFakeHost(options: FakeHostOptions = {}): Promise<Fake
       res.writeHead(404).end('not found')
       return
     }
+    if (options.requiredToken) {
+      const auth = req.headers['authorization']
+      if (auth !== `Bearer ${options.requiredToken}`) {
+        res.writeHead(401, { 'content-type': 'application/json' }).end(JSON.stringify({
+          type: 'server-response',
+          result: { ok: false, error: { code: 'unauthorized', message: 'token required' } }
+        }))
+        return
+      }
+    }
     let raw = ''
     req.on('data', (chunk: Buffer) => { raw += chunk.toString() })
     req.on('end', () => {
@@ -97,10 +109,21 @@ export async function startFakeHost(options: FakeHostOptions = {}): Promise<Fake
   })
 
   server.on('upgrade', (req, socket: Duplex, head) => {
-    const path = req.url ?? ''
+    const rawUrl = req.url ?? ''
+    const parsed = new URL(rawUrl, 'http://127.0.0.1')
+    const path = parsed.pathname
     if (path !== '/api/events.mux' && path !== '/api/events.host') {
       socket.destroy()
       return
+    }
+    if (options.requiredToken) {
+      const token = parsed.searchParams.get('token')
+      const auth = req.headers['authorization']
+      if (token !== options.requiredToken && auth !== `Bearer ${options.requiredToken}`) {
+        socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n')
+        socket.destroy()
+        return
+      }
     }
     const key = req.headers['sec-websocket-key'] as string
     const accept = createHash('sha1').update(key + WS_GUID).digest('base64')

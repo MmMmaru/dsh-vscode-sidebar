@@ -27,6 +27,48 @@ export interface PermissionSelectProps {
   onChange: (mode: PermissionMode) => void
 }
 
+export function PermissionGlyph({ mode }: { mode: PermissionMode }): JSX.Element {
+  if (mode === 'full-access') {
+    return (
+      <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+        <path
+          d="M8.20554 0.899994L14.7901 3.36857V7.01026C14.7901 12 11.0466 14.2103 8.20554 15.3C5.36446 14.2103 1.62012 12 1.62012 7.01026V3.36857L8.20554 0.899994Z"
+          stroke="currentColor"
+          strokeWidth="1.3"
+          strokeLinejoin="round"
+        />
+        <path d="M8.75 4.5V8.75H7.25V4.5H8.75Z" fill="currentColor" />
+        <path d="M8.75 9.8V11.5H7.25V9.8H8.75Z" fill="currentColor" />
+      </svg>
+    )
+  }
+  if (mode === 'read-only') {
+    return (
+      <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+        <path
+          d="M8.20554 0.899994L14.7901 3.36857V7.01026C14.7901 12 11.0466 14.2103 8.20554 15.3C5.36446 14.2103 1.62012 12 1.62012 7.01026V3.36857L8.20554 0.899994Z"
+          stroke="currentColor"
+          strokeWidth="1.3"
+          strokeLinejoin="round"
+        />
+        <path d="M11.5 5.8L7.8 9.5L5.2 6.9L4.5 7.6L7.8 10.9L12.2 6.5L11.5 5.8Z" fill="currentColor" />
+      </svg>
+    )
+  }
+  return (
+    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+      <path
+        d="M8.20554 0.899994L14.7901 3.36857V7.01026C14.7901 12 11.0466 14.2103 8.20554 15.3C5.36446 14.2103 1.62012 12 1.62012 7.01026V3.36857L8.20554 0.899994Z"
+        stroke="currentColor"
+        strokeWidth="1.3"
+        strokeLinejoin="round"
+      />
+      <path d="M10.8 5.6V6.8H5.2V5.6H10.8Z" fill="currentColor" />
+      <path d="M9.2 8.3V9.5H5.2V8.3H9.2Z" fill="currentColor" />
+    </svg>
+  )
+}
+
 export function PermissionSelect({ value, onChange }: PermissionSelectProps): JSX.Element {
   const [open, setOpen] = useState(false)
   const [confirming, setConfirming] = useState(false)
@@ -35,13 +77,20 @@ export function PermissionSelect({ value, onChange }: PermissionSelectProps): JS
 
   // Outside click / Escape close the menu (one document listener while open).
   useEffect(() => {
-    if (!open) return
+    if (!open && !confirming) return
     const onPointerDown = (e: PointerEvent): void => {
+      if (confirming) return
       if (e.target instanceof Node && rootRef.current?.contains(e.target)) return
       setOpen(false)
     }
     const onKeyDown = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape') setOpen(false)
+      if (e.key === 'Escape') {
+        setOpen(false)
+        if (confirming) {
+          setAcknowledged(false)
+          setConfirming(false)
+        }
+      }
     }
     document.addEventListener('pointerdown', onPointerDown)
     document.addEventListener('keydown', onKeyDown)
@@ -49,7 +98,7 @@ export function PermissionSelect({ value, onChange }: PermissionSelectProps): JS
       document.removeEventListener('pointerdown', onPointerDown)
       document.removeEventListener('keydown', onKeyDown)
     }
-  }, [open])
+  }, [open, confirming])
 
   const current: ModeOption = MODES.find((m) => m.value === value) ?? {
     value: 'workspace-write',
@@ -90,12 +139,7 @@ export function PermissionSelect({ value, onChange }: PermissionSelectProps): JS
         title={current.description}
         onClick={() => setOpen(!open)}
       >
-        <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden>
-          <path
-            d="M8.20554 0.899994L14.7901 3.36857V7.01026C14.7901 12 11.0466 14.2103 8.20554 15.3C5.36446 14.2103 1.62012 12 1.62012 7.01026V3.36857L8.20554 0.899994Z"
-            stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round"
-          />
-        </svg>
+        <PermissionGlyph mode={current.value} />
         <span className="composer-chip-label">{current.label}</span>
       </button>
       {open && (
@@ -109,6 +153,9 @@ export function PermissionSelect({ value, onChange }: PermissionSelectProps): JS
               className={`composer-menu-item${mode.value === value ? ' selected' : ''}`}
               onClick={() => choose(mode.value)}
             >
+              <span className="composer-menu-item-icon" aria-hidden="true">
+                <PermissionGlyph mode={mode.value} />
+              </span>
               <span className="composer-menu-item-copy">
                 <span className="composer-menu-item-label">{mode.label}</span>
                 <span className="composer-menu-item-desc">{mode.description}</span>

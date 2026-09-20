@@ -288,6 +288,12 @@ export const mockHistoryOverrides = new Map<SessionId, HistoryEntry[]>()
 /** Test hook: rpc methods in this set reject (failure-path tests). */
 export const mockRpcFailures = new Set<string>()
 
+/** Test hook: `setEnv` rejects while set (rollback-path tests). */
+export const mockEnvFailures = { enabled: false }
+
+/** Test hook: custom host environment the mock init payload reports. */
+export const mockInitEnv: { env: Record<string, string> } = { env: {} }
+
 /** Read one session's current goal projection, `null` when none exists. */
 function currentGoal(sessionId: SessionId): GoalProjection | null {
   return goalStore.get(sessionId) ?? null
@@ -620,7 +626,7 @@ function waitInit(): Promise<InitPayload> {
   setTimeout(() => {
     for (const cb of statusListeners) cb('ready')
   }, 0)
-  return Promise.resolve({ cwd: MOCK_CWD, hostVersion: '0.0.1-mock', sessions: sessions.filter((s) => !archived.has(s.sessionId)) })
+  return Promise.resolve({ cwd: MOCK_CWD, hostVersion: '0.0.1-mock', port: 3080, env: mockInitEnv.env, sessions: sessions.filter((s) => !archived.has(s.sessionId)) })
 }
 
 /** Mock rpc: dispatch on the method name over the fake data above. */
@@ -909,6 +915,16 @@ function rpc<T = unknown>(method: string, params?: unknown): Promise<T> {
         hasDocument: false,
       })
     }
+    case 'commands/execute': {
+      const line = (p as { args?: { line?: string }; line?: string })?.args?.line ?? (p as { line?: string })?.line ?? ''
+      if (line.startsWith('/compact')) {
+        return respond({ commandId: 'cmd-compact', result: { kind: 'success', text: 'Compacted' } })
+      }
+      if (line.startsWith('/plan')) {
+        return respond({ commandId: 'cmd-plan', result: { kind: 'success' } })
+      }
+      return respond({ commandId: 'cmd-generic', result: { kind: 'success' } })
+    }
     default:
       return Promise.reject(new Error(`mock bridge: unhandled rpc method ${method}`))
   }
@@ -1011,7 +1027,32 @@ function respondQuestion(sessionId: SessionId, answers: AskUserQuestionAnswerIte
   return Promise.resolve()
 }
 
+export function setPort(_port: number): Promise<void> {
+  return Promise.resolve()
+}
+
+export function restartHost(): Promise<void> {
+  return Promise.resolve()
+}
+
+export function setEnv(_env: Record<string, string>): Promise<void> {
+  if (mockEnvFailures.enabled) return Promise.reject(new Error('mock bridge: forced setEnv failure'))
+  return Promise.resolve()
+}
+
+export function onEnvChanged(_cb: (env: Record<string, string>) => void): () => void {
+  return () => undefined
+}
+
+export function onPortChanged(_cb: (port: number) => void): () => void {
+  return () => undefined
+}
+
+export function openSettingsTab(): void {
+  // mock no-op
+}
+
 /** The assembled mock client, structurally identical to ../api.ts. */
 export const mockBridge: BridgeClient = {
-  rpc, onEvent, onHostStatus, onCommand, waitInit, respondApproval, respondQuestion, onIdeContent, requestIdeContent, fetchIdeContent, openFileInIde,
+  rpc, onEvent, onHostStatus, onCommand, waitInit, respondApproval, respondQuestion, onIdeContent, requestIdeContent, fetchIdeContent, openFileInIde, setPort, restartHost, onPortChanged, setEnv, onEnvChanged, openSettingsTab,
 }

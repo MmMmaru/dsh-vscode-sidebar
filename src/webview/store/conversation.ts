@@ -29,6 +29,7 @@ import type { JobView } from '../../extension/protocol/views'
 import { rpc } from '../bridge'
 import type {
   AssistantTextNode,
+  CommandNode,
   ConversationNode,
   ReasoningNode,
   TodoItem,
@@ -300,6 +301,47 @@ function projectEvent(nodes: ConversationNode[], event: SessionEvent, view?: Too
         ...(view?.for === 'result' ? { resultView: view.view } : {}),
       }
       return [...nodes.slice(0, idx), next, ...nodes.slice(idx + 1)]
+    }
+    case 'command/run': {
+      const data = event.data
+      const node: CommandNode = {
+        id: `cmd-${data.commandId}`,
+        kind: 'command',
+        seq: event.seq,
+        time: event.time,
+        commandId: data.commandId,
+        name: data.name,
+        args: data.args ?? null,
+        status: 'running',
+      }
+      return [...nodes, node]
+    }
+    case 'command/done': {
+      const data = event.data
+      const idx = nodes.findIndex((n) => n.kind === 'command' && n.commandId === data.commandId)
+      if (idx >= 0) {
+        const prev = nodes[idx] as CommandNode
+        const next: CommandNode = {
+          ...prev,
+          seq: event.seq,
+          time: event.time,
+          status: data.kind,
+          text: data.text,
+        }
+        return [...nodes.slice(0, idx), next, ...nodes.slice(idx + 1)]
+      }
+      const node: CommandNode = {
+        id: `cmd-${data.commandId}`,
+        kind: 'command',
+        seq: event.seq,
+        time: event.time,
+        commandId: data.commandId,
+        name: 'command',
+        args: null,
+        status: data.kind,
+        text: data.text,
+      }
+      return [...nodes, node]
     }
     default:
       return nodes // turn/step markers, headers and todos update other state fields

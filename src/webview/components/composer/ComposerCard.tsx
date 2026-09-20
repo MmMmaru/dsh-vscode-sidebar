@@ -11,13 +11,15 @@
  * Contract: ARCHITECTURE.md section 5.3 — no props, reads the store slices.
  */
 
-import { useCallback, useEffect, useRef, useState, type JSX } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type JSX } from 'react'
 import type { MessageId } from '../../../extension/protocol/brand'
 import type { ImageMediaType } from '../../../extension/protocol/llm'
+import { isTextFile, parseUserMessage, wrapAttachedText, type AttachedTextBlock } from '../../../shared/attached-text'
 import { onIdeContent } from '../../bridge'
 import { formatIdeInsert } from '../../ide-insert'
 import { useAppStore } from '../../store'
 import type { Attachment } from '../../types'
+import { useI18n } from '../../i18n'
 import { OverlayHost } from '../overlay/OverlayHost'
 import { AttachmentRail } from './AttachmentRail'
 import { ComposerInput } from './ComposerInput'
@@ -30,6 +32,31 @@ import { SendStopButton } from './SendStopButton'
 import { SubagentDock } from './SubagentDock'
 import { TodoPanel } from './TodoPanel'
 import './composer.css'
+
+/** Attached text chip rail rendered above the composer textarea. */
+function AttachedTextRail(props: { items: AttachedTextBlock[]; onRemove: (index: number) => void }): JSX.Element | null {
+  const { t } = useI18n()
+  if (props.items.length === 0) return null
+  return (
+    <div className="composer-attached-text-rail" aria-label="文本附件列表">
+      {props.items.map((item, idx) => (
+        <div key={idx} className="composer-attached-text-chip" title={item.path ?? item.name}>
+          <span className="composer-attached-text-icon" aria-hidden>📄</span>
+          <span className="composer-attached-text-name">{item.name}</span>
+          <span className="composer-attached-text-lines">{item.lines} {t('linesUnit')}</span>
+          <button
+            type="button"
+            className="composer-attached-text-remove"
+            aria-label={`移除 ${item.name}`}
+            onClick={() => props.onRemove(idx)}
+          >
+            ✕
+          </button>
+        </div>
+      ))}
+    </div>
+  )
+}
 
 /** Attachment intake limits (DeepSeek Chat semantics; the host re-enforces at submit). */
 export const IMAGE_LIMITS = {
@@ -84,6 +111,7 @@ function fileToAttachment(file: File): Promise<Attachment> {
 }
 
 export function ComposerCard(): JSX.Element {
+  const { t } = useI18n()
   const activeSessionId = useAppStore((s) => s.activeSessionId)
   const turnStatus = useAppStore((s) => s.turnStatus)
   // The host's per-session running flag: survives history reloads, unlike the
@@ -112,7 +140,8 @@ export function ComposerCard(): JSX.Element {
   const resumeGoal = useAppStore((s) => s.resumeGoal)
   const clearGoal = useAppStore((s) => s.clearGoal)
 
-  const [draft, setDraft] = useState('')
+  const [cleanText, setCleanText] = useState('')
+  const [attachedTexts, setAttachedTexts] = useState<AttachedTextBlock[]>([])
   const [attachments, setAttachments] = useState<Attachment[]>([])
   const [toast, setToast] = useState<{ seq: number; text: string } | null>(null)
   const [dragActive, setDragActive] = useState(false)
@@ -123,7 +152,7 @@ export function ComposerCard(): JSX.Element {
   const running = turnStatus === 'running' || sessionRunning
   // Sending without a session auto-creates one (sendPrompt handles it), so the
   // input is always usable once the host is up.
-  const canSend = draft.trim() !== '' || attachments.length > 0
+  const canSend = cleanText.trim() !== '' || attachedTexts.length > 0 || attachments.length > 0
   // Takeover semantics: a pending overlay replaces the whole input area.
   const overlayActive = pendingApproval !== null || pendingQuestion !== null || planReview !== null
 
@@ -132,21 +161,40 @@ export function ComposerCard(): JSX.Element {
     setToast({ seq: toastSeq.current, text })
   }, [])
 
+  const handleCleanTextChange = useCallback((text: string) => {
+    setCleanText(text)
+  }, [])
+
+  const handleRemoveAttachedText = useCallback((index: number) => {
+    setAttachedTexts((cur) => cur.filter((_, i) => i !== index))
+  }, [])
+
+  const handleAddAttachedText = useCallback((name: string, content: string, path?: string) => {
+    const lines = content.split('\n').length
+    setAttachedTexts((cur) => [...cur, { name, lines, content, path }])
+  }, [])
+
+  const handlePasteLongText = useCallback((text: string) => {
+    const existingCount = attachedTexts.filter((b) => b.name.startsWith('pasted_text')).length
+    const fileName = existingCount === 0 ? 'pasted_text.txt' : `pasted_text_${existingCount + 1}.txt`
+    handleAddAttachedText(fileName, text)
+    const lines = text.split('\n').length
+    showToast(t('condensedToAttachment', { lines }))
+  }, [attachedTexts, handleAddAttachedText, showToast, t])
+
   // IDE context via the dsh.insert* commands: the extension host reads the
   // active editor and posts `ide-content`; failures surface as a toast,
-  // successes append to the draft as a formatted code block.
+  // successes append to the draft as an attached text block or code block.
   useEffect(() => {
     return onIdeContent((content) => {
       if (content.error !== undefined) {
         showToast(content.error)
         return
       }
-      setDraft((cur) => {
-        const block = formatIdeInsert(content.kind, content.text, content.path)
-        return cur.trim() === '' ? block : `${cur}\n\n${block}`
-      })
+      const fileName = content.path ? content.path.slice(content.path.lastIndexOf('/') + 1) : 'selection.txt'
+      handleAddAttachedText(fileName, content.text, content.path)
     })
-  }, [showToast])
+  }, [handleAddAttachedText, showToast])
 
   // Toast hold-then-fade cycle.
   useEffect(() => {
@@ -164,18 +212,45 @@ export function ComposerCard(): JSX.Element {
     }
   }, [attachments])
 
-  /** Intake from any source (picker / drop / paste): pre-check the batch, then read files. */
-  const intakeFiles = useCallback((files: readonly File[]): void => {
+  /** Intake from any source (picker / drop / paste): handle images and text files. */
+  const intakeFiles = useCallback(async (files: readonly File[]): Promise<void> => {
     if (files.length === 0) return
-    const rejected = validateImageBatch(files, attachments.length)
-    if (rejected !== null) {
-      showToast(rejected)
-      return
+    const imageFiles: File[] = []
+    const textFiles: File[] = []
+    for (const f of files) {
+      if (isTextFile(f)) {
+        textFiles.push(f)
+      } else {
+        imageFiles.push(f)
+      }
     }
-    void Promise.all(files.map(fileToAttachment))
-      .then((added) => setAttachments((cur) => [...cur, ...added]))
-      .catch((err: unknown) => showToast(err instanceof Error ? err.message : String(err)))
-  }, [attachments.length, showToast])
+
+    if (textFiles.length > 0) {
+      for (const tf of textFiles) {
+        try {
+          const text = await tf.text()
+          handleAddAttachedText(tf.name, text, tf.name)
+          showToast(t('attachedFileSuccess', { name: tf.name }))
+        } catch (err) {
+          showToast(err instanceof Error ? err.message : String(err))
+        }
+      }
+    }
+
+    if (imageFiles.length > 0) {
+      const rejected = validateImageBatch(imageFiles, attachments.length)
+      if (rejected !== null) {
+        showToast(rejected)
+        return
+      }
+      try {
+        const added = await Promise.all(imageFiles.map(fileToAttachment))
+        setAttachments((cur) => [...cur, ...added])
+      } catch (err: unknown) {
+        showToast(err instanceof Error ? err.message : String(err))
+      }
+    }
+  }, [attachments.length, handleAddAttachedText, showToast, t])
 
   // Document-level drag & drop (dsh web behavior): a file drop anywhere over
   // the panel targets the composer; text drags pass through untouched.
@@ -205,7 +280,7 @@ export function ComposerCard(): JSX.Element {
       if (!hasFiles(e)) return
       e.preventDefault()
       reset()
-      intakeFiles([...(e.dataTransfer?.files ?? [])])
+      void intakeFiles([...(e.dataTransfer?.files ?? [])])
     }
     document.addEventListener('dragenter', onDragEnter)
     document.addEventListener('dragover', onDragOver)
@@ -254,12 +329,15 @@ export function ComposerCard(): JSX.Element {
 
   const send = (): void => {
     if (!canSend) return
-    const text = draft.trim()
+    const blocks = attachedTexts.map((b) => wrapAttachedText(b.name, b.content, b.path)).join('\n\n')
+    const trimmedClean = cleanText.trim()
+    const text = trimmedClean === '' ? blocks : (blocks !== '' ? `${trimmedClean}\n\n${blocks}` : trimmedClean)
     const sent = attachments
     for (const a of sent) {
       if (a.previewUrl !== undefined) URL.revokeObjectURL(a.previewUrl)
     }
-    setDraft('')
+    setCleanText('')
+    setAttachedTexts([])
     setAttachments([])
     // mode 'queue' in sendPrompt: a running turn queues the message server-side.
     void sendPrompt(text, sent).catch((err: unknown) => {
@@ -287,16 +365,18 @@ export function ComposerCard(): JSX.Element {
         <OverlayHost />
         {!overlayActive && (
           <>
+            <AttachedTextRail items={attachedTexts} onRemove={handleRemoveAttachedText} />
             <AttachmentRail items={attachments} onRemove={removeAttachment} />
             <ComposerInput
-              value={draft}
-              onChange={setDraft}
+              value={cleanText}
+              onChange={handleCleanTextChange}
               onSend={send}
               onStop={() => void cancel()}
               running={running}
               disabled={false}
               sessionId={activeSessionId}
-              onPasteFiles={intakeFiles}
+              onPasteFiles={(files) => void intakeFiles(files)}
+              onPasteLongText={handlePasteLongText}
             />
             <div className="composer-toolbar">
               <div className="composer-tools">

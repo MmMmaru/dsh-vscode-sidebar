@@ -22,7 +22,7 @@ Node 测试宿主（esbuild bundle，alias: vscode → tests/e2e/vscode-stub.ts�
 
 关键点：
 
-- **vscode stub**（`tests/e2e/vscode-stub.ts`）：只实现被捆绑代码用到的 `vscode` 表面——`window.activeTextEditor`（可编程）、`window.showErrorMessage/showWarningMessage`（记录）、`window.createOutputChannel`、`workspace.workspaceFolders`（可编程）、`Disposable`。注意 `activeTextEditor` 无编辑器时是 `undefined`（不是 null，对齐真实 API）。esbuild alias：`node esbuild.config.mjs --e2e`。
+- **vscode stub**（`tests/e2e/vscode-stub.ts`）：只实现被捆绑代码用到的 `vscode` 表面——`window.activeTextEditor`（可编程）、`window.showErrorMessage/showWarningMessage`（记录）、`window.createOutputChannel`、`workspace.workspaceFolders`（可编程）、`workspace.getConfiguration`/`onDidChangeConfiguration` + `setConfiguration(key, value)`/`ConfigurationTarget`（点号键；`update` 会触发 listeners，便于断言 `dsh.env` 这类设置写回）、`Disposable`。注意 `activeTextEditor` 无编辑器时是 `undefined`（不是 null，对齐真实 API）。esbuild alias：`node esbuild.config.mjs --e2e`。
 - **测试钩子（接口对齐）**：`DshClient.emitMuxFrame(frame, rpcId?)` / `emitHostFrame(frame)` 走与 WS 帧完全相同的分发路径（`trackPending` 登记待应答表 + 监听器扇出），注入源不同但下游无差别。注入帧的应答会被真实 host 以未知 rpcId 拒绝（`harness.errorNotifications()` 会记录"DSH 应答失败"——这是预期行为）。
 - **host 隔离**：`process.env.DSH_HOME = mkdtemp(...)`，拷入用户 settings/credentials 使真实模型调用可用；host 从 3200 起探测空闲端口 spawn，结束只 kill 自己 spawn 的进程并删临时目录。**端口 3080 是 DeepSeek Harness 后端，禁止探测/连接/杀（AGENTS.md）**。
 
@@ -30,7 +30,8 @@ Node 测试宿主（esbuild bundle，alias: vscode → tests/e2e/vscode-stub.ts�
 
 ```
 tests/e2e/
-  vscode-stub.ts        # vscode 模块 stub（esbuild alias 目标）+ 测试控制入口
+  vscode-stub.ts        # vscode 模块 stub（esbuild alias 目标）+ 测试控制入口（含可编程 configuration）
+  page-adapter.js       # 页面侧 acquireVsCodeApi 适配器（静态服务真实下发，勿内联进 harness HTML）
   harness.ts            # host 生命周期 + 静态服务 + WS 桥 + 控制 API（--e2e 打包）
   e2e.spec.ts           # 主用例：五条修复回归 + 核心对话闭环 + IDE 自动注入
   switch-repro.spec.ts  # 提问切换/重放/真实应答闭环（含 live 模型用例）
@@ -76,7 +77,9 @@ const test = base.extend<{}, { harness: Harness }>({
 
 | API | 说明 |
 |---|---|
-| `harness.pageUrl` | 页面地址（http 服务 + /ws 桥同端口） |
+| `harness.pageUrl` | 页面地址（http 服务 + /ws 桥同端口）；`harness.settingsPageUrl` 是 `?view=settings` 的设置页（渲染 SettingsPage） |
+| `startHarness({ config })` | 用 `'dsh.env'` 这类点号键预置桩配置（在 host spawn **之前**生效，可断言启动期读取） |
+| `harness.configuration()` | 回读当前桩配置（断言扩展侧是否真的写回，如 `dsh.env` 整表覆盖） |
 | `harness.workspacePath` / `foreignPath` | 当前工作区路径 / 外部目录（隔离测试用） |
 | `createSession(cwd, title?)` | 真实 RPC 建会话（可改名） |
 | `rpc(method, params?)` | 真实 host RPC 透传（如 goal.create） |
@@ -94,7 +97,7 @@ const test = base.extend<{}, { harness: Harness }>({
 4. **live 模型用例**：只做结构断言（有节点/有文本/回合结束），不断言输出内容；模型未在窗口内触发 ask 时用 `testInfo.skip(true, '原因')` 跳过而非失败（自然触发不可控，约定如此）。
 5. **用例共享一个 worker/host**：会话会累积，计数断言用相对值（before/after），会话标题用唯一前缀（T1-/T2-/SW-/RL- 等）。
 6. **respond 链路断言**：注入帧应答后 `harness.errorNotifications()` 应包含"DSH 应答失败"（真实 host 拒绝合成 rpcId，证明 respond 走完了真实链路）。
-7. 页面适配器会把 WS 打开前的消息排队（应用启动即发 `ready`），不要改动该逻辑。
+7. 页面适配器会把 WS 打开前的消息排队（应用启动即发 `ready`），不要改动该逻辑。**适配器必须留在 `page-adapter.js` 由静态服务下发**：曾经把它内联进 `harness.ts` 的页面 HTML，结果该内联 `<script>` 在本机 Chromium 里始终没有执行（现象：`acquireVsCodeApi` 未注入 → 页面回退 mock bridge → goal 等真实 RPC 用例全部超时，表象却是 `harness warmup timeout`）。端口/视图模式经 `<body data-ws-port|data-view-mode>` 传入，排障时先在页面里 `evaluate` 一下 `typeof acquireVsCodeApi`。
 8. `testInfo.skip(condition, description)` 签名是 (boolean, string)。
 
 ## 6. 新增一个用例的步骤
@@ -112,4 +115,6 @@ const test = base.extend<{}, { harness: Harness }>({
 - 失败先看 `.temp/e2e-artifacts/<test>/error-context.md`（页面快照 + 调用栈）与截图。
 - 用例连锁失败（找不到本用例建的会话行）→ 大概率是上一个用例的 retention 残留，检查 resolved 清理。
 - 页面空白/无 init → WS 未通或 `ready` 早发丢失（检查适配器队列）或 build:webview 产物过期。
+- 页面里 `typeof acquireVsCodeApi === 'undefined'` → 适配器没跑（应为独立文件 `/adapter.js`；若 `document.scripts` 里没有它，说明 harness 的静态服务或 `<body data-ws-port>` 被改坏）。
+- host 起不来 + `settings-file: invalid document at .../settings.yaml` → 用户 `~/.dsh/settings.yaml` YAML 本身坏了（harness 会原样拷进临时 DSH_HOME），先修用户配置而不是查插件。
 - 改 harness 后行为没变 → 忘了 `node esbuild.config.mjs --e2e`。

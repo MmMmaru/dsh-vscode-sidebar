@@ -9,6 +9,7 @@
 
 import type {
   AssistantMessage,
+  ContentBlock,
   LlmCallConfig,
   LlmCallConfigAdapterDefaults,
   LlmFailure,
@@ -110,6 +111,14 @@ export interface SessionEventMap {
   }
   /** Whole-list todo snapshot; latest write wins on replay. */
   'todo/write': { todos: TodoItem[] }
+  /** Command start (log-only). */
+  'command/run': { commandId: string; name: string; args?: string; source: { kind: 'user' } | { kind: 'plugin'; plugin: string } }
+  /** Command outcome (log-only). */
+  'command/done': { commandId: string; kind: 'success' | 'error'; text?: string; sourceEventSeq?: number }
+  /** Compaction start marker. */
+  'compaction/start': { compactionId: string; sourceCommandId?: string; turn: number | null }
+  /** Compaction summary marker. */
+  'compaction/summary': { compactionId: string; sourceCommandId?: string; summary?: ContentBlock[]; shadowedSeqs?: number[]; shadowedTokenCount?: number }
   /** Full header for the next request (log-only). */
   'request/header': { header: EpochHeader; reason: RequestHeaderReason }
   /** Route metadata for the next request (log-only). */

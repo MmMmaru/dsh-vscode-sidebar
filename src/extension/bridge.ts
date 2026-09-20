@@ -7,7 +7,7 @@
 
 import * as vscode from 'vscode'
 import type { DshClient } from './dsh-client'
-import type { HostManager, HostInfo } from './host-manager'
+import { normalizeEnv, type HostManager, type HostInfo } from './host-manager'
 import type {
   ExtensionMessage,
   IdeContentKind,
@@ -39,6 +39,7 @@ export class Bridge {
   constructor(
     private readonly client: DshClient,
     private readonly host: HostManager,
+    private readonly onAction?: (action: 'open-settings-tab') => void,
   ) {
     // Retain answerable frames for the whole bridge lifetime, independent of
     // any attached webview: a hidden sidebar webview is disposed (and its
@@ -90,6 +91,18 @@ export class Bridge {
     switch (message.type) {
       case 'ready':
         await this.handleReady(webview)
+        break
+      case 'open-settings-tab':
+        this.onAction?.('open-settings-tab')
+        break
+      case 'set-port':
+        await this.handleSetPort(webview, message.port)
+        break
+      case 'restart-host':
+        await this.handleRestartHost(webview)
+        break
+      case 'set-env':
+        await this.handleSetEnv(webview, message.env)
         break
       case 'rpc':
         await this.handleRpc(webview, message.id, message.method, message.params)
@@ -170,6 +183,8 @@ export class Bridge {
       const payload: InitPayload = {
         cwd,
         hostVersion: description.version,
+        port: this.hostInfo?.port ?? this.host.basePort,
+        env: readConfiguredEnv(),
         sessions: list.items.filter((s) => s.cwd === undefined || s.cwd === cwd).map(toSessionMeta),
         pendingOverlays: this.overlays.replay(),
       }
@@ -177,6 +192,59 @@ export class Bridge {
     } catch (error) {
       this.post(webview, { type: 'host-status', status: 'down' })
       void vscode.window.showErrorMessage(`DSH 初始化失败：${errorMessage(error)}`)
+    }
+  }
+
+  /** Update the configured DSH port in VS Code global configuration. */
+  private async handleSetPort(webview: vscode.Webview, port: number): Promise<void> {
+    try {
+      await vscode.workspace.getConfiguration('dsh').update('port', port, vscode.ConfigurationTarget.Global)
+      this.host.basePort = port
+      this.post(webview, { type: 'port-changed', port })
+      void vscode.window.showInformationMessage(`DSH 服务端口已设置为 ${port}`)
+    } catch (error) {
+      void vscode.window.showErrorMessage(`设置端口失败：${errorMessage(error)}`)
+    }
+  }
+
+  /** Restart the dsh host: dispose current client & host child, then re-initialize. */
+  private async handleRestartHost(webview: vscode.Webview): Promise<void> {
+    try {
+      this.post(webview, { type: 'host-status', status: 'starting' })
+      await this.client.dispose()
+      await this.host.dispose()
+      this.hostInfo = null
+      this.starting = null
+      await this.ensureStarted(webview)
+      this.post(webview, { type: 'host-status', status: 'ready' })
+      void vscode.window.showInformationMessage('DSH 进程已成功重启')
+    } catch (error) {
+      this.post(webview, { type: 'host-status', status: 'down' })
+      void vscode.window.showErrorMessage(`重启 DSH 失败：${errorMessage(error)}`)
+    }
+  }
+
+  /**
+   * Persist the custom host environment (`dsh.env`) and hand it to the
+   * HostManager for the next spawn. Invalid names / non-string values are
+   * dropped by normalizeEnv and reported, so a typo cannot fail silently.
+   */
+  private async handleSetEnv(webview: vscode.Webview, env: Record<string, unknown>): Promise<void> {
+    try {
+      const { env: cleaned, dropped } = normalizeEnv(env)
+      await vscode.workspace.getConfiguration('dsh').update('env', cleaned, vscode.ConfigurationTarget.Global)
+      this.host.customEnv = cleaned
+      this.post(webview, { type: 'env-changed', env: cleaned })
+      if (dropped > 0) {
+        void vscode.window.showWarningMessage(`DSH 环境变量：已忽略 ${dropped} 项无效配置（变量名需形如 FOO_BAR，且值不能为空）`)
+      } else {
+        const count = Object.keys(cleaned).length
+        void vscode.window.showInformationMessage(
+          count === 0 ? 'DSH 环境变量已清空' : `DSH 环境变量已保存 ${count} 项，重启 host 后生效`,
+        )
+      }
+    } catch (error) {
+      void vscode.window.showErrorMessage(`设置环境变量失败：${errorMessage(error)}`)
     }
   }
 
@@ -193,14 +261,21 @@ export class Bridge {
   /** Start the host (probe/spawn), check version, and connect the client — once. */
   private async ensureStarted(webview: vscode.Webview): Promise<void> {
     if (this.hostInfo !== null) return
-    this.starting ??= (async () => {
-      this.post(webview, { type: 'host-status', status: 'starting' })
-      const info = await this.host.ensureHost()
-      const warning = await this.host.checkVersion(info)
-      if (warning !== null) void vscode.window.showWarningMessage(warning)
-      await this.client.connect(info)
-      this.hostInfo = info
-    })()
+    if (this.starting === null) {
+      this.starting = (async () => {
+        try {
+          this.post(webview, { type: 'host-status', status: 'starting' })
+          const info = await this.host.ensureHost()
+          const warning = await this.host.checkVersion(info)
+          if (warning !== null) void vscode.window.showWarningMessage(warning)
+          await this.client.connect(info)
+          this.hostInfo = info
+        } catch (error) {
+          this.starting = null
+          throw error
+        }
+      })()
+    }
     await this.starting
   }
 
@@ -263,4 +338,14 @@ function toSessionMeta(summary: SessionSummary): SessionMeta {
 /** Normalize an unknown thrown value to a display string. */
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
+}
+
+/**
+ * The custom host environment as configured today (`dsh.env`), cleaned the same
+ * way the spawn path cleans it so the settings editor shows what would be
+ * injected rather than raw configuration content.
+ * @returns the cleaned KEY -> value map (empty when nothing is configured).
+ */
+function readConfiguredEnv(): Record<string, string> {
+  return normalizeEnv(vscode.workspace.getConfiguration('dsh').get<Record<string, unknown>>('env')).env
 }

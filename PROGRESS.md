@@ -1,5 +1,43 @@
 # 进展记录
 
+### 09-10 0.1.5 支持自定义 dsh host 环境变量（设置 → 通用）
+- 需求（用户）：「启动的时候支持自定义环境变量，在设置的时候可以自定义一下环境变量」；澄清后定为**并入「通用」分区**、**只注入插件 spawn 的 dsh host 进程**（不动扩展宿主自身 `process.env`）。
+- 设计：配置项 `dsh.env`（object，键值均为字符串），spawn 时 `env: { ...process.env, ...customEnv }`——posix `spawn` 传 `env` 会**替换**整个环境，必须显式合并，否则 `PATH` 丢失、host 起不来；改动只影响**下一次** spawn，运行中的 host 保持原环境（不重启后端，避免与待办 #3 重叠）。
+- 落地：
+  1. `src/extension/host-manager.ts`：`normalizeEnv()` 纯函数——去空白、丢弃空值/非字符串、名必须匹配 `^[A-Za-z_][A-Za-z0-9_]*$`，返回 `{ env, dropped }`（非法项计数上报，避免拼错静默失效）；`HostManager.customEnv` + spawn 合并；日志只打变量**名**（值多为密钥）；
+  2. `src/extension/extension.ts` / `src/extension/bridge.ts`：activate 与 `onDidChangeConfiguration('dsh.env')` 刷新 `customEnv`；新增 webview 消息 `set-env` → `ConfigurationTarget.Global` 写回 `dsh.env` → 回 `env-changed`；init payload 带 `env`；
+  3. `src/shared/bridge.ts`：桥契约新增 `InitPayload.env` / `set-env` / `env-changed`；
+  4. `src/webview/store/index.ts`：`env` slice + `setEnv`（乐观写入，失败回滚）+ 订阅 `env-changed`；
+  5. `src/webview/components/settings/GeneralSection.tsx`：`EnvRow` 编辑器（增删改、疑似密钥默认打码可查看、非法/重复/空值就地标红并禁用保存、空行仅占位）+ i18n 中英各 14 键；`settings.css` 补 `.settings-env-*`。
+- 契约细节（易踩）：保存是**整表覆盖**（对齐 VS Code `Configuration#update`），删行即从配置消失；打码只影响 `type=password` 显示，值始终随行携带；`envRow('' …)` 必须把 `originalName` 留 `undefined`，否则新建空行会被当成「已存在的空名行」立刻报「变量值不能为空」（本次修掉的真实 bug）。
+- 测试：单测 147 全绿（新增 `tests/host-manager-env.test.ts` 桩 dsh 断言真实注入+`PATH` 合并+只记名、`tests/env-store.test.ts` 回滚、`tests/env-editor.test.ts` 编辑器契约）；e2e `tests/e2e/env-setting.spec.ts` 3 例全绿（启动读取 → 面板保存 → 配置写入 → host 不重启）。
+- 顺带修掉的 e2e 基础设施问题（与本需求无关但挡住了验收）：
+  1. **harness 内联页面适配器从未执行**：`acquireVsCodeApi` 没注入 → 页面静默回退 mock bridge → 真实 RPC 用例（goal 等）全超时。已抽出为 `tests/e2e/page-adapter.js` 由静态服务真实下发，端口/视图模式走 `<body data-ws-port|data-view-mode>`；修复后 goal.spec 恢复绿色。
+  2. 本机 `~/.dsh/settings.yaml` 第 26–35 行 YAML 损坏（两处 `reasoningEfforts:` 键丢失、缩进错位）导致 dsh 启动即 `invalid document` → harness 拷到临时 DSH_HOME 后 host 起不来。已就地修复（原文件备份 `~/.dsh/settings.yaml.broken-backup`），校验通过。
+  3. 全量 e2e 仍余 6 例失败，均为工作区既有未提交改动（overlay 圆角 16px vs 用例期望 10px、session 菜单 4px 偏移、IDE 内容注入路径），与本次改动无关。
+
+### 08-27 0.1.3 会话标题彻底移除插件上下文内容（issue #5 终案）
+- 用户复验 0.1.1 的标题优化后反馈：会话标题仍会出现 context 内容，要求直接移除。
+- 根因：0.1.1 只是把 `[DSH_VSCODE_CONTEXT]` 移到首条消息末尾，而 dsh 后端标题生成（first-prompt LLM 摘要 / 确定性回退）读取的是**整条首条 human 消息**——模型仍会把环境指导块当作标题素材（短提问 + 末尾上下文时尤甚），位置调整无法根治。
+- 落地（源头移除 + 能力保留）：
+  1. 新增纯函数 `assemblePromptText(enriched, hasPriorUserMessage, isSlashCommand)`（`shared/attached-text.ts`）：环境指导只注入会话**首条之后**的提问，首条消息 = 用户真实输入（+ IDE 附件），标题生成与回退只可能产出用户意图；
+  2. `composer.ts sendPrompt` 改用该函数，删除原首轮注入分支与过时注释；
+  3. 绝对路径引用指导不丢失：推迟到后续轮次注入，后续代码引用依旧绝对路径:行号可点击；
+  4. 单测新增 3 条契约（首条不携带 / 后续携带 / 斜杠命令永不携带）。
+- 测试：单测 + typecheck + 打包 `dsh-vscode-sidebar-0.1.3.vsix` 并安装至本地 VS Code（WSL，重载窗口生效）。
+
+### 08-25 0.1.2 修复输入栏 Full access 点击失效与隐藏问题
+- 根因分析：
+  1. 窄屏幕媒体查询（`@media (max-width: 460px)`）下，`[data-composer-tool='permission']` 被整体设置为 `display: none`，导致侧边栏在普通宽度下权限模式芯片直接消失；
+  2. 父容器 `.composer-tools` 设置了 `overflow: hidden`，导致 `.permission-select .composer-menu` 向上弹出的浮动菜单被容器裁切隐藏；
+  3. 切换权限模式时未同步写回 `setUiPref('permissionMode')`。
+- 优化与落地：
+  1. 移除 `.composer-tools` 上的 `overflow: hidden`，提高 `.composer-toolbar` 与 `.composer-menu` 的 `z-index`，确保向上弹出菜单完整显示且层级高于输入框与外层容器；
+  2. 媒体查询改为自适应折叠标签（`[data-composer-tool='permission'] .composer-chip-label { display: none; }`），常驻权限盾牌图标，任何侧边栏宽度下均可点击；
+  3. 图标对齐 Web 端：Full access（带感叹号盾牌）、Read Only（带勾盾牌）、Workspace Write（编辑盾牌），并在下拉菜单中增加图标标识；
+  4. 点击切换权限时同步保存至全局 `uiPrefs` 与宿主配置。
+- 测试：单测全量 124/124 绿，打包 `dsh-vscode-sidebar-0.1.2.vsix` 并安装至本地 VS Code。
+
 ### 08-25 0.1.1 设置与会话管理窗口 3/4 尺寸、16px 圆角同步、KaTeX 公式与标题优化
 - 优化与落地：
   1. **会话标题生成优化**：重构 prompt 拼接结构，用户提问正文置顶，环境指导与附加文件后置；针对纯文件/代码上下文场景自动补充自然语义引导词（中/英），彻底解决开启 IDE 上下文后标题被 `[DSH_VSCODE_CONTEXT]` 或标签污染的问题；

@@ -9,6 +9,7 @@ import { ChatListPanel } from './components/chat-list/ChatListPanel'
 import { ComposerCard } from './components/composer/ComposerCard'
 import { ConversationView } from './components/conversation/ConversationView'
 import { SettingsPanel } from './components/settings/SettingsPanel'
+import { SettingsPage } from './components/settings/SettingsPage'
 import { useAppStore } from './store'
 import { useI18n } from './i18n'
 
@@ -20,9 +21,15 @@ export function App(): JSX.Element {
   const settingsOpen = useAppStore((s) => s.settingsOpen)
   const closeSettings = useAppStore((s) => s.closeSettings)
 
+  const viewMode = (globalThis as { __DSH_VIEW_MODE__?: string }).__DSH_VIEW_MODE__ ?? 'sidebar'
+
   useEffect(() => {
     void useAppStore.getState().initialize()
   }, [])
+
+  if (viewMode === 'settings') {
+    return <SettingsPage />
+  }
 
   return (
     <main className="app-shell">

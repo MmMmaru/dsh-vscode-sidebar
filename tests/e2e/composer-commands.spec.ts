@@ -62,12 +62,11 @@ test('slash popup lists host commands, Escape dismisses, picking inserts, sendin
   await input.press('Enter')
   await expect(input).toHaveValue('/goal ')
 
-  // Sending the slash line delivers it as the user message (never swallowed;
-  // a host with the command registry executes it instead of the model).
+  // Sending the slash line executes it as a real host command.
   await input.fill('/goal 完成斜杠命令的 E2E 验证')
   await input.press('Enter')
   await expect(input).toHaveValue('')
-  await expect(page.locator('.msg-user').first()).toContainText('/goal 完成斜杠命令的 E2E 验证', { timeout: 10_000 })
+  await expect(page.locator('.command-row-card, [data-goal-bar]').first()).toBeVisible({ timeout: 10_000 })
 })
 
 test('Escape interrupts the running turn (live)', async ({ page, harness }, testInfo) => {

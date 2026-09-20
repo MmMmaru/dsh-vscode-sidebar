@@ -63,6 +63,20 @@ export interface BridgeClient {
    * Resolves once the host confirms the open; rejects with the host's reason
    * (or a timeout) so the chip can show the failure in-place. */
   openFileInIde: (target: { path: string; line?: number; endLine?: number; col?: number; cwd?: string }) => Promise<void>
+  /** Update the configured DSH base port. */
+  setPort: (port: number) => Promise<void>
+  /** Request host restart. */
+  restartHost: () => Promise<void>
+  /** Subscribe to port updates. */
+  onPortChanged: (cb: (port: number) => void) => () => void
+  /** Update the custom host environment injected into the next spawned host
+   * (`dsh.env`); resolves once the extension persisted it. */
+  setEnv: (env: Record<string, string>) => Promise<void>
+  /** Subscribe to host-environment updates; the payload is the persisted
+   * (cleaned) map echoed by the extension. */
+  onEnvChanged: (cb: (env: Record<string, string>) => void) => () => void
+  /** Ask the extension host to open the Settings full editor tab. */
+  openSettingsTab: () => void
 }
 
 interface PendingRpc {
@@ -77,6 +91,8 @@ const eventListeners = new Set<(channel: 'mux' | 'host', frame: unknown) => void
 const statusListeners = new Set<(status: HostStatus) => void>()
 const commandListeners = new Set<(command: 'newChat' | 'openSettings') => void>()
 const ideContentListeners = new Set<(content: IdeContentPayload) => void>()
+const portListeners = new Set<(port: number) => void>()
+const envListeners = new Set<(env: Record<string, string>) => void>()
 const initWaiters: Array<(payload: InitPayload) => void> = []
 let initPayload: InitPayload | null = null
 let readySent = false
@@ -98,6 +114,8 @@ if (typeof window !== 'undefined') {
         initPayload = {
           cwd: message.cwd,
           hostVersion: message.hostVersion,
+          port: message.port,
+          env: message.env,
           sessions: message.sessions,
           pendingOverlays: message.pendingOverlays,
         }
@@ -147,6 +165,14 @@ if (typeof window !== 'undefined') {
         pendingOpenFiles.delete(message.id)
         if (message.error !== undefined) pending.reject(new Error(message.error))
         else pending.resolve()
+        break
+      }
+      case 'port-changed': {
+        for (const cb of portListeners) cb(message.port)
+        break
+      }
+      case 'env-changed': {
+        for (const cb of envListeners) cb(message.env)
         break
       }
     }
@@ -316,4 +342,43 @@ export function openFileInIde(target: {
       }
     }, OPEN_FILE_TIMEOUT_MS)
   })
+}
+
+/** Update the DSH base port setting in VS Code configuration. */
+export function setPort(port: number): Promise<void> {
+  if (vscode === null) return Promise.reject(new Error('vscode webview API unavailable (use the mock bridge)'))
+  vscode.postMessage({ type: 'set-port', port })
+  return Promise.resolve()
+}
+
+/** Request restarting the DSH host process. */
+export function restartHost(): Promise<void> {
+  if (vscode === null) return Promise.reject(new Error('vscode webview API unavailable (use the mock bridge)'))
+  vscode.postMessage({ type: 'restart-host' })
+  return Promise.resolve()
+}
+
+/** Ask the extension host to open the Settings tab. */
+export function openSettingsTab(): void {
+  if (vscode === null) return
+  vscode.postMessage({ type: 'open-settings-tab' })
+}
+
+/** Subscribe to port updates. */
+export function onPortChanged(cb: (port: number) => void): () => void {
+  portListeners.add(cb)
+  return () => portListeners.delete(cb)
+}
+
+/** Update the custom host environment (`dsh.env`) in VS Code configuration. */
+export function setEnv(env: Record<string, string>): Promise<void> {
+  if (vscode === null) return Promise.reject(new Error('vscode webview API unavailable (use the mock bridge)'))
+  vscode.postMessage({ type: 'set-env', env })
+  return Promise.resolve()
+}
+
+/** Subscribe to host-environment updates; the payload is the cleaned map. */
+export function onEnvChanged(cb: (env: Record<string, string>) => void): () => void {
+  envListeners.add(cb)
+  return () => envListeners.delete(cb)
 }

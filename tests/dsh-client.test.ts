@@ -165,3 +165,17 @@ test('socket drop flips status down and the client reconnects with backoff', asy
     await fake.close()
   }
 })
+
+test('client works seamlessly with token auth', async () => {
+  const token = 'client-auth-token-xyz'
+  const fake = await startFakeHost({ requiredToken: token })
+  const client = new DshClient()
+  try {
+    await client.connect({ port: fake.port, spawnedByUs: false, token })
+    const value = await client.rpc<{ items: unknown[] }>('session.list', {})
+    assert.deepEqual(value, { items: [] })
+  } finally {
+    await client.dispose()
+    await fake.close()
+  }
+})

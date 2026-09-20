@@ -96,3 +96,20 @@ test('checkVersion accepts 0.1.0-rc.* / 0.0.1 and warns on other versions', asyn
     await bad.close()
   }
 })
+
+test('probe and checkVersion with token authentication', async () => {
+  const token = 'test-secret-token'
+  const fake = await startFakeHost({ requiredToken: token })
+  const manager = new HostManager(silentLog)
+  try {
+    // Probe fails without token
+    assert.equal(await manager.probe(fake.port), false)
+    // Probe succeeds with token
+    assert.equal(await manager.probe(fake.port, token), true)
+
+    // Check version with token
+    assert.equal(await manager.checkVersion({ port: fake.port, spawnedByUs: false, token }), null)
+  } finally {
+    await fake.close()
+  }
+})

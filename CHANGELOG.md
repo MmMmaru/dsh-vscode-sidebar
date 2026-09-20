@@ -3,6 +3,66 @@
 本插件所有重要变更记录。格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)；
 版本号与 `package.json` 的 `version` 保持一致。
 
+## [0.1.5] - 2026-09-10
+
+### 新增
+
+- **支持自定义 dsh host 环境变量（设置 → 通用）**：
+  - 新增 VS Code 配置项 `dsh.env`（KEY → value）：插件启动（spawn）dsh host 进程时把它合并到扩展宿主自身环境之上，`PATH` 等系统变量照常继承，可用于注入 `HTTP_PROXY`/`HTTPS_PROXY`、`DSH_HOME`、各类 API Key 等；
+  - 「通用」设置面板新增环境变量编辑器：行内编辑变量名与值、随时增删；变量名疑似密钥（KEY/TOKEN/SECRET/PASSWORD/PASSWD/CREDENTIAL）时默认打码，可点眼睛临时查看（打码只影响显示，值不会丢失）；保存即写回 VS Code 全局配置；
+  - 变量名非法（需形如 `FOO_BAR`）、变量名重复、值为空的行会就地标红并阻止保存；刚点「+ 添加变量」的空行只是占位，不报错也不参与保存；
+  - 改动只作用于**下一次** spawn 的 host，已在运行的 host 保持原有环境（面板提示「重启 host 后生效」），因此不会触发后端重启——与待办 #3「自动重启后端」互不干扰。
+
+### 修复与优化
+
+- **e2e harness 页面适配器改为独立文件**（`tests/e2e/page-adapter.js`）：原先内联在 harness 页面 HTML 里的 `acquireVsCodeApi` 适配脚本在本机 Chromium 下始终没有执行，页面静默回退到 mock bridge，导致 goal 等「真实 RPC」用例全线超时（表象为 `harness warmup timeout` / `vscode webview API unavailable`）；改为由 harness 静态服务真实文件、端口与视图模式经 `<body data-*>` 传入后恢复。
+- **环境变量改动补充测试**：新增 `tests/host-manager-env.test.ts`（`normalizeEnv` 契约 + 用桩 dsh 断言真实 spawn 的注入与合并）、`tests/env-store.test.ts`（store 乐观写入与失败回滚）、`tests/env-editor.test.ts`（编辑器交互契约）、`tests/e2e/env-setting.spec.ts`（真实 bridge 全链路：启动读取 → 面板保存 → 写回配置，且不重启 host）。
+
+## [0.1.4] - 2026-08-27
+
+### 修复与优化
+
+- **设置界面展开为独立 VS Code 编辑器窗口**：
+  - 点击设置图标或通过命令打开设置时，不再挤在狭窄的侧边栏内，而是在 VS Code 主编辑区展开独立的 DeepSeek Settings 标签页面板，获得宽敞舒适的设置操作空间。
+- **斜杠命令真实触发底层指令与卡片渲染**：
+  - 在输入框键入或挑选 `/goal`（长期目标）、`/compact`（历史上下文压缩）、`/plan`（计划模式）、`/permission`、`/export` 等斜杠指令发送时，与 DSH Web 架构对齐通过 `commands/execute` RPC 真实执行底层命令；
+  - 完整承接宿主 `command/run` 与 `command/done` 事件流，并在对话流中渲染优雅的可折叠 CommandCard 卡片（执行状态、指令参数、执行结果输出一目了然）；
+  - 自动联动 GoalBar（长期目标栏）与计划模式状态投影。
+- **长内容与文本文件自动浓缩为 .txt 附件**：
+  - 在输入框直接粘贴长文本（≥10 行或 ≥400 字符）时，自动将其浓缩封装为 `pasted_text.txt` 附件卡片并常驻在输入框上方，支持随时删除，输入框保持清爽；
+  - 支持拖拽或粘贴 `.txt`、`.md`、`.log`、代码文件（`.ts`、`.py`、`.json` 等）进输入框，自动读取为文本附件卡片；
+  - 对话气泡与发送协议完美承接 `[DSH_ATTACHED_TEXT]`，历史记录中显示为可折叠展开的 `📄 文件名 · N 行` 卡片。
+- **修复流式传输时历史消息复制与分支按钮消失的问题**：
+  - 移除 `AssistantBubble` 中对全局 `turnStatus` / `sessionRunning` 的依赖，改为基于各节点自身的 `node.streaming` 状态判断；历史落定消息的操作栏在后续轮次或新消息生成过程中保持可见。
+- **优化侧边栏生命周期与重连健壮性（解决侧边栏失效）**：
+  - 侧边栏注册启用 `retainContextWhenHidden: true`，防止切换标签页或折叠侧边栏时 Webview 被 VS Code 销毁导致上下文丢失；
+  - 修复 `Bridge.ensureStarted` 启动异常时未清空挂起 Promise 导致后续请求永久卡死的问题，支持异常后自动重试；
+  - 监听 `dsh.port` 配置变更并实时同步至 `HostManager`。
+- **修复思考过程与工具调用内容下拉有时候自动收起的问题**：
+  - `RoundGroup` 引入用户手动操作锁定与状态转换追踪，多步工具调用或流式中间过程不再意外触发折叠，用户手动展开/收起状态得到正确保留。
+- **设置面板新增 DSH 服务端口配置**：
+  - 在设置的「通用」面板中增加服务端口（Port）配置输入框，支持查看当前连接端口与自定义修改保存（默认 3080，被占用时按序顺延），修改后实时保存至 VS Code 全局配置。
+
+## [0.1.3] - 2026-08-27
+
+### 修复与优化
+
+- **会话标题彻底不再包含插件上下文内容（issue #5 终案）**：
+  - 0.1.1 的「环境指导后置」并不彻底——dsh 后端标题生成（首条 human 消息 + LLM 摘要 / 回退取首段）读取的是**整条首消息**，置于末尾的 `[DSH_VSCODE_CONTEXT]` 仍会被模型当作标题素材，标题依旧出现插件上下文内容；
+  - 改为从源头移除：`[DSH_VSCODE_CONTEXT]` 环境指导**不再注入会话的首条消息**，首条消息 = 用户真实输入（+ IDE 附件），标题生成与回退只可能产出用户意图；
+  - 绝对路径引用指导不再丢失：新逻辑（纯函数 `assemblePromptText`）将其推迟到会话的**后续提问**注入，后续轮次的代码引用依然保持 `绝对路径:行号` 可点击格式；
+  - 新增 3 条单测契约：首条消息绝不携带上下文指导 / 后续提问仍携带 / 斜杠命令永不携带。
+
+## [0.1.2] - 2026-08-25
+
+### 修复与优化
+
+- **修复权限模式（Full access / 权限选择器）点击与遮挡问题**：
+  - 移除 `.composer-tools` 容器上的 `overflow: hidden` 裁剪限制，彻底解决权限下拉菜单 `.composer-menu` 向上弹出时被容器边界截断、看似隐藏在输入栏后面的问题；
+  - 修复窄宽度（≤460px 侧边栏）下权限芯片被整体 `display: none` 隐藏的问题：改为自适应仅折叠文本标签（`.composer-chip-label`），常驻盾牌图标（Shield Glyph），确保在任意 VS Code 侧边栏宽度下均清晰可见且可点击；
+  - 图标设计对齐 Web 端：`Full access` 显示带惊叹号（`!`）的盾牌图标，`Read Only` 显示带对勾（`✓`）盾牌，`Workspace Write` 显示标准编辑盾牌，在菜单项与工具栏芯片中统一渲染；
+  - 切换权限模式即时同步至 `uiPrefs` 与宿主 `settings.save`（`permission.defaultPreset`），保证权限持久化生效。
+
 ## [0.1.1] - 2026-08-25
 
 ### 修复与优化
