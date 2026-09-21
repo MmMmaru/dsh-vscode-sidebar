@@ -15,5 +15,5 @@
     "types": ["node", "vscode", "vite/client"],
     "outDir": "dist"
   },
-  "include": ["src/extension/**/*.ts", "src/shared/**/*.ts", "tests/**/*.ts", "esbuild.config.mjs", "vite.config.ts"]
+  "include": ["src/extension/**/*.ts", "src/shared/**/*.ts", "tests/**/*.ts", "tests/**/*.tsx", "esbuild.config.mjs", "vite.config.ts"]
 }

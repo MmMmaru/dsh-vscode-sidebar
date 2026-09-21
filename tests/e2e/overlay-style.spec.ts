@@ -49,8 +49,14 @@ test('OVL-1: takeover card and session menu use the shared card tokens', async (
   await page.locator('.session-row', { hasText: title }).click()
   await expect(page.locator('.composer-input')).toBeVisible()
 
-  // Raise the question takeover card.
-  harness.emitMux({ type: 'question/requested', sessionId, questions: [QUESTION] }, 'e2e-q-rpc-ovl')
+  // Raise the question takeover card: an answerable request arrives on the
+  // `remote` channel as a pre-shaped overlay keyed by its reply `eventId`.
+  const eventId = `ovl-q-${Date.now().toString(36)}`
+  harness.emitChannel({
+    channel: 'remote',
+    event: 'user-questions/request',
+    args: [{ kind: 'question', eventId, agentId: sessionId, questions: [QUESTION] }],
+  })
   const card = page.locator(`.ovl-card[data-question-session="${sessionId}"]`)
   await expect(card).toBeVisible()
 
@@ -62,11 +68,11 @@ test('OVL-1: takeover card and session menu use the shared card tokens', async (
   expect(shadow).toContain('2px 6px')
   await expect(card).toHaveCSS('animation-name', 'ovl-enter')
 
-  // Answer through the UI, then mirror the host confirmation to clear retention.
+  // Answer through the UI, then mirror the host retraction to clear retention.
   await page.getByRole('radio', { name: '继续', exact: true }).click()
   await page.getByRole('button', { name: 'Submit' }).click()
   await expect(card).not.toBeVisible()
-  harness.emitMux({ type: 'question/resolved', sessionId, questionRpcId: 'e2e-q-rpc-ovl' as never, outcome: 'answered' })
+  harness.emitChannel({ channel: 'remote', event: 'request/cancelled', args: [eventId] })
 
   // Session menu (⋯): same 10px radius. The list lives in the history
   // dropdown once a session is active; the trigger shows on row hover.

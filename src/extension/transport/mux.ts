@@ -167,6 +167,17 @@ const WebSocketWithHeaders = WebSocket as unknown as new (
  */
 export class RemoteMuxClient {
   private socket: WebSocket | null = null
+  /**
+   * `open` frames issued while the socket was down, flushed on the next `open`.
+   *
+   * A logical stream outlives its carrier in the consumer's view: the carrier-lost
+   * hook reopens streams, and that hook necessarily runs while the socket is
+   * already null (the close handler clears it first). Dropping those frames meant
+   * a reconnect delivered no baselines at all — the client reported itself
+   * connected while receiving nothing, which is worse than staying disconnected.
+   * Only `open` frames are queued; a `cancel` for a dead generation is meaningless.
+   */
+  private readonly deferredOpens: RemoteStreamClientMessage[] = []
   private readonly streams = new Map<string, ActiveStream>()
   private readonly carrierLostListeners = new Set<() => void>()
   private readonly statusListeners = new Set<(connected: boolean) => void>()
@@ -240,6 +251,8 @@ export class RemoteMuxClient {
       this.setConnected(true)
       this.opened.resolve()
       this.log?.('mux open')
+      // Streams opened while this socket was still connecting start now.
+      this.flushDeferredOpens()
     })
     socket.addEventListener('message', (event) => this.handleFrame(event))
     socket.addEventListener('error', () => {
@@ -292,6 +305,7 @@ export class RemoteMuxClient {
   /** Close the carrier and settle every live stream. */
   dispose(): void {
     this.disposed = true
+    this.deferredOpens.length = 0
     if (this.reconnectTimer !== null) {
       clearTimeout(this.reconnectTimer)
       this.reconnectTimer = null
@@ -303,11 +317,29 @@ export class RemoteMuxClient {
     socket?.close()
   }
 
-  /** Send one frame when the socket is open; otherwise drop it (a reconnect reopens). */
+  /**
+   * Send one frame when the socket is open.
+   *
+   * `open` frames are queued for the next `open` event rather than dropped, so a
+   * stream opened during a reconnect gap still starts. Anything else — a `cancel`
+   * for a generation that is gone — is dropped: the host has already forgotten it.
+   */
   private send(message: RemoteStreamClientMessage): void {
     const socket = this.socket
-    if (socket === null || socket.readyState !== WebSocket.OPEN) return
+    if (socket === null || socket.readyState !== WebSocket.OPEN) {
+      if (message.type === 'open') this.deferredOpens.push(message)
+      return
+    }
     socket.send(encodeRemoteStreamClientMessage(message))
+  }
+
+  /** Deliver every stream opened during the reconnect gap. */
+  private flushDeferredOpens(): void {
+    while (this.deferredOpens.length > 0) {
+      const message = this.deferredOpens.shift()
+      if (message === undefined) return
+      this.send(message)
+    }
   }
 
   /** Route one inbound frame to its stream, or ignore frames for unknown ids. */

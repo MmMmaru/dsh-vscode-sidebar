@@ -64,6 +64,18 @@ export class RemoteEventsClient {
   private stream: RemoteStream<unknown> | null = null
   private generation: string | null = null
   private closed = false
+  /**
+   * Waterfall ids delivered in THIS generation and not yet settled.
+   *
+   * The host only accepts an answer naming a request it still considers open.
+   * Without this set the client would happily post an answer for an id it never
+   * received, for one it already answered, or for one the host retracted — and
+   * the contract is explicit that a cancelled event "must not be answered". Those
+   * posts are not harmless: the host rejects them with `gateway/internal`, which
+   * surfaces to the user as an opaque failure on an action that appeared valid.
+   * Refusing locally turns that into a clear error at the call site.
+   */
+  private readonly pending = new Set<string>()
 
   constructor(
     private readonly mux: RemoteMuxClient,
@@ -81,6 +93,8 @@ export class RemoteEventsClient {
     this.stream?.cancel()
     this.stream = null
     this.generation = null
+    // A new generation mints new eventIds, so nothing from the old one is answerable.
+    this.pending.clear()
     const stream = this.mux.openStream(REMOTE_EVENT_STREAM_ENDPOINT, {})
     this.stream = stream
     try {
@@ -99,15 +113,31 @@ export class RemoteEventsClient {
 
   /**
    * Answer one pending waterfall request.
+   *
+   * Refuses an id this generation never delivered, already settled, or saw
+   * retracted — see {@link pending}. A `next` outcome is NOT terminal (it
+   * delegates to the next listener), so it leaves the request open.
    * @param eventId - the request's correlation id.
    * @param outcome - settlement decision.
    * @returns the host's acknowledgement value.
-   * @throws when no generation is live, or the host rejects the answer.
+   * @throws when no generation is live, the id is not answerable, or the host
+   *   rejects the answer.
    */
   async respond(eventId: string, outcome: RemoteEventOutcome): Promise<unknown> {
     const clientId = this.generation
     if (clientId === null) throw new Error('remote events: no live generation to answer on')
-    return callRemoteUnary<unknown>(this.target(), REMOTE_EVENT_RESULT_ENDPOINT, { clientId, eventId, outcome })
+    if (!this.pending.has(eventId)) {
+      throw new Error(`remote events: unknown, already-answered or retracted eventId ${eventId}`)
+    }
+    const result = await callRemoteUnary<unknown>(this.target(), REMOTE_EVENT_RESULT_ENDPOINT, {
+      clientId,
+      eventId,
+      outcome,
+    })
+    // Only on success: a failed post means the answer did not land, so the
+    // request stays answerable rather than becoming silently unanswerable.
+    if (outcome.kind !== 'next') this.pending.delete(eventId)
+    return result
   }
 
   /**
@@ -134,6 +164,7 @@ export class RemoteEventsClient {
     this.stream?.cancel()
     this.stream = null
     this.generation = null
+    this.pending.clear()
   }
 
   /** Validate and route one stream value. */
@@ -153,6 +184,7 @@ export class RemoteEventsClient {
         this.listener.onEmit?.(frame.event, frame.args)
         return
       case 'waterfall':
+        this.pending.add(frame.eventId)
         this.listener.onWaterfall?.({
           event: frame.event,
           eventId: frame.eventId,
@@ -161,6 +193,9 @@ export class RemoteEventsClient {
         })
         return
       case 'cancel':
+        // Retracted: the contract forbids answering it, so forget it before the
+        // listener is told (which is what drops the overlay in the webview).
+        this.pending.delete(frame.eventId)
         this.listener.onCancel?.(frame.eventId)
         return
     }

@@ -2,15 +2,26 @@
  * Regression tests for the five TODO items:
  *   1. IDE content insertion formatting (pure helpers).
  *   2. askuserquestion replay after the webview is recreated (overlay store).
- *   3. Cross-workspace session isolation (host/session-added cwd guard).
+ *   3. Cross-workspace session isolation (api-session/added cwd guard).
  *   4. Sessions move to the top after the user sends a message.
  *   5. A background-running session resumes its turn timer on re-entry.
+ *
+ * MIGRATION NOTE (dsh 0.1.5-rc.2 / Typert Remote): the two retired frame
+ * families (`mux` / `host`) are gone. Session-list state now arrives on the
+ * `remote` channel (`api-session/added|activity|status|removed`), answerable
+ * requests arrive pre-shaped as `PendingOverlayReplay` values keyed by
+ * `eventId`, and history is no longer a unary `loadHistory`: the
+ * `session/follow` opening snapshot rebuilds the transcript, so the timer tests
+ * feed `applySessionFrame` a snapshot instead.
  */
 
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import type { ApprovalRequestId, MessageId, SessionId } from '../src/extension/protocol/brand'
+import type { SessionId } from '../src/extension/protocol/brand'
 import type { AskUserQuestionItem } from '../src/extension/protocol/events'
+import type { SessionFollowFrame } from '../src/extension/protocol/follow'
+import type { SessionEvent } from '../src/extension/protocol/session'
+import type { HistoryEntry } from '../src/extension/protocol/sessions'
 import type { SessionMeta } from '../src/webview/types'
 import { formatIdeInsert, languageFromPath } from '../src/webview/ide-insert'
 
@@ -24,6 +35,35 @@ const MOCK_CWD = '/mock/workspace'
 function meta(sessionId: SessionId, updatedAt: number, extra: Partial<SessionMeta> = {}): SessionMeta {
   return { sessionId, title: null, updatedAt, running: false, blank: false, ...extra }
 }
+
+/**
+ * One `session/follow` opening snapshot wrapping the given journal events.
+ * Every stream generation starts with one of these, and its records ARE the
+ * whole window, so consumers replace their state instead of merging.
+ */
+function followSnapshot(sessionId: SessionId, events: SessionEvent[]): SessionFollowFrame {
+  const last = events[events.length - 1]
+  return {
+    type: 'snapshot',
+    header: { version: 1, id: sessionId, createdAt: events[0]?.time ?? 0, isSeeded: false },
+    cursor: last?.seq ?? 0,
+    records: events.map((event): HistoryEntry => ({ event })),
+    hasMore: false,
+  }
+}
+
+/**
+ * One `api-session/added` broadcast summary. The list row is assembled from
+ * these fields, so they must all be present on the wire.
+ */
+function sessionSummary(
+  sessionId: SessionId,
+  updatedAt: number,
+  extra: { cwd?: string; running?: boolean } = {},
+): Record<string, unknown> {
+  return { sessionId, updatedAt, running: extra.running ?? false, blank: true, ...extra }
+}
+
 
 // ---------------------------------------------------------------------------
 // ① IDE content insertion formatting
@@ -83,19 +123,20 @@ test('languageFromPath maps known extensions and ignores unknown ones', () => {
 // ③ Cross-workspace isolation + ④ session-to-top (sessions slice)
 // ---------------------------------------------------------------------------
 
-test('host/session-added from another workspace is ignored; same-cwd rows enter', async () => {
+test('api-session/added from another workspace is ignored; same-cwd rows enter', async () => {
   const { useAppStore } = await import('../src/webview/store')
   const state = useAppStore.getState()
   useAppStore.setState({ cwd: MOCK_CWD, sessions: [meta(a, 3)], activeSessionId: null })
 
-  state.applyHostFrame({ type: 'host/session-added', sessionId: b, blank: true, cwd: '/other/workspace' })
+  // The broadcast summary carries the row's own cwd; a foreign one is dropped.
+  state.applyRemoteEvent('api-session/added', [sessionSummary(b, 4, { cwd: '/other/workspace' })])
   assert.deepEqual(useAppStore.getState().sessions.map((s) => s.sessionId), [a])
 
-  state.applyHostFrame({ type: 'host/session-added', sessionId: b, blank: true, cwd: MOCK_CWD })
+  state.applyRemoteEvent('api-session/added', [sessionSummary(b, 4, { cwd: MOCK_CWD })])
   assert.deepEqual(useAppStore.getState().sessions.map((s) => s.sessionId), [b, a])
 
   // cwd-less legacy rows still enter (ungrouped sessions stay reachable).
-  state.applyHostFrame({ type: 'host/session-added', sessionId: c, blank: true })
+  state.applyRemoteEvent('api-session/added', [sessionSummary(c, 5)])
   assert.deepEqual(useAppStore.getState().sessions.map((s) => s.sessionId), [c, b, a])
 })
 
@@ -116,12 +157,9 @@ test('sending a message moves the session to the top of the list', async () => {
   const state = useAppStore.getState()
   useAppStore.setState({ cwd: MOCK_CWD, sessions: [meta(a, 100), meta(b, 50), meta(c, 10)] })
 
-  // The live user/message frame carries the authoritative prompt time.
-  state.applyProjectionFrame({
-    type: 'session/event',
-    sessionId: b,
-    event: { type: 'user/message', seq: 5, time: 200, data: { id: 'm-1' as MessageId, role: 'user', content: [{ type: 'text', text: 'hi' }], source: { kind: 'user' } } },
-  })
+  // The host's `api-session/activity` broadcast carries the authoritative
+  // prompt time (it is the later of creation and the latest human prompt).
+  state.applyRemoteEvent('api-session/activity', [b, 200])
   assert.deepEqual(useAppStore.getState().sessions.map((s) => s.sessionId), [b, a, c])
   assert.equal(useAppStore.getState().sessions[0]?.updatedAt, 200)
 
@@ -147,9 +185,9 @@ test('question frames for a background session are recorded and surface on selec
   const state = useAppStore.getState()
   useAppStore.setState({ cwd: MOCK_CWD, activeSessionId: a, overlayBySession: {}, pendingApproval: null, pendingQuestion: null, planReview: null })
 
-  // Frame arrives while ANOTHER session is active: no panel for the active
-  // session, but the per-session record drives the amber waiting dot.
-  state.applyOverlayFrame({ type: 'question/requested', sessionId: b, questions: [QUESTION] })
+  // A request for ANOTHER session is recorded but raises no panel for the
+  // active session; the per-session record drives the amber waiting dot.
+  state.applyPendingOverlay({ kind: 'question', eventId: 'ev-q-1', agentId: b, questions: [QUESTION] })
   const store = useAppStore.getState()
   assert.equal(store.pendingQuestion, null)
   assert.equal(store.overlayBySession[b]?.question?.questions[0]?.id, 'q-1')
@@ -162,8 +200,8 @@ test('question frames for a background session are recorded and surface on selec
   assert.equal(derived.pendingQuestion?.sessionId, b)
   assert.equal(derived.pendingQuestion?.questions[0]?.id, 'q-1')
 
-  // question/resolved clears the record and the derived panel.
-  state.applyOverlayFrame({ type: 'question/resolved', sessionId: b, questionRpcId: 'rpc-1' as never, outcome: 'answered' })
+  // The host retracting the request (by eventId) clears the record and panel.
+  state.clearPendingOverlay('ev-q-1')
   const cleared = useAppStore.getState()
   assert.equal(cleared.pendingQuestion, null)
   assert.equal(cleared.overlayBySession[b], undefined)
@@ -174,12 +212,12 @@ test('approval frames record, derive and clear per session', async () => {
   const state = useAppStore.getState()
   useAppStore.setState({ cwd: MOCK_CWD, activeSessionId: a, overlayBySession: {}, pendingApproval: null, pendingQuestion: null, planReview: null })
 
-  state.applyOverlayFrame({ type: 'approval/requested', sessionId: a, approvalId: 'ap-1' as ApprovalRequestId, toolName: 'bash', reason: 'run build' })
-  assert.equal(useAppStore.getState().pendingApproval?.approvalId, 'ap-1')
-  // A resolution for a different approvalId must not clear this one.
-  state.applyOverlayFrame({ type: 'approval/resolved', sessionId: a, approvalId: 'ap-other' as ApprovalRequestId, outcome: 'rejected' })
-  assert.equal(useAppStore.getState().pendingApproval?.approvalId, 'ap-1')
-  state.applyOverlayFrame({ type: 'approval/resolved', sessionId: a, approvalId: 'ap-1' as ApprovalRequestId, outcome: 'allowed-once' })
+  state.applyPendingOverlay({ kind: 'approval', eventId: 'ap-1', agentId: a, toolName: 'bash', reason: 'run build' })
+  assert.equal(useAppStore.getState().pendingApproval?.eventId, 'ap-1')
+  // A retraction for a different eventId must not clear this one.
+  state.clearPendingOverlay('ap-other')
+  assert.equal(useAppStore.getState().pendingApproval?.eventId, 'ap-1')
+  state.clearPendingOverlay('ap-1')
   assert.equal(useAppStore.getState().pendingApproval, null)
   assert.equal(useAppStore.getState().overlayBySession[a], undefined)
 })
@@ -189,15 +227,16 @@ test('applyOverlays reinstalls replayed frames from the init payload', async () 
   const state = useAppStore.getState()
   useAppStore.setState({ cwd: MOCK_CWD, activeSessionId: a, overlayBySession: {}, pendingApproval: null, pendingQuestion: null, planReview: null })
 
-  // What the extension host replays after the webview was recreated hidden.
+  // What the extension host replays after the webview was recreated hidden:
+  // pre-shaped overlays keyed by eventId, not raw mux frames.
   state.applyOverlays([
-    { kind: 'approval', frame: { type: 'approval/requested', sessionId: b, approvalId: 'ap-9' as ApprovalRequestId, toolName: 'bash' } },
-    { kind: 'question', frame: { type: 'question/requested', sessionId: a, questions: [QUESTION] } },
+    { kind: 'approval', eventId: 'ap-9', agentId: b, toolName: 'bash' },
+    { kind: 'question', eventId: 'ev-q-9', agentId: a, questions: [QUESTION] },
   ])
   const store = useAppStore.getState()
   // The active session's panel is derived immediately.
   assert.equal(store.pendingQuestion?.sessionId, a)
-  assert.equal(store.overlayBySession[b]?.approval?.approvalId, 'ap-9')
+  assert.equal(store.overlayBySession[b]?.approval?.eventId, 'ap-9')
   // The waiting dot points at the replayed question first (find order).
   const { waitingSessionId } = await import('../src/webview/store/overlay')
   assert.equal(waitingSessionId(store.overlayBySession), b)
@@ -207,7 +246,7 @@ test('applyOverlays reinstalls replayed frames from the init payload', async () 
   state.clearOverlay()
   const afterClear = useAppStore.getState()
   assert.equal(afterClear.pendingQuestion, null)
-  assert.equal(afterClear.overlayBySession[b]?.approval?.approvalId, 'ap-9')
+  assert.equal(afterClear.overlayBySession[b]?.approval?.eventId, 'ap-9')
 })
 
 // ---------------------------------------------------------------------------
@@ -220,14 +259,16 @@ test('deleteSession rethrows with the reason and keeps the list on rpc failure',
   const state = useAppStore.getState()
   useAppStore.setState({ sessions: [meta(a, 2), meta(b, 1)], activeSessionId: b })
 
-  mockRpcFailures.add('workspace.archiveSession')
+  // The mock keys forced failures by the Remote endpoint name (the retired
+  // `workspace.archiveSession` dotted name no longer reaches it).
+  mockRpcFailures.add('workspace/archiveSession')
   try {
     await assert.rejects(state.deleteSession(a), /归档会话失败.*forced failure/)
     // The list and the active session stay untouched.
     assert.deepEqual(useAppStore.getState().sessions.map((s) => s.sessionId), [a, b])
     assert.equal(useAppStore.getState().activeSessionId, b)
   } finally {
-    mockRpcFailures.delete('workspace.archiveSession')
+    mockRpcFailures.delete('workspace/archiveSession')
   }
 
   // The happy path still removes the row.
@@ -239,55 +280,47 @@ test('deleteSession rethrows with the reason and keeps the list on rpc failure',
 // ⑤ Running-turn timer resume
 // ---------------------------------------------------------------------------
 
-test('entering a background-running session resumes the turn timer from history', async () => {
+test('entering a background-running session resumes the turn timer from the snapshot', async () => {
   const { useAppStore } = await import('../src/webview/store')
-  const { mockHistoryOverrides } = await import('../src/webview/mock/bridge')
   const running = 'sess-running' as SessionId
   const startedAt = Date.now() - 120_000
-  mockHistoryOverrides.set(running, [{
-    event: { type: 'turn/start', seq: 1, time: startedAt, data: { turn: 7 } },
-  }])
-  try {
-    useAppStore.setState({
-      cwd: MOCK_CWD,
-      sessions: [meta(running, Date.now(), { running: true }), meta(a, 1)],
-      activeSessionId: running,
-      turnStatus: 'idle',
-      turnStartedAt: null,
-    })
-    await useAppStore.getState().loadHistory(running)
-    const store = useAppStore.getState()
-    // The open turn's turn/start resumes the running state and the clock.
-    assert.equal(store.turnStatus, 'running')
-    assert.equal(store.turnStartedAt, startedAt)
-  } finally {
-    mockHistoryOverrides.delete(running)
-  }
+  useAppStore.setState({
+    cwd: MOCK_CWD,
+    sessions: [meta(running, Date.now(), { running: true }), meta(a, 1)],
+    activeSessionId: running,
+    turnStatus: 'idle',
+    turnStartedAt: null,
+  })
+  // Selecting the session re-subscribes `session/follow`; the generation's
+  // opening snapshot carries the still-open turn's turn/start, which resumes
+  // the running state and the clock instead of resetting to idle.
+  useAppStore.getState().applySessionFrame(
+    followSnapshot(running, [{ type: 'turn/start', seq: 1, time: startedAt, data: { turn: 7 } }]),
+  )
+  const store = useAppStore.getState()
+  assert.equal(store.turnStatus, 'running')
+  assert.equal(store.turnStartedAt, startedAt)
 })
 
-test('a completed-turn session stays idle after loadHistory', async () => {
+test('a completed-turn session stays idle after its snapshot', async () => {
   const { useAppStore } = await import('../src/webview/store')
-  const { mockHistoryOverrides } = await import('../src/webview/mock/bridge')
   const done = 'sess-done' as SessionId
   const startedAt = Date.now() - 60_000
-  mockHistoryOverrides.set(done, [
-    { event: { type: 'turn/start', seq: 1, time: startedAt, data: { turn: 1 } } },
-    { event: { type: 'turn/end', seq: 2, time: startedAt + 5000, data: { turn: 1, reason: { kind: 'completed' } } } },
-  ])
-  try {
-    useAppStore.setState({
-      cwd: MOCK_CWD,
-      sessions: [meta(done, Date.now())],
-      activeSessionId: done,
-      turnStatus: 'idle',
-      turnStartedAt: null,
-    })
-    await useAppStore.getState().loadHistory(done)
-    const store = useAppStore.getState()
-    assert.equal(store.turnStatus, 'idle')
-    assert.equal(store.turnStartedAt, null)
-    assert.equal(store.lastTurnMs, 5000)
-  } finally {
-    mockHistoryOverrides.delete(done)
-  }
+  useAppStore.setState({
+    cwd: MOCK_CWD,
+    sessions: [meta(done, Date.now())],
+    activeSessionId: done,
+    turnStatus: 'idle',
+    turnStartedAt: null,
+  })
+  useAppStore.getState().applySessionFrame(
+    followSnapshot(done, [
+      { type: 'turn/start', seq: 1, time: startedAt, data: { turn: 1 } },
+      { type: 'turn/end', seq: 2, time: startedAt + 5000, data: { turn: 1, reason: { kind: 'completed' } } },
+    ]),
+  )
+  const store = useAppStore.getState()
+  assert.equal(store.turnStatus, 'idle')
+  assert.equal(store.turnStartedAt, null)
+  assert.equal(store.lastTurnMs, 5000)
 })

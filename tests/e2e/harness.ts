@@ -11,6 +11,11 @@
  *
  * Bundled by `esbuild.config.mjs --e2e` (alias vscode -> ./vscode-stub) to
  * .temp/e2e-dist/harness.mjs, which the spec imports.
+ *
+ * MIGRATION NOTE (dsh 0.1.5-rc.2 / Typert Remote): host-initiated frames are no
+ * longer injected as `mux` / `host` frames. Everything is one of the four
+ * Remote channels, and a spec injects it with `emitChannel`, which dispatches
+ * exactly like the client's own stream listeners (see the Harness interface).
  */
 
 import { createServer, type Server } from 'node:http'
@@ -22,10 +27,8 @@ import { WebSocketServer, type WebSocket } from 'ws'
 import { Bridge } from '../../src/extension/bridge'
 import { DshClient } from '../../src/extension/dsh-client'
 import { HostManager } from '../../src/extension/host-manager'
-import type { HostFrame, MuxFrame } from '../../src/extension/protocol/events'
-import type { RpcId } from '../../src/extension/protocol/rpc'
 import type { SessionId } from '../../src/extension/protocol/brand'
-import type { ExtensionMessage, IdeContentPayload, WebviewMessage } from '../../src/shared/bridge'
+import type { ExtensionMessage, IdeContentPayload, RemoteChannelMessage, WebviewMessage } from '../../src/shared/bridge'
 import {
   setActiveEditor,
   setConfiguration,
@@ -64,12 +67,24 @@ export interface Harness {
   ensureWarm(): Promise<void>
   /** Create a real session via host RPC, optionally renamed. */
   createSession(cwd: string, title?: string): Promise<SessionId>
-  /** Passthrough host RPC (e.g. goal.create before the page loads). */
+  /** Passthrough host RPC (e.g. `goals/create` before the page loads). */
   rpc: <T = unknown>(method: string, params?: unknown) => Promise<T>
-  /** Inject one mux frame through the client's real dispatch path. */
-  emitMux(frame: MuxFrame, rpcId?: string): void
-  /** Inject one host frame through the client's real dispatch path. */
-  emitHost(frame: HostFrame): void
+  /**
+   * Inject one Remote channel message through the client's real dispatch path.
+   *
+   * This is the new-protocol seam that replaced `emitMux` / `emitHost`: a
+   * message handed to `client.emitChannel` reaches exactly the listeners a real
+   * stream frame would, so the bridge forwards it to every attached page.
+   * Answerable requests ride the `remote` channel as pre-shaped overlays
+   * (`{kind:'approval'|'question', eventId, agentId, …}`), retracted with
+   * `request/cancelled`; session journals ride `session` as `snapshot` /
+   * `event` frames.
+   *
+   * Note: this seam feeds `onRemoteEvent` only, so the extension's
+   * OverlayRetention (fed by the real `$events` waterfall path) is NOT
+   * exercised by an injected `user-questions/request`.
+   */
+  emitChannel(message: RemoteChannelMessage): void
   /** Point the stubbed active editor (IDE insertion) — null clears it. */
   setActiveEditor(editor: StubTextEditor | null): void
   /** Push an `ide-content` delivery to the attached page, mirroring the
@@ -265,16 +280,15 @@ export async function startHarness(options: HarnessOptions = {}): Promise<Harnes
     ensureWarm,
     createSession: async (cwd, title) => {
       await ensureWarm()
-      const { sessionId } = await client.rpc<{ sessionId: SessionId }>('session.create', { cwd })
-      if (title !== undefined) await client.rpc('session.rename', { sessionId, title })
+      const { sessionId } = await client.rpc('session/create', { request: { cwd } })
+      if (title !== undefined) await client.rpc('session/rename', { request: { sessionId, title } })
       return sessionId
     },
     rpc: async <T = unknown>(method: string, params?: unknown): Promise<T> => {
       await ensureWarm()
       return client.rpc<T>(method, params)
     },
-    emitMux: (frame, rpcId) => client.emitMuxFrame(frame, rpcId as RpcId | undefined),
-    emitHost: (frame) => client.emitHostFrame(frame),
+    emitChannel: (message) => client.emitChannel(message),
     setActiveEditor,
     emitIdeContent: (payload) => {
       latestWebview?.postMessage({ type: 'ide-content', ...payload })

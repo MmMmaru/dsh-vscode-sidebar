@@ -18,7 +18,9 @@
 
 import { test as base, expect, type Page } from 'playwright/test'
 import type { MessageId, SessionId } from '../../src/extension/protocol/brand'
-import type { MuxFrame } from '../../src/extension/protocol/events'
+import type { SessionEvent } from '../../src/extension/protocol/session'
+import type { HistoryEntry } from '../../src/extension/protocol/sessions'
+import type { RemoteChannelMessage } from '../../src/shared/bridge'
 import { startHarness, type Harness } from '../../.temp/e2e-dist/harness.mjs'
 
 const test = base.extend<{}, { harness: Harness }>({
@@ -47,43 +49,69 @@ async function selectSessionRow(page: Page, title: string): Promise<void> {
 }
 
 /** One user message event with the given text. */
-function userMessageEvent(sessionId: SessionId, seq: number, id: string, text: string): MuxFrame {
+function userMessageEvent(seq: number, id: string, text: string): SessionEvent {
   return {
-    type: 'session/event',
-    sessionId,
-    event: {
-      type: 'user/message',
-      seq,
-      time: Date.now(),
-      data: {
-        id: id as MessageId,
-        role: 'user',
-        content: [{ type: 'text', text }],
-        source: { kind: 'user' },
-      },
+    type: 'user/message',
+    seq,
+    time: Date.now(),
+    data: {
+      id: id as MessageId,
+      role: 'user',
+      content: [{ type: 'text', text }],
+      source: { kind: 'user' },
     },
   }
 }
 
 /** One settled assistant text event with the given text. */
-function assistantTextEvent(sessionId: SessionId, seq: number, id: string, text: string): MuxFrame {
+function assistantTextEvent(seq: number, id: string, text: string): SessionEvent {
   return {
-    type: 'session/event',
-    sessionId,
-    event: {
-      type: 'assistant/message',
-      seq,
-      time: Date.now(),
-      data: {
-        turn: 1,
-        step: 1,
-        message: {
-          id: id as MessageId,
-          role: 'assistant',
-          content: [{ type: 'text', text }],
-          source: { kind: 'model', provider: 'deepseek-official', model: 'deepseek-chat' },
-        },
+    type: 'assistant/message',
+    seq,
+    time: Date.now(),
+    data: {
+      turn: 1,
+      step: 1,
+      message: {
+        id: id as MessageId,
+        role: 'assistant',
+        content: [{ type: 'text', text }],
+        source: { kind: 'model', provider: 'deepseek-official', model: 'deepseek-chat' },
       },
+    },
+  }
+}
+
+/**
+ * One `session` channel message: the stream's opening snapshot (a full
+ * replacement of the followed session's window) or a single live increment.
+ * The store only accepts increments for a session whose snapshot was applied,
+ * so every injection starts with the snapshot.
+ */
+function followSnapshot(sessionId: SessionId, events: SessionEvent[]): RemoteChannelMessage {
+  const last = events[events.length - 1]
+  return {
+    channel: 'session',
+    frame: {
+      type: 'snapshot',
+      header: { version: 1, id: sessionId, createdAt: events[0]?.time ?? 0, isSeeded: false },
+      cursor: last?.seq ?? 0,
+      records: events.map((event): HistoryEntry => ({ event })),
+      hasMore: false,
+    },
+  }
+}
+
+/** One live `session/follow` increment after the snapshot. */
+function followEvent(event: SessionEvent): RemoteChannelMessage {
+  // The wire envelope is rebuilt field by field: the read-model `SessionEvent`
+  // and the wire `SessionWireEvent` carry incompatible `surfaceOp`
+  // vocabularies, so the two must be mapped rather than cast (see follow.ts).
+  return {
+    channel: 'session',
+    frame: {
+      type: 'event',
+      event: { type: event.type, seq: event.seq, time: event.time, data: event.data },
     },
   }
 }
@@ -100,14 +128,15 @@ test('RJ-1: file refs in assistant text render as chips and open the file', asyn
 
   // A settled assistant message with two real workspace-relative refs and one
   // missing file.
-  harness.emitMux(userMessageEvent(sessionId, 1, 'rj-u1', '帮我看下这两个文件'))
-  harness.emitMux(
-    assistantTextEvent(
-      sessionId,
-      2,
-      'rj-a1',
-      '改 src/shared/file-refs.ts:10 和 package.json:2；不存在 src/nope-xyz.ts:5。',
-    ),
+  harness.emitChannel(
+    followSnapshot(sessionId, [
+      userMessageEvent(1, 'rj-u1', '帮我看下这两个文件'),
+      assistantTextEvent(
+        2,
+        'rj-a1',
+        '改 src/shared/file-refs.ts:10 和 package.json:2；不存在 src/nope-xyz.ts:5。',
+      ),
+    ]),
   )
 
   const chips = page.locator('.md-body .file-ref')
@@ -138,12 +167,13 @@ test('RJ-1: file refs in assistant text render as chips and open the file', asyn
   // Markdown links whose href is a local file render as the same chip with
   // the link label; the GitHub `#L18-L40` fragment carries the range. An
   // external URL link stays a plain anchor.
-  harness.emitMux(
-    assistantTextEvent(
-      sessionId,
-      3,
-      'rj-a2',
-      `链接形式：[vscode-stub.ts](${harness.workspacePath}/tests/e2e/vscode-stub.ts#L18-L40) 与 [外部文档](https://example.com/x.py)。`,
+  harness.emitChannel(
+    followEvent(
+      assistantTextEvent(
+        3,
+        'rj-a2',
+        `链接形式：[vscode-stub.ts](${harness.workspacePath}/tests/e2e/vscode-stub.ts#L18-L40) 与 [外部文档](https://example.com/x.py)。`,
+      ),
     ),
   )
   const linkChip = page.locator('.md-body .file-ref', { hasText: 'vscode-stub.ts' })
@@ -169,13 +199,18 @@ test('RJ-2: segment rail marks user messages with hover preview and jump', async
 
   // Two user messages: a SHORT first reply and a LONG second reply (so
   // jumping to the second message leaves the stream far from the bottom and
-  // bottom-follow unpins).
+  // bottom-follow unpins). The snapshot opens the generation; the two later
+  // events arrive as live increments, exactly like a real follow stream.
   const shortBlock = Array.from({ length: 3 }, (_, i) => `第 ${i + 1} 段说明文字。`).join('\n\n')
   const longBlock = Array.from({ length: 30 }, (_, i) => `第 ${i + 1} 段说明文字，用来撑高对话区域。`).join('\n\n')
-  harness.emitMux(userMessageEvent(sessionId, 1, 'rj-r1', 'RJ-RAIL 问题一：弹窗太慢'))
-  harness.emitMux(assistantTextEvent(sessionId, 2, 'rj-r2', shortBlock))
-  harness.emitMux(userMessageEvent(sessionId, 3, 'rj-r3', 'RJ-RAIL 问题二：删除按钮没反应'))
-  harness.emitMux(assistantTextEvent(sessionId, 4, 'rj-r4', longBlock))
+  harness.emitChannel(
+    followSnapshot(sessionId, [
+      userMessageEvent(1, 'rj-r1', 'RJ-RAIL 问题一：弹窗太慢'),
+      assistantTextEvent(2, 'rj-r2', shortBlock),
+    ]),
+  )
+  harness.emitChannel(followEvent(userMessageEvent(3, 'rj-r3', 'RJ-RAIL 问题二：删除按钮没反应')))
+  harness.emitChannel(followEvent(assistantTextEvent(4, 'rj-r4', longBlock)))
 
   // Every user message gets one tick in the centered overview cluster.
   const marks = page.locator('.segment-rail-mark')

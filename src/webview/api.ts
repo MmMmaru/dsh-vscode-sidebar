@@ -220,7 +220,7 @@ if (typeof window !== 'undefined') {
 /**
  * Send the `ready` handshake once and return the init payload (cached after
  * the first arrival).
- * @returns the init payload (cwd, hostVersion, sessions).
+ * @returns the init payload (cwd, port, env, sessions, workspaces).
  */
 export function waitInit(): Promise<InitPayload> {
   if (initPayload !== null) return Promise.resolve(initPayload)
@@ -235,7 +235,7 @@ export function waitInit(): Promise<InitPayload> {
 /**
  * Issue a passthrough RPC through the bridge; rejects with the host's error
  * message when the rpc-result carries `error`.
- * @param method - dsh RPC method name, e.g. 'session.list'.
+ * @param method - dsh RPC method name, e.g. 'session/list'.
  * @param params - the method's business payload.
  * @returns the result value.
  */

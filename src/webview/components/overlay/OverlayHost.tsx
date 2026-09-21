@@ -8,10 +8,11 @@
  * Mounted by ComposerCard above the input row; renders null when idle.
  * Contract: ARCHITECTURE.md section 5.3.
  *
- * Answer mapping (bridge `respond` message, section 3 revision 2): approvals
- * answer by approvalId; question batches answer by sessionId. A plan review
- * approves with the intent's approve label and declines with the first
- * non-approve option label (empty selection when the asker offered none).
+ * Answer mapping (bridge `respond` message): both kinds answer by the `eventId`
+ * that arrived with the request, which is the reply key `$events/result` accepts
+ * (the old approvalId/sessionId correlation is gone with `POST /api/respond`).
+ * A plan review approves with the intent's approve label and declines with the
+ * first non-approve option label (empty selection when the asker offered none).
  */
 
 import { useMemo, type JSX } from 'react'

@@ -3,6 +3,45 @@
 本插件所有重要变更记录。格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)；
 版本号与 `package.json` 的 `version` 保持一致。
 
+## [0.1.6] - 2026-09-21
+
+### 变更（破坏性）
+
+- **协议全量迁移：apiproxy → Typert Remote / api-gateway**。dsh 自 `0.1.2-rc.1` 起移除了
+  `@deepseek-ai/dsh-host-apiproxy`，只挂载 `@deepseek-ai/dsh-api-gateway`（Typert Remote）。
+  旧插件说的 `POST /api/session.list`、`GET /api/events.mux`、`GET /api/events.host`、
+  `/api/host.describe` 在新版 dsh 上**全部 404**，因此本版本起**只支持 dsh ≥ 0.1.2-rc.1**
+  （已在 `0.1.5-rc.2` 与 `0.1.5-rc.1` 双宿主实测）。请在「通用」设置里把 host 升级到新版 dsh。
+  - 一元调用改为 `POST /api/<namespace>/<method>`，信封 `{type:'client-request', rpcId, method, payload:{args}}`；
+    业务失败是 HTTP 200 + `result.ok=false`，路由不存在才是 HTTP 404，凭据缺失是 401——三者现在分别给出不同提示。
+  - 事件流改为单条 `ws://127.0.0.1:<port>/api/remote.mux`，同一条连接承载
+    `session/control`、`session/follow`、`workspace/follow`、`workspaceFiles/changes` 与 `$events` 五路逻辑流；
+    每路流的首帧是**全量基线**（会话 `snapshot`、控制 `baseline`），基线永不当作增量处理。
+  - 审批/提问改走 `$events` 的 `emit`/`waterfall`/`cancel`，应答经**一元** `POST /api/$events/result` 回传；
+    客户端跟踪「已投递且未结算」的 eventId，对未知/已应答/已撤回的 id 在本地拒绝，
+    避免与 host 的记账产生竞争（撤回是静默的，不能靠返回值判断）。
+  - `host.describe` 无替代品，**没有任何 Remote 方法返回版本号**，所以版本比较改为能力探测
+    （`settings/describe` → `session/list`）；会话标题改读投影键 `title`，每会话模型改读 `modelSelection`。
+- 插件自身版本号 `0.1.5` → `0.1.6`，以便与旧构建区分。
+
+### 修复
+
+- **载体断开后彻底静默**：mux 关闭时先清空 socket 再回调，导致断开瞬间发起的 `open` 帧被丢弃，
+  且 `$events` 不会重新订阅——界面显示已连接却再也收不到任何数据。现在未发出的 `open` 帧入队、
+  重连成功后补发，并在每次重连后重新订阅 `$events`。
+- **重复订阅**：`dispose()` 未清理监听器集合，重启后同一帧会被投递两次。
+- **后接入的 webview 白屏**：第二个 webview（如全屏面板）拿不到基线，且已订阅的地址会被短路，
+  导致会话记录永久为空；现在每个 webview 就绪时都会重放基线/快照。
+- **goal 投影无人消费**：goal 栏保留过期 revision，下一次改动因 CAS 失败丢失。
+
+### 测试
+
+- 单元测试 `181` 项全绿（含 3 项新增的重连与 eventId 记账回归、6 项宿主探测与端口顺延）。
+- `tsconfig.json` 的 `include` 补上 `tests` 下的 `.tsx`：此前它们只被 esbuild 打包、从不参与类型检查，
+  已修好其中 3 个文件漂移的调用点（`status-indicator` 仍在调用已删除的 store action，运行时直接 TypeError）。
+- `host-manager` 测试从不存在的 apiproxy 假宿主迁移到 Typert Remote 假宿主：
+  旧夹具不再被识别为宿主后，`ensureHost()` 会退化去真机 spawn，整套测试因此挂起十几分钟。
+
 ## [0.1.5] - 2026-09-10
 
 ### 新增

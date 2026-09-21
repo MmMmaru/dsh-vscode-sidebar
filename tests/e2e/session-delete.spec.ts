@@ -42,9 +42,13 @@ test('DEL-1: deleting a session from the hover menu removes the row in real time
   // (the plugin's real flow); a bare-cwd session is not registry-grouped and
   // workspace.archiveSession rejects it with HTTP 500.
   const title = `DEL-${Date.now().toString(36)}`
-  const { workspace } = await harness.rpc<{ workspace: { workspaceId: string } }>('workspace.create', { path: harness.workspacePath })
-  const { sessionId } = await harness.rpc<{ sessionId: string }>('session.create', { workspaceId: workspace.workspaceId })
-  await harness.rpc('session.rename', { sessionId, title })
+  const { workspace } = await harness.rpc<{ workspace: { workspaceId: string } }>('workspace/create', {
+    request: { path: harness.workspacePath },
+  })
+  const { sessionId } = await harness.rpc<{ sessionId: string }>('session/create', {
+    request: { workspaceId: workspace.workspaceId },
+  })
+  await harness.rpc('session/rename', { request: { sessionId, title } })
   await openApp(page, harness)
 
   // No session is active, so the recent list renders the row directly.

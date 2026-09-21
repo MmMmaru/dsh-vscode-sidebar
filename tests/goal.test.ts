@@ -6,6 +6,7 @@ import * as React from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { act, create } from 'react-test-renderer'
 import type { GoalId, SessionId } from '../src/extension/protocol/brand'
+import type { SessionFollowFrame } from '../src/extension/protocol/follow'
 import type { GoalPhase, GoalProjection } from '../src/extension/protocol/goals'
 import { goalBarVisible } from '../src/webview/components/composer/GoalBar'
 import { GoalBar } from '../src/webview/components/composer/GoalBar'
@@ -25,7 +26,7 @@ function projection(id: string, revision = 1, phase: GoalPhase = 'active', objec
   }
 }
 
-test('history installs the goal projection, while inactive/stale history and mux cannot overwrite it', async () => {
+test('history installs the goal projection, while stale history and control frames cannot overwrite it', async () => {
   ;(globalThis as { __DSH_MOCK__?: boolean }).__DSH_MOCK__ = true
   const { useAppStore } = await import('../src/webview/store')
   const state = useAppStore.getState()
@@ -37,14 +38,26 @@ test('history installs the goal projection, while inactive/stale history and mux
   state.applyGoalHistory(b, { goal: projection('b') })
   assert.equal(useAppStore.getState().goal?.goal.id, 'a')
 
-  state.applyGoalMuxFrame({ type: 'session/projection', sessionId: b, key: 'goal', value: projection('b'), seq: 2 })
+  // The control stream is Host-wide: a projection for another session is not
+  // this session's goal and must not be installed.
+  state.applyGoalProjection({ type: 'projection', sessionId: b, key: 'goal', value: projection('b'), seq: 2 })
   assert.equal(useAppStore.getState().goal?.goal.id, 'a')
 
-  state.applyGoalMuxFrame({ type: 'session/projection', sessionId: a, key: 'goal', value: projection('a', 2, 'paused'), seq: 3 })
+  // A non-`goal` key belongs to another slice.
+  state.applyGoalProjection({ type: 'projection', sessionId: a, key: 'title', value: 'renamed', seq: 2 })
+  assert.equal(useAppStore.getState().goal?.goal.id, 'a')
+
+  state.applyGoalProjection({ type: 'projection', sessionId: a, key: 'goal', value: projection('a', 2, 'paused'), seq: 3 })
   assert.equal(useAppStore.getState().goal?.goal.phase, 'paused')
 
-  state.applyGoalMuxFrame({ type: 'session/projection', sessionId: a, key: 'goal', value: null, seq: 4 })
+  // `null` is the durable clear tombstone, not "keep the last value".
+  state.applyGoalProjection({ type: 'projection', sessionId: a, key: 'goal', value: null, seq: 4 })
   assert.equal(useAppStore.getState().goal, null)
+
+  // With no active session there is nothing to project onto.
+  useAppStore.setState({ activeSessionId: null, goal: undefined })
+  state.applyGoalProjection({ type: 'projection', sessionId: a, key: 'goal', value: projection('a'), seq: 5 })
+  assert.equal(useAppStore.getState().goal, undefined)
 })
 
 test('null, absent and complete projections hide the bar; complete is still stored', async () => {
@@ -85,46 +98,91 @@ test('mutations send the latest projection ref via RPC without optimistic update
   const { useAppStore } = await import('../src/webview/store')
   const { mockBridge, mockGoalRpcLog } = await import('../src/webview/mock/bridge')
 
-  const created = await mockBridge.rpc<{ ref: { id: GoalId; revision: number } }>('goal.create', {
-    sessionId: demo,
-    objective: 'action target',
-    maxGoalRounds: 2,
+  // `agentId` is the session id; the mutation request rides a nested `request`.
+  const created = await mockBridge.rpc<{ ref: { id: GoalId; revision: number } }>('goals/create', {
+    agentId: demo,
+    request: { objective: 'action target', maxGoalRounds: 2 },
   })
   useAppStore.setState({ activeSessionId: demo, goal: projection(created.ref.id, created.ref.revision, 'active', 'action target') })
   mockGoalRpcLog.length = 0
 
   await useAppStore.getState().pauseGoal()
-  assert.deepEqual(mockGoalRpcLog.at(-1)?.params, { sessionId: demo, ref: { id: created.ref.id, revision: 1 } })
-  // No optimistic update: the projection only changes when the mux frame lands.
+  assert.equal(mockGoalRpcLog.at(-1)?.method, 'goals/pause')
+  assert.deepEqual(mockGoalRpcLog.at(-1)?.params, { agentId: demo, ref: { id: created.ref.id, revision: 1 } })
+  // No optimistic update: the projection only changes when the control frame lands.
   assert.equal(useAppStore.getState().goal?.goal.revision, 1)
   assert.equal(useAppStore.getState().goal?.goal.phase, 'active')
 
-  useAppStore.getState().applyGoalMuxFrame({ type: 'session/projection', sessionId: demo, key: 'goal', value: projection(created.ref.id, 2, 'paused', 'action target'), seq: 1 })
+  useAppStore.getState().applyGoalProjection({ type: 'projection', sessionId: demo, key: 'goal', value: projection(created.ref.id, 2, 'paused', 'action target'), seq: 1 })
   await useAppStore.getState().resumeGoal()
+  assert.equal(mockGoalRpcLog.at(-1)?.method, 'goals/resume')
   assert.deepEqual(mockGoalRpcLog.at(-1)?.params.ref, { id: created.ref.id, revision: 2 })
 
-  useAppStore.getState().applyGoalMuxFrame({ type: 'session/projection', sessionId: demo, key: 'goal', value: projection(created.ref.id, 3, 'active', 'action target'), seq: 2 })
+  useAppStore.getState().applyGoalProjection({ type: 'projection', sessionId: demo, key: 'goal', value: projection(created.ref.id, 3, 'active', 'action target'), seq: 2 })
   await useAppStore.getState().editGoal('New objective')
-  assert.deepEqual(mockGoalRpcLog.at(-1)?.params, { sessionId: demo, ref: { id: created.ref.id, revision: 3 }, objective: 'New objective' })
+  assert.equal(mockGoalRpcLog.at(-1)?.method, 'goals/edit')
+  assert.deepEqual(mockGoalRpcLog.at(-1)?.params, {
+    agentId: demo,
+    ref: { id: created.ref.id, revision: 3 },
+    request: { objective: 'New objective' },
+  })
 
-  useAppStore.getState().applyGoalMuxFrame({ type: 'session/projection', sessionId: demo, key: 'goal', value: projection(created.ref.id, 4, 'active', 'New objective'), seq: 3 })
+  useAppStore.getState().applyGoalProjection({ type: 'projection', sessionId: demo, key: 'goal', value: projection(created.ref.id, 4, 'active', 'New objective'), seq: 3 })
   await useAppStore.getState().clearGoal()
-  assert.deepEqual(mockGoalRpcLog.at(-1)?.params, { sessionId: demo, ref: { id: created.ref.id, revision: 4 } })
+  assert.equal(mockGoalRpcLog.at(-1)?.method, 'goals/clear')
+  assert.deepEqual(mockGoalRpcLog.at(-1)?.params, { agentId: demo, ref: { id: created.ref.id, revision: 4 } })
+  // `goals/clear` answers the cleared ref; the tombstone arrives on the stream.
   assert.equal(useAppStore.getState().goal?.goal.revision, 4)
 
-  useAppStore.getState().applyGoalMuxFrame({ type: 'session/projection', sessionId: demo, key: 'goal', value: null, seq: 4 })
+  useAppStore.getState().applyGoalProjection({ type: 'projection', sessionId: demo, key: 'goal', value: null, seq: 4 })
   assert.equal(useAppStore.getState().goal, null)
 })
 
-test('loadHistory installs the goal projection from the history baseline', async () => {
+test('the session/follow opening snapshot installs the goal projection from its baseline', async () => {
   ;(globalThis as { __DSH_MOCK__?: boolean }).__DSH_MOCK__ = true
   const { useAppStore } = await import('../src/webview/store')
-  const { mockBridge } = await import('../src/webview/mock/bridge')
   const sessionId = 's-goal-hist' as SessionId
-  const created = await mockBridge.rpc<{ ref: { id: GoalId; revision: number } }>('goal.create', { sessionId, objective: 'hist target' })
   useAppStore.setState({ activeSessionId: sessionId, goal: undefined })
-  await useAppStore.getState().loadHistory(sessionId)
-  assert.equal(useAppStore.getState().goal?.goal.id, created.ref.id)
+
+  // History is no longer a unary load: the `session/follow` generation opens
+  // with one snapshot whose complete projection cut carries the goal value.
+  const snapshot: SessionFollowFrame = {
+    type: 'snapshot',
+    header: { version: 1, id: sessionId, createdAt: 1, isSeeded: false },
+    cursor: 3,
+    records: [],
+    hasMore: false,
+    projections: { asOfSeq: 3, values: { goal: projection('from-snapshot') } },
+  }
+  useAppStore.getState().applySessionFrame(snapshot)
+  assert.equal(useAppStore.getState().goal?.goal.id, 'from-snapshot')
+
+  // A cut that omits `goal` means the unit is absent, not "keep the last one".
+  useAppStore.getState().applySessionFrame({ ...snapshot, projections: { asOfSeq: 4, values: {} } })
+  assert.equal(useAppStore.getState().goal, undefined)
+
+  // A superseded generation for another session must not install its goal.
+  useAppStore.setState({ activeSessionId: sessionId, goal: projection('keep-me') })
+  useAppStore.getState().applySessionFrame({ ...snapshot, header: { ...snapshot.header, id: b } })
+  assert.equal(useAppStore.getState().goal?.goal.id, 'keep-me')
+})
+
+test('goalRef refuses a mutation with no active session or no goal', async () => {
+  ;(globalThis as { __DSH_MOCK__?: boolean }).__DSH_MOCK__ = true
+  const { useAppStore } = await import('../src/webview/store')
+
+  // No active session: the CAS ref cannot be addressed at all.
+  useAppStore.setState({ activeSessionId: null, goal: projection('orphan') })
+  await assert.rejects(useAppStore.getState().pauseGoal(), /当前会话没有可操作的目标/)
+
+  // Active session, but the projection has not arrived yet (undefined = loading).
+  useAppStore.setState({ activeSessionId: a, goal: undefined })
+  await assert.rejects(useAppStore.getState().resumeGoal(), /当前会话没有可操作的目标/)
+
+  // Cleared tombstone: there is no goal to edit either.
+  useAppStore.setState({ activeSessionId: a, goal: null })
+  await assert.rejects(useAppStore.getState().editGoal('New objective'), /当前会话没有可操作的目标/)
+  await assert.rejects(useAppStore.getState().clearGoal(), /当前会话没有可操作的目标/)
 })
 
 test('a failed mutation keeps the projection and surfaces the error to the caller', async () => {

@@ -58,7 +58,8 @@ test('环境变量：启动时读取配置并渲染，保存后写入 VS Code �
     .toEqual({ SEEDED_FLAG: 'on', E2E_CUSTOM_FLAG: 'from-ui' })
 
   // Saving does not restart the host: the same host keeps answering RPCs.
-  const sessions = await harness.rpc<{ items: unknown[] }>('session.list', {})
+  // (`session/list` is the one endpoint whose argument is `_request`.)
+  const sessions = await harness.rpc<{ items: unknown[] }>('session/list', { _request: {} })
   expect(Array.isArray(sessions.items)).toBe(true)
 })
 

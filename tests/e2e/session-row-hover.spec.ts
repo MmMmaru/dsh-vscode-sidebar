@@ -84,8 +84,9 @@ test('HOV-2: the running-badge spinner ring uses a 2px stroke', async ({ page, h
   await openApp(page, harness)
   await expect(page.locator('.session-list > li', { hasText: title })).toBeVisible()
 
-  // 将该会话标记为运行中：历史按钮切换为旋转环 + 计数徽标。
-  harness.emitHost({ type: 'host/session-status', sessionId, running: true })
+  // 将该会话标记为运行中：host 通过 `$events` 的 api-session/status 广播通知
+  // （args 为 [sessionId, running]），历史按钮切换为旋转环 + 计数徽标。
+  harness.emitChannel({ channel: 'remote', event: 'api-session/status', args: [sessionId, true] })
   const spinner = page.locator('.chat-list-running-spinner')
   await expect(spinner).toBeVisible()
 

@@ -138,10 +138,18 @@ export class DshClient {
     mux.log = (line) => this.log(line)
     mux.onStatus((connected) => this.setConnected(connected))
     mux.onCarrierLost(() => {
-      // A lost carrier ends every generation. Reopen the Host-wide streams so
-      // their baselines are re-delivered; per-session journals reopen themselves.
-      this.log('carrier lost; reopening host-wide streams')
-      if (!this.disposed) this.openHostWideStreams()
+      // A lost carrier ends EVERY generation, including the Remote Events one:
+      // the host mints a new clientId, so the old subscription is dead and the
+      // new one must be opened or approvals and questions stop arriving for the
+      // rest of the session while the UI still looks connected. The host-wide
+      // streams reopen too, so their baselines are re-delivered; per-session
+      // journals reopen themselves because `followSession` owns that loop.
+      // Both calls are safe while the socket is down: `openStream` queues its
+      // frame until the reconnect completes.
+      if (this.disposed) return
+      this.log('carrier lost; reopening streams')
+      this.openHostWideStreams()
+      void this.events?.subscribe()
     })
     this.mux = mux
     this.events = new RemoteEventsClient(mux, () => this.requireTarget(), {

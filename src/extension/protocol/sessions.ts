@@ -216,7 +216,7 @@ export interface SessionSummary {
   projections?: SessionProjectionsBlock
 }
 
-/** One session-content search result; display metadata stays owned by `session.list`. */
+/** One session-content search result; display metadata stays owned by `session/list`. */
 export interface SessionSearchItem {
   sessionId: SessionId
   /** Plain-text excerpt around the strongest matching visible message. */

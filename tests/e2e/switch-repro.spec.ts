@@ -47,8 +47,13 @@ test('question panel survives switching away and back', async ({ page, harness }
   await page.locator('.session-row', { hasText: 'SW-A' }).click()
   await expect(page.locator('.composer-input')).toBeVisible()
 
-  // Question arrives for A.
-  harness.emitMux({ type: 'question/requested', sessionId: a, questions: [QUESTION] }, 'q-switch-rpc')
+  // Question arrives for A (remote-channel overlay, keyed by its eventId).
+  const eventId = `q-switch-${Date.now().toString(36)}`
+  harness.emitChannel({
+    channel: 'remote',
+    event: 'user-questions/request',
+    args: [{ kind: 'question', eventId, agentId: a, questions: [QUESTION] }],
+  })
   const panel = page.locator(`.ovl-card[data-question-session="${a}"]`)
   await expect(panel).toBeVisible()
 
@@ -64,9 +69,9 @@ test('question panel survives switching away and back', async ({ page, harness }
   await expect(page.locator(`.ovl-card[data-question-session="${a}"]`)).toBeVisible({ timeout: 5_000 })
   await expect(page.locator(`.ovl-card[data-question-session="${a}"]`)).toContainText('切换后还在吗？')
 
-  // Cleanup: mirror the host confirmation so the retention does not leak
-  // into the next test (the real host rejects the injected frame's rpcId).
-  harness.emitMux({ type: 'question/resolved', sessionId: a, questionRpcId: 'q-switch-rpc' as never, outcome: 'answered' })
+  // Cleanup: mirror the host retraction so the retention does not leak into
+  // the next test (the real host would reject the synthetic eventId).
+  harness.emitChannel({ channel: 'remote', event: 'request/cancelled', args: [eventId] })
 })
 
 // ---------------------------------------------------------------------------

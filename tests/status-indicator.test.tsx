@@ -3,8 +3,8 @@
  * regression:
  *   - four states render waiting (amber pulse) / running (spinner) /
  *     unread (green dot) / idle (nothing);
- *   - the store still marks a session unread on turn/end and clears it on
- *     select (behavior contract);
+ *   - the store still marks a session unread when it finishes while you are
+ *     elsewhere, and clears the flag on select (behavior contract);
  *   - base.css must bundle BEFORE the component stylesheets. Root cause of
  *     "unread dot never shows": main.tsx imported base.css after App, so
  *     base.css landed last in media/style.css and its grey .status-dot
@@ -28,6 +28,11 @@ const b = 'si-b' as SessionId
 
 function meta(sessionId: SessionId, extra: Partial<SessionMeta> = {}): SessionMeta {
   return { sessionId, title: null, updatedAt: 1, running: false, blank: false, ...extra }
+}
+
+/** Read one session row out of a store snapshot. */
+function rowIn(sessions: readonly SessionMeta[], sessionId: SessionId): SessionMeta | undefined {
+  return sessions.find((entry) => entry.sessionId === sessionId)
 }
 
 /** Render the indicator to static HTML (dynamic import: see the flag note above). */
@@ -70,26 +75,52 @@ test('idle session renders nothing', async () => {
 // Store behavior contract: turn/end marks unread, select clears it
 // ---------------------------------------------------------------------------
 
-test('turn/end marks the session unread; selecting it clears the flag', async () => {
+test('a session that finishes while unselected turns unread; selecting it clears the flag', async () => {
   const { useAppStore } = await import('../src/webview/store')
   const state = useAppStore.getState()
-  useAppStore.setState({ sessions: [meta(a), meta(b)], activeSessionId: null })
+  useAppStore.setState({ sessions: [meta(a), meta(b, { running: true })], activeSessionId: null })
 
-  state.applyProjectionFrame({
-    type: 'session/event',
-    sessionId: a,
-    event: { type: 'turn/end', seq: 9, time: Date.now(), data: { turn: 1, reason: { kind: 'completed' } } },
-  })
-  assert.equal(useAppStore.getState().sessions.find((s) => s.sessionId === a)?.unread, true)
-  assert.equal(useAppStore.getState().sessions.find((s) => s.sessionId === b)?.unread, undefined)
+  // Two seconds after the run started, nothing is unread yet: `b` is still busy.
+  state.applyRemoteEvent('api-session/status', [b, true])
+  assert.equal(rowIn(useAppStore.getState().sessions, b)?.unread, undefined)
+  assert.equal(rowIn(useAppStore.getState().sessions, b)?.running, true)
 
-  // A running -> idle host transition marks unread too.
-  useAppStore.setState({ sessions: [meta(b, { running: true }), ...useAppStore.getState().sessions.filter((s) => s.sessionId !== b)] })
-  state.applyHostFrame({ type: 'host/session-status', sessionId: b, running: false })
-  assert.equal(useAppStore.getState().sessions.find((s) => s.sessionId === b)?.unread, true)
+  // The run finishes while the user is looking elsewhere. The unread dot is the
+  // only signal, so it must appear on the transition and on no other session.
+  state.applyRemoteEvent('api-session/status', [b, false])
+  assert.equal(rowIn(useAppStore.getState().sessions, b)?.unread, true)
+  assert.equal(rowIn(useAppStore.getState().sessions, b)?.running, false)
+  assert.equal(rowIn(useAppStore.getState().sessions, a)?.unread, undefined)
 
-  await state.selectSession(a)
-  assert.equal(useAppStore.getState().sessions.find((s) => s.sessionId === a)?.unread, false)
+  // A repeat idle frame is not a transition and must not re-flag anything.
+  useAppStore.setState({ sessions: useAppStore.getState().sessions.map((row) => ({ ...row, unread: false })) })
+  state.applyRemoteEvent('api-session/status', [b, false])
+  assert.equal(rowIn(useAppStore.getState().sessions, b)?.unread, false)
+
+  // Selecting the session clears the flag as well as reading it.
+  useAppStore.setState({ sessions: useAppStore.getState().sessions.map((row) => ({ ...row, unread: true })) })
+  await state.selectSession(b)
+  assert.equal(rowIn(useAppStore.getState().sessions, b)?.unread, false)
+})
+
+test('api-session/activity carries the ordering key, and a malformed frame is refused', async () => {
+  const { useAppStore } = await import('../src/webview/store')
+  const state = useAppStore.getState()
+  useAppStore.setState({ sessions: [meta(a, { updatedAt: 1 })], activeSessionId: null })
+
+  // `activity` replaces the old turn/end-driven list touch: its updatedAt IS the
+  // list ordering key ("the later of creation and the latest human prompt").
+  state.applyRemoteEvent('api-session/activity', [a, 500])
+  assert.equal(rowIn(useAppStore.getState().sessions, a)?.updatedAt, 500)
+
+  // A malformed frame warns instead of corrupting state. `updatedAt` is pinned by
+  // `noUncheckedIndexedAccess`, so the sink must be primed with a real baseline.
+  const before = useAppStore.getState().sessions.length
+  state.applyRemoteEvent('api-session/status', [a, 'yes'])
+  assert.equal(rowIn(useAppStore.getState().sessions, a)?.running, false)
+  assert.equal(useAppStore.getState().sessions.length, before)
+  state.applyRemoteEvent('api-session/activity', [a])
+  assert.equal(rowIn(useAppStore.getState().sessions, a)?.updatedAt, 500)
 })
 
 // ---------------------------------------------------------------------------

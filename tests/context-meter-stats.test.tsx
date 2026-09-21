@@ -118,7 +118,9 @@ test('clicking the ring opens the popup with stats groups and breakdown rows', a
   })
   const pops = renderer.root.findAllByProps({ className: 'context-meter-pop' })
   assert.equal(pops.length, 1)
-  const text = textContent(pops[0].props.children)
+  const pop = pops[0]
+  assert.ok(pop !== undefined)
+  const text = textContent(pop.props.children)
   // Title + one row per breakdown bucket (moved out of the title tooltip).
   assert.ok(text.includes('上下文已用 50%'), text)
   assert.ok(text.includes('系统提示') && text.includes('~1K'), text)
@@ -177,7 +179,9 @@ test('no stats and no breakdown shows 暂无统计数据', async () => {
   })
   const pops = renderer.root.findAllByProps({ className: 'context-meter-pop' })
   assert.equal(pops.length, 1)
-  const text = textContent(pops[0].props.children)
+  const pop = pops[0]
+  assert.ok(pop !== undefined)
+  const text = textContent(pop.props.children)
   assert.ok(text.includes('暂无统计数据'), text)
   renderer.unmount()
 })

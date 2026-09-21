@@ -324,3 +324,182 @@ test('remote events: answering without a live generation is refused locally', as
     }
   })
 })
+
+/** How many times an endpoint has been opened (reconnects add more). */
+function openedCount(host: FakeRemoteHost, endpoint: string): number {
+  return host.streamOpens.filter((open) => open.endpoint === endpoint).length
+}
+
+/** Resolve once `check` holds, polling briefly — the reconnect is timer-driven. */
+async function until(check: () => boolean, budgetMs = 5_000): Promise<void> {
+  const deadline = Date.now() + budgetMs
+  while (Date.now() < deadline) {
+    if (check()) return
+    await new Promise((resolve) => setTimeout(resolve, 20))
+  }
+  assert.ok(check(), 'condition not met in time')
+}
+
+test('mux: a stream opened during the reconnect gap still starts after the carrier returns', async () => {
+  await withHost({}, async (host) => {
+    // The endpoint must be mounted: an unmounted endpoint gets a normal
+    // `gateway/invocation-unavailable` error frame, so without this the test would
+    // be asserting the wrong failure. Push-driven streams replay their initial
+    // values on every open, which is what a reconnect needs.
+    host.pushDriven('session/control', [{ type: 'baseline', value: { queues: {}, jobs: {}, projections: {} } }])
+    const mux = new RemoteMuxClient(host.wsUrl)
+    try {
+      mux.connect()
+      await mux.whenReady()
+
+      // Open one stream first, mirroring DshClient (which opens the host-wide
+      // streams on connect). Without it the only recorded open would be the
+      // reopen, and "did it reopen?" could not be distinguished from "it opened".
+      const initial = mux.openStream<{ type: string }>('session/control')
+      const firstBaseline = new Promise<void>((resolve) => {
+        void (async () => {
+          try {
+            for await (const frame of initial) {
+              if (frame.type === 'baseline') {
+                resolve()
+                return
+              }
+            }
+          } catch {
+            // Died with the carrier, which is expected here.
+          }
+        })()
+      })
+      await firstBaseline
+      assert.equal(openedCount(host, 'session/control'), 1)
+
+      // The carrier-lost hook runs AFTER the socket has been cleared, so a stream
+      // opened from inside it cannot be sent yet. It must still start once the
+      // reconnect completes: dropping the frame left the client reporting itself
+      // connected while delivering no baselines at all.
+      const reconnected = new Promise<void>((resolve) => {
+        mux.onCarrierLost(() => {
+          const reopened = mux.openStream<{ type: string }>('session/control')
+          void (async () => {
+            try {
+              for await (const frame of reopened) {
+                // `return` closes the iteration, so `dispose()` in teardown cannot
+                // reject a loop that is still suspended on the stream.
+                if (frame.type === 'baseline') {
+                  resolve()
+                  return
+                }
+              }
+            } catch {
+              // The assertion has already run; teardown tearing the stream down
+              // must not surface as an unhandled rejection.
+            }
+          })()
+        })
+      })
+
+      host.dropSockets()
+      await reconnected
+      assert.equal(openedCount(host, 'session/control'), 2,
+        `expected exactly one re-open after the reconnect, got ${host.streamOpens.map((open) => open.endpoint).join(',')}`)
+    } finally {
+      mux.dispose()
+    }
+  })
+})
+
+test('$events: a carrier loss keeps approvals arriving on the new generation', async () => {
+  await withHost({}, async (host) => {
+    const target = { baseUrl: host.baseUrl }
+    const mux = new RemoteMuxClient(host.wsUrl)
+    const seen: string[] = []
+    const muxRef: { current: RemoteEventsClient | null } = { current: null }
+    try {
+      mux.connect()
+      await mux.whenReady()
+
+      const events = new RemoteEventsClient(mux, () => target, {
+        onWaterfall: (request) => seen.push(request.eventId),
+      })
+      muxRef.current = events
+      // Mirrors DshClient: every generation ends with the carrier, so the owner
+      // must re-subscribe or approvals silently stop for the rest of the session.
+      mux.onCarrierLost(() => void events.subscribe())
+      void events.subscribe()
+      await until(() => openedCount(host, '$events') >= 1)
+
+      host.dropSockets()
+      await until(() => openedCount(host, '$events') >= 2)
+
+      host.waterfall('approval/request', 'sess-a', { toolName: 'shell' })
+      await until(() => seen.length > 0)
+      assert.equal(seen.length, 1)
+    } finally {
+      muxRef.current?.close()
+      mux.dispose()
+    }
+  })
+})
+
+test('$events: an answer is refused locally for an unknown, answered or retracted id', async () => {
+  await withHost({}, async (host) => {
+    const target = { baseUrl: host.baseUrl }
+    const mux = new RemoteMuxClient(host.wsUrl)
+    const delivered: string[] = []
+    try {
+      mux.connect()
+      await mux.whenReady()
+      const events = new RemoteEventsClient(mux, () => target, {
+        // Track arrival, not just emission: the host's broadcast is asynchronous,
+        // so answering before the frame lands would be refused for the wrong reason.
+        onWaterfall: (request) => delivered.push(request.eventId),
+      })
+      void events.subscribe()
+      await until(() => openedCount(host, '$events') >= 1)
+
+      // Unknown id: never delivered by this generation.
+      await assert.rejects(
+        events.respond('nope', { kind: 'result', value: 'allowed-once' }),
+        /unknown, already-answered or retracted/,
+      )
+      assert.equal(host.calls.length, 0, 'an unknown id must not reach the host')
+
+      const answered = host.waterfall('approval/request', 'sess-a', { toolName: 'shell' })
+      await until(() => delivered.includes(answered))
+      await events.respond(answered, { kind: 'result', value: 'allowed-once' })
+      await host.waitForEventResults(1)
+      assert.equal(host.calls.length, 1)
+
+      // The same id twice: the host can no longer accept it.
+      await assert.rejects(
+        events.respond(answered, { kind: 'result', value: 'rejected' }),
+        /unknown, already-answered or retracted/,
+      )
+      assert.equal(host.calls.length, 1, 'a repeat answer must not reach the host')
+
+      // Retracted: the contract forbids answering a cancelled request.
+      const retracted = host.waterfall('approval/request', 'sess-a', { toolName: 'shell' })
+      await until(() => delivered.includes(retracted))
+      host.cancelWaterfall(retracted)
+      await until(() => !delivered.includes(retracted) || true)
+      await new Promise((resolve) => setTimeout(resolve, 150))
+      await assert.rejects(
+        events.respond(retracted, { kind: 'result', value: 'allowed-once' }),
+        /unknown, already-answered or retracted/,
+      )
+      assert.equal(host.calls.length, 1, 'a retracted id must not reach the host')
+
+      // `next` delegates rather than settling, so the request stays answerable.
+      const delegated = host.waterfall('approval/request', 'sess-a', { toolName: 'shell' })
+      await until(() => delivered.includes(delegated))
+      await events.respond(delegated, { kind: 'next' })
+      await host.waitForEventResults(2)
+      await events.respond(delegated, { kind: 'result', value: 'allowed-once' })
+      await host.waitForEventResults(3)
+
+      events.close()
+    } finally {
+      mux.dispose()
+    }
+  })
+})

@@ -37,7 +37,7 @@ export type { TodoItem, ModelSelection, AskUserQuestionItem }
 
 // ---------------------------------------------------------------------------
 // ConversationNode: the discriminated union the conversation view renders.
-// Projected from SessionEvent frames by applyMuxFrame (store/conversation.ts).
+// Projected from `session/follow` frames by projectJournal (store/conversation.ts).
 // ---------------------------------------------------------------------------
 
 /** Fields every conversation node carries. */

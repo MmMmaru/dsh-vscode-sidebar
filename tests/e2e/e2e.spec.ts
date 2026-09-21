@@ -3,8 +3,11 @@
  * Chromium against the real extension host code (Node) and a real, isolated
  * dsh host. Covers the five TODO regressions plus the core chat loop:
  *   ① IDE content insertion           (composer chip -> stub editor content)
- *   ② askuserquestion replay          (frame while page closed -> init replay)
- *   ③ cross-workspace isolation       (init filter + host/session-added guard)
+ *   ② askuserquestion replay          (a LIVE question while the page is closed
+ *                                      -> init replay; live/skippable, because
+ *                                      only the host's own waterfall reaches the
+ *                                      extension's OverlayRetention)
+ *   ③ cross-workspace isolation       (init filter + api-session/added guard)
  *   ④ session moves to top on send
  *   ⑤ excluded: turn-timer resume is covered by unit tests (todo-fixes)
  *   + live chat loop (real model call, structural assertions only)
@@ -14,7 +17,6 @@
 
 import { test as base, expect, type Page } from 'playwright/test'
 import type { AskUserQuestionItem } from '../../src/extension/protocol/events'
-import type { SessionId } from '../../src/extension/protocol/brand'
 import { startHarness, type Harness } from '../../.temp/e2e-dist/harness.mjs'
 
 const test = base.extend<{}, { harness: Harness }>({
@@ -69,14 +71,15 @@ test('init renders only sessions of the current workspace', async ({ page, harne
 // ③ live frames: foreign session additions never enter the list
 // ---------------------------------------------------------------------------
 
-test('host/session-added frames from other workspaces are ignored', async ({ page, harness }) => {
+test('api-session/added frames from other workspaces are ignored', async ({ page, harness }) => {
   await harness.createSession(harness.workspacePath, 'T2-WS')
   await openApp(page, harness)
   // Relative count: earlier tests share the host, so compare before/after.
   const before = await page.locator('.session-row').count()
 
   // A session created in a foreign directory broadcasts a real
-  // host/session-added frame with a foreign cwd — it must not enter the list.
+  // `api-session/added` event carrying a foreign cwd — it must not enter the
+  // list (the row's cwd is checked against the workspace root).
   await harness.createSession(harness.foreignPath, 'T2-FOREIGN')
   await expect(page.locator('.session-row')).toHaveCount(before)
 
@@ -111,16 +114,25 @@ test('manual IDE insert (command path) appends to the draft and toasts failures'
 })
 
 // ---------------------------------------------------------------------------
-// ②/overlay: a live question frame raises the takeover panel; answering clears it
+// ②/overlay: an injected question overlay raises the takeover panel; answering
+// clears it and the real `$events/result` path rejects the synthetic eventId
 // ---------------------------------------------------------------------------
 
-test('question panel appears on a question/requested frame and answers clear it', async ({ page, harness }) => {
+test('question panel appears on a user-questions/request overlay and answers clear it', async ({ page, harness }) => {
   const sessionId = await harness.createSession(harness.workspacePath, 'T4-SESS')
   await openApp(page, harness)
   await selectSessionRow(page, 'T4-SESS')
   await expect(page.locator('.composer-input')).toBeVisible()
 
-  harness.emitMux({ type: 'question/requested', sessionId, questions: [QUESTION] }, 'e2e-q-rpc-4')
+  // An answerable request rides the `remote` channel as a pre-shaped overlay
+  // keyed by its reply `eventId` (the retired mux `question/requested` frame
+  // and its rpcId correlation are gone).
+  const eventId = `e2e-q-4-${Date.now().toString(36)}`
+  harness.emitChannel({
+    channel: 'remote',
+    event: 'user-questions/request',
+    args: [{ kind: 'question', eventId, agentId: sessionId, questions: [QUESTION] }],
+  })
 
   const panel = page.locator(`.ovl-card[data-question-session="${sessionId}"]`)
   await expect(panel).toBeVisible()
@@ -134,46 +146,63 @@ test('question panel appears on a question/requested frame and answers clear it'
   await expect(panel).not.toBeVisible()
   await expect(page.locator('.composer-input')).toBeVisible()
   // The answer traversed the REAL respond chain (bridge -> dsh-client ->
-  // POST /api/respond); the real host rejects the synthetic rpcId of an
-  // injected frame, which surfaces as a notification on the extension host.
+  // `$events/result`); the real host rejects the synthetic eventId of an
+  // injected overlay, which surfaces as a notification on the extension host.
   expect(harness.errorNotifications().some((m) => m.includes('DSH 应答失败'))).toBe(true)
-  // Mirror the host's confirmation frame — this clears the extension-side
-  // retention for later tests.
-  harness.emitMux({ type: 'question/resolved', sessionId, questionRpcId: 'e2e-q-rpc-4' as never, outcome: 'answered' })
+  // Mirror the host's retraction — this clears the extension-side retention
+  // for later tests.
+  harness.emitChannel({ channel: 'remote', event: 'request/cancelled', args: [eventId] })
 })
 
 // ---------------------------------------------------------------------------
 // ② askuserquestion replay: a question while the page is closed re-appears on
-// the next init (the extension host retains the frame via OverlayRetention)
+// the next init (the extension host retains the REQUEST via OverlayRetention).
+// Driven by a real ask: an injected overlay never reaches the retention buffer.
 // ---------------------------------------------------------------------------
 
-test('a question that arrived while the page was closed replays on return', async ({ page, harness }) => {
+test('a question that arrived while the page was closed replays on return (live)', async ({ page, harness }, testInfo) => {
+  test.setTimeout(240_000)
   const sessionId = await harness.createSession(harness.workspacePath, 'T5-SESS')
   await openApp(page, harness)
   await selectSessionRow(page, 'T5-SESS')
-  await expect(page.locator('.composer-input')).toBeVisible()
+  const input = page.locator('.composer-input')
+  await expect(input).toBeVisible()
+
+  // A REAL ask drives this check: only the host's own `$events` waterfall
+  // reaches the extension's OverlayRetention, so only a real question can be
+  // replayed into a freshly created webview. An overlay injected through
+  // `emitChannel` is forwarded to the attached page but is never retained.
+  await input.fill('在你继续执行任何操作之前，请先通过 ask 工具向我提一个问题（例如问我要不要继续），然后等待我的回答。')
+  await input.press('Enter')
+
+  const panel = page.locator(`.ovl-card[data-question-session="${sessionId}"]`)
+  try {
+    await expect(panel).toBeVisible({ timeout: 120_000 })
+  } catch {
+    testInfo.skip(true, '模型未在窗口内触发 ask（自然触发不可控），跳过回放验证')
+    return
+  }
 
   // Simulate "switched away": the sidebar webview is destroyed on hide, so
   // close the page; the bridge + retention stay alive in the extension host.
   await page.close()
 
-  // The question arrives while no webview is attached.
-  harness.emitMux({ type: 'question/requested', sessionId, questions: [QUESTION] }, 'e2e-q-rpc-5')
-
   // Returning: a fresh webview boots, the init payload replays the pending
   // overlay, the page auto-selects the session and raises the panel.
   const page2 = await page.context().newPage()
   await openApp(page2, harness)
+  const replayed = page2.locator(`.ovl-card[data-question-session="${sessionId}"]`)
+  await expect(replayed).toBeVisible()
+  await expect(replayed).toContainText(/？|吗|是否/)
 
-  const panel = page2.locator(`.ovl-card[data-question-session="${sessionId}"]`)
-  await expect(panel).toBeVisible()
-  await expect(panel).toContainText('继续吗？')
-
-  await page2.getByRole('radio', { name: '继续', exact: true }).click()
+  // Answer so the retention does not leak into later tests.
+  if ((await page2.locator('.ovl-option').count()) > 0) {
+    await page2.locator('.ovl-option').first().click()
+  } else {
+    await page2.locator('.ovl-custom-input').fill('继续')
+  }
   await page2.getByRole('button', { name: 'Submit' }).click()
-  await expect(panel).not.toBeVisible()
-  // Clear the extension-side retention (host confirmation mirror).
-  harness.emitMux({ type: 'question/resolved', sessionId, questionRpcId: 'e2e-q-rpc-5' as never, outcome: 'answered' })
+  await expect(replayed).not.toBeVisible({ timeout: 30_000 })
 })
 
 // ---------------------------------------------------------------------------

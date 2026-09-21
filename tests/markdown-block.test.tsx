@@ -8,6 +8,19 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { createElement } from 'react'
 
+/**
+ * The node shape these tests walk.
+ *
+ * `react-test-renderer` is deprecated in React 19 and ships no `findAll` typing,
+ * so the tree is described structurally here. Without this the file silently fell
+ * outside every tsconfig: the test include covered only .ts files, and the
+ * esbuild bundle step does not typecheck, so `findAll` drift went unnoticed.
+ */
+interface TestNode {
+  props: { className?: unknown; children?: unknown }
+  findAll(predicate: (node: TestNode) => boolean): TestNode[]
+}
+
 // Must precede any dynamic import that reaches the store: bridge.ts picks the
 // real/mock client at module scope.
 ;(globalThis as { __DSH_MOCK__?: boolean }).__DSH_MOCK__ = true
@@ -21,13 +34,14 @@ async function chipTexts(text: string, streaming: boolean): Promise<string[]> {
   await act(async () => {
     renderer = create(createElement(MarkdownBlock, { text, streaming }))
   })
-  const root = renderer?.root
+  const root = renderer?.root as unknown as TestNode | undefined
   assert.ok(root !== undefined)
   const chips = root.findAll(
-    (node) => typeof node.props.className === 'string' && node.props.className.split(' ').includes('file-ref'),
+    (node: TestNode) =>
+      typeof node.props.className === 'string' && node.props.className.split(' ').includes('file-ref'),
   )
   /** Chip children are strings (label or path:line coordinates); flatten them. */
-  const texts = chips.map((chip) =>
+  const texts = chips.map((chip: TestNode) =>
     (Array.isArray(chip.props.children) ? chip.props.children : [chip.props.children])
       .filter((c: unknown) => typeof c === 'string')
       .join(''),
