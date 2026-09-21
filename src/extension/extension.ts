@@ -87,8 +87,7 @@ export function activate(context: vscode.ExtensionContext): void {
     }),
     vscode.commands.registerCommand('dsh.newChat', () => {
       provider.reveal()
-      const target = provider.activeWebview
-      if (target) bridge.postCommand('newChat', [target])
+      bridge.postCommand('newChat')
     }),
     vscode.commands.registerCommand('dsh.openSettings', () => {
       openSettingsPanel(context, bridge)
@@ -96,13 +95,11 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand('dsh.openFullPanel', () => openFullPanel(context, bridge)),
     vscode.commands.registerCommand('dsh.insertSelection', () => {
       provider.reveal()
-      const target = provider.activeWebview
-      if (target) bridge.postIdeContent('selection', [target])
+      bridge.postIdeContent('selection')
     }),
     vscode.commands.registerCommand('dsh.insertActiveFile', () => {
       provider.reveal()
-      const target = provider.activeWebview
-      if (target) bridge.postIdeContent('active-file', [target])
+      bridge.postIdeContent('active-file')
     }),
   )
 }

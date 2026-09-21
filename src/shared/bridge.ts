@@ -1,37 +1,98 @@
 /**
- * Bridge message protocol (extension host <-> webview), the frozen contract of
- * ARCHITECTURE.md section 3. All messages are JSON objects carried by
- * `vscode.postMessage` / `onDidReceiveMessage`. Shared by both sides: the
- * extension posts ExtensionMessage, the webview posts WebviewMessage.
+ * Bridge message protocol (extension host <-> webview).
+ * All messages are JSON objects carried by `vscode.postMessage` /
+ * `onDidReceiveMessage`. Shared by both sides: the extension posts
+ * ExtensionMessage, the webview posts WebviewMessage.
+ *
+ * MIGRATION NOTE (dsh 0.1.5-rc.2 / Typert Remote): the old contract forwarded two
+ * apiproxy sockets to the webview as `channel: 'mux' | 'host'` frames. Those
+ * sockets no longer exist. The new contract forwards four distinct channels:
+ *
+ *   control   — Host-wide `session/control`: queues, jobs, projection values.
+ *   workspace — `workspace/follow`: workspace set, manual order, archived set.
+ *   session   — one `session/follow` journal, explicitly subscribed per session
+ *               (the host no longer fans out every session's events to everyone).
+ *   remote    — sparse broadcast `$events` emits (`api-session/added`, …).
+ *
+ * Answerable requests (approvals, ask-user questions) are keyed by `eventId`
+ * from the moment they reach the webview: the old `approvalId` /`sessionId`
+ * correlation existed only because the frame's rpcId was hidden from the
+ * webview, and `POST /api/respond` is gone entirely.
  */
 
-import type { ApprovalRequestId, SessionId } from '../extension/protocol/brand'
-import type { AskUserQuestionAnswerItem, MuxFrame, HostFrame } from '../extension/protocol/events'
+import type { SessionId } from '../extension/protocol/brand'
+import type { AskUserQuestionAnswerItem, AskUserQuestionItem } from '../extension/protocol/events'
+import type { RpcError } from '../extension/protocol/rpc'
+import type { SessionAddress, SessionControlFrame, SessionFollowFrame } from '../extension/protocol/follow'
+import type { WorkspaceFollowFrame } from '../extension/protocol/workspace'
+import type { WorkspaceView } from '../extension/protocol/views'
 
 /** Host lifecycle states pushed to the webview. */
 export type HostStatus = 'starting' | 'ready' | 'down'
+
+/**
+ * One forwarded Remote channel message.
+ *
+ * Declared here (rather than on either side) because both the extension host
+ * and the webview need the same discriminated union: the host produces it, the
+ * webview consumes it, and the e2e harness synthesizes it.
+ *
+ * - `control`   Host-wide queues, jobs, and projection values.
+ * - `workspace` workspace set, manual order, and archived set.
+ * - `session`   the followed session's journal; each generation starts with a
+ *               `snapshot` that fully replaces prior history.
+ * - `remote`    a sparse broadcast host event with its positional arguments.
+ */
+export type RemoteChannelMessage =
+  | { channel: 'control'; frame: SessionControlFrame }
+  | { channel: 'workspace'; frame: WorkspaceFollowFrame }
+  | { channel: 'session'; frame: SessionFollowFrame }
+  | { channel: 'remote'; event: string; args: unknown[] }
 
 /** What IDE content a `requestIdeContent` / `ide-content` message carries. */
 export type IdeContentKind = 'selection' | 'active-file'
 
 /**
- * Replayed answerable-frame facts: the extension host retains pending
- * approval/question frames while no webview is attached (a hidden sidebar
- * webview is disposed and re-resolved later), and hands them back in the init
- * payload so the takeover panel can re-appear after switching back.
+ * One pending answerable request, replayable into a freshly attached webview.
+ *
+ * The extension retains these while no webview is attached (a hidden sidebar
+ * webview is disposed and re-resolved later) and hands them back in the init
+ * payload so a takeover panel re-appears after switching back.
+ *
+ * `eventId` is the reply key: it is what `$events/result` accepts, and it is
+ * stable for the request's whole lifetime.
  */
-export type PendingOverlayReplay =
-  | { kind: 'approval'; frame: Extract<MuxFrame, { type: 'approval/requested' }> }
-  | { kind: 'question'; frame: Extract<MuxFrame, { type: 'question/requested' }> }
+export interface PendingApprovalOverlay {
+  kind: 'approval'
+  eventId: string
+  /** Session (or subagent) the approval is scoped to. */
+  agentId: string
+  toolName: string
+  callId?: string
+  reason?: string
+}
+
+/** One pending ask-user-questions batch, replayable the same way. */
+export interface PendingQuestionOverlay {
+  kind: 'question'
+  eventId: string
+  agentId: string
+  questions: AskUserQuestionItem[]
+}
+
+/** Any replayed answerable request. */
+export type PendingOverlayReplay = PendingApprovalOverlay | PendingQuestionOverlay
 
 /**
- * UI-facing session list row (SessionMeta of ARCHITECTURE.md section 5.4).
- * Derived from the vendored SessionSummary by the bridge: `title` is read from
- * the row's `title` projection (null when absent).
+ * UI-facing session list row.
+ *
+ * Derived by the bridge from a `session/list` row plus that session's cached
+ * `title` projection: 0.1.5-rc.2 removed the inline title from the list row, so
+ * the bridge assembles the two sources itself.
  */
 export interface SessionMeta {
   sessionId: SessionId
-  /** Session title from the projection baseline; null means "no title yet". */
+  /** Session title from the `title` projection; null means "no title yet". */
   title: string | null
   /** The later of creation and the latest human-authored prompt (epoch ms). */
   updatedAt: number
@@ -51,9 +112,13 @@ export interface SessionMeta {
 export interface InitPayload {
   /** Current VSCode workspace root (session ownership anchor). */
   cwd: string
-  /** dsh host app version reported by `host.describe`. */
-  hostVersion: string
-  /** Current configured/active port for dsh host. */
+  /**
+   * Current configured/active port for dsh host.
+   *
+   * The old payload also carried `hostVersion`, read from `host.describe`. That
+   * method is gone and no Remote method reports a host version, so the field was
+   * removed rather than left permanently empty.
+   */
   port?: number
   /**
    * Custom environment variables configured for the spawned dsh host
@@ -62,8 +127,12 @@ export interface InitPayload {
   env?: Record<string, string>
   /** Full session list; the webview filters by `cwd`. */
   sessions: SessionMeta[]
+  /** Workspace rows from the `workspace/follow` baseline, when one has arrived. */
+  workspaces?: WorkspaceView[]
+  /** Archived session ids from the same baseline. */
+  archivedSessionIds?: SessionId[]
   /**
-   * Answerable frames that arrived while no webview was attached (sidebar
+   * Answerable requests that arrived while no webview was attached (sidebar
    * hidden = webview disposed). Replayed so the takeover panel re-appears.
    */
   pendingOverlays?: PendingOverlayReplay[]
@@ -103,18 +172,27 @@ export type WebviewMessage =
    * host that is already running keeps its old environment.
    */
   | { type: 'set-env'; env: Record<string, string> }
-  /** Passthrough dsh RPC; `method` is e.g. `session.list`. Answered by `rpc-result`. */
+  /**
+   * Passthrough dsh Remote call; `method` is e.g. `session/list`, and `params`
+   * is the EXACT `args` object its descriptor declares.
+   */
   | { type: 'rpc'; id: string; method: string; params?: unknown }
   /**
-   * Answer an answerable frame (contract addition, ARCHITECTURE.md section 3
-   * revision 2). Approval/question requests are server-requests answered via
-   * POST /api/respond echoing the frame's rpcId; that rpcId never reaches the
-   * webview (the MuxFrame union does not carry it), so the webview correlates
-   * by `approvalId` / `sessionId` and the extension resolves the rpcId from
-   * the client's pending-request tables.
+   * Subscribe to one session journal. The host no longer broadcasts every
+   * session's events, so the extension opens a `session/follow` stream for the
+   * addressed session and forwards its frames on channel `session`.
+   * Opening a new address replaces the previous subscription.
    */
-  | { type: 'respond'; kind: 'approval'; approvalId: ApprovalRequestId; decision: 'allow-once' | 'refuse' }
-  | { type: 'respond'; kind: 'question'; sessionId: SessionId; answers: AskUserQuestionAnswerItem[] }
+  | { type: 'follow-session'; address: SessionAddress }
+  /** Stop the current `session/follow` subscription. */
+  | { type: 'unfollow-session' }
+  /**
+   * Answer a pending request. Both kinds are keyed by the `eventId` delivered
+   * with the request: it is the reply key `$events/result` accepts (the old
+   * `approvalId` / `sessionId` correlation is gone along with `POST /api/respond`).
+   */
+  | { type: 'respond'; kind: 'approval'; eventId: string; decision: 'allow-once' | 'refuse' }
+  | { type: 'respond'; kind: 'question'; eventId: string; answers: AskUserQuestionAnswerItem[] }
   /** Ask the extension host for IDE content (selection / active file). An
    * `id` turns the push into a request/response pair (send-time auto-inject);
    * without it the answer fans out to the fire-and-forget subscribers. */
@@ -152,8 +230,19 @@ export type ExtensionMessage =
   | { type: 'env-changed'; env: Record<string, string> }
   /** RPC answer paired by `id`. */
   | { type: 'rpc-result'; id: string; result?: unknown; error?: string }
-  /** dsh event stream passthrough. */
-  | { type: 'event'; channel: 'mux' | 'host'; frame: MuxFrame | HostFrame }
+  /** Host-wide queue/job/projection stream. */
+  | { type: 'event'; channel: 'control'; frame: SessionControlFrame }
+  /** Workspace set/order/archived stream. */
+  | { type: 'event'; channel: 'workspace'; frame: WorkspaceFollowFrame }
+  /** The followed session's journal. Every generation begins with a `snapshot`. */
+  | { type: 'event'; channel: 'session'; frame: SessionFollowFrame }
+  /** One sparse broadcast host event with its positional arguments. */
+  | { type: 'event'; channel: 'remote'; event: string; args: unknown[] }
+  /**
+   * One logical stream died. A dead stream does NOT drop the connection, so
+   * without this message the failure would be invisible.
+   */
+  | { type: 'stream-error'; scope: string; error: RpcError }
   /** Host lifecycle notification. */
   | { type: 'host-status'; status: HostStatus }
   /**

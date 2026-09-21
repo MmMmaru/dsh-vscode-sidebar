@@ -49,19 +49,31 @@ export interface SubagentCatalog {
   parentAvailable: boolean
 }
 
-/** Payload/value shapes of the subagent-domain RPC methods. */
+/** Payload/value shapes of the subagent-domain unary Remote methods (0.1.5-rc.2). */
 export interface SubagentsRpc {
-  'subagent.list': { payload: { parentSessionId: SessionId }; value: SubagentCatalog }
-  'subagent.history': {
-    payload: SubagentAddress & { beforeSeq?: number; maxMessages?: number }
-    value: { events: HistoryEntry[]; hasMore: boolean; projections?: SessionProjectionsBlock }
+  'subagents/list': { payload: { parentSessionId: SessionId }; value: SubagentCatalog }
+  /**
+   * Set `delivery` to `steer` to interrupt rather than queue. The old
+   * `subagent.history` is gone: a child's journal is read by opening
+   * `session/follow` with a `{kind:'subagent', …}` address.
+   */
+  'subagents/prompt': {
+    payload: {
+      request: {
+        /** Client-minted and required. */
+        requestId: string
+        parentSessionId: SessionId
+        childSessionId: SessionId
+        mode: 'continuable'
+        delivery: 'queue' | 'steer'
+        content: ContentBlock[]
+        clientTimeZone?: string
+      }
+    }
+    value: { messageId: MessageId }
   }
-  'subagent.prompt': {
-    payload: Extract<SubagentAddress, { mode: 'continuable' }> & { content: ContentBlock[]; clientTimeZone?: string }
-    value: SubagentPromptReceipt
-  }
-  'subagent.interrupt': {
-    payload: Extract<SubagentAddress, { mode: 'continuable' }>
-    value: SubagentInterruptReceipt
+  'subagents/interruptByParent': {
+    payload: { childSessionId: SessionId; parentSessionId: SessionId; mode: 'continuable' }
+    value: { accepted: true }
   }
 }

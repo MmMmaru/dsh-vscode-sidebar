@@ -1,20 +1,35 @@
 /**
- * Bridge client for the webview side (ARCHITECTURE.md section 5.1). Wraps
- * acquireVsCodeApi: rpc pairs requests with `rpc-result` by id, event/host
- * status subscriptions fan out, and waitInit resolves with the init payload
- * answering the `ready` handshake.
+ * Bridge client for the webview side. Wraps acquireVsCodeApi: rpc pairs requests
+ * with `rpc-result` by id, the four Remote channels fan out, and waitInit
+ * resolves with the init payload answering the `ready` handshake.
+ *
+ * MIGRATION NOTE (dsh 0.1.5-rc.2 / Typert Remote): the old `onEvent` callback
+ * received `(channel: 'mux' | 'host', frame)`, mirroring the two apiproxy
+ * sockets. Those sockets are gone; events now arrive on four distinct channels
+ * with unrelated payload shapes, so `onEvent` delivers a discriminated message
+ * instead of a loosely-typed frame. Answerable requests are keyed by `eventId`.
  */
 
-import type { ApprovalRequestId, SessionId } from '../extension/protocol/brand'
+import type { RpcError } from '../extension/protocol/rpc'
 import type { AskUserQuestionAnswerItem } from '../extension/protocol/events'
+import type { SessionAddress } from '../extension/protocol/follow'
 import type {
   ExtensionMessage,
   HostStatus,
   IdeContentKind,
   IdeContentPayload,
   InitPayload,
+  RemoteChannelMessage,
   WebviewMessage,
 } from '../shared/bridge'
+
+export type { RemoteChannelMessage }
+
+/** A logically dead stream, reported per scope. */
+export interface StreamFailure {
+  scope: string
+  error: RpcError
+}
 
 /** Minimal shape of the VSCode webview API object. */
 interface VsCodeApi {
@@ -44,14 +59,24 @@ const vscode = tryAcquireVsCodeApi()
  */
 export interface BridgeClient {
   rpc: <T = unknown>(method: string, params?: unknown) => Promise<T>
-  onEvent: (cb: (channel: 'mux' | 'host', frame: unknown) => void) => () => void
+  onEvent: (cb: (message: RemoteChannelMessage) => void) => () => void
   onHostStatus: (cb: (status: HostStatus) => void) => () => void
   onCommand: (cb: (command: 'newChat' | 'openSettings') => void) => () => void
   waitInit: () => Promise<InitPayload>
-  /** Answer a pending approval request (see the `respond` bridge message). */
-  respondApproval: (approvalId: ApprovalRequestId, decision: 'allow-once' | 'refuse') => Promise<void>
-  /** Answer a pending ask-user question batch. */
-  respondQuestion: (sessionId: SessionId, answers: AskUserQuestionAnswerItem[]) => Promise<void>
+  /**
+   * Subscribe to one session journal. The host no longer broadcasts every
+   * session's events, so this must be called when the viewed session changes;
+   * opening a new address replaces the previous subscription.
+   */
+  followSession: (address: SessionAddress) => void
+  /** Drop the current session-journal subscription. */
+  unfollowSession: () => void
+  /** Subscribe to logically-dead stream reports (the connection stays up). */
+  onStreamError: (cb: (failure: StreamFailure) => void) => () => void
+  /** Answer a pending approval request; `eventId` comes from the request itself. */
+  respondApproval: (eventId: string, decision: 'allow-once' | 'refuse') => Promise<void>
+  /** Answer a pending ask-user question batch; `eventId` comes from the request. */
+  respondQuestion: (eventId: string, answers: AskUserQuestionAnswerItem[]) => Promise<void>
   /** Subscribe to `ide-content` deliveries from the extension host. */
   onIdeContent: (cb: (content: IdeContentPayload) => void) => () => void
   /** Ask the extension host to read IDE content (selection / active file). */
@@ -87,7 +112,8 @@ interface PendingRpc {
 const pendingRpcs = new Map<string, PendingRpc>()
 const pendingIde = new Map<string, (content: IdeContentPayload) => void>()
 const pendingOpenFiles = new Map<string, { resolve: () => void; reject: (error: Error) => void }>()
-const eventListeners = new Set<(channel: 'mux' | 'host', frame: unknown) => void>()
+const eventListeners = new Set<(message: RemoteChannelMessage) => void>()
+const streamErrorListeners = new Set<(failure: StreamFailure) => void>()
 const statusListeners = new Set<(status: HostStatus) => void>()
 const commandListeners = new Set<(command: 'newChat' | 'openSettings') => void>()
 const ideContentListeners = new Set<(content: IdeContentPayload) => void>()
@@ -113,10 +139,11 @@ if (typeof window !== 'undefined') {
       case 'init': {
         initPayload = {
           cwd: message.cwd,
-          hostVersion: message.hostVersion,
           port: message.port,
           env: message.env,
           sessions: message.sessions,
+          workspaces: message.workspaces,
+          archivedSessionIds: message.archivedSessionIds,
           pendingOverlays: message.pendingOverlays,
         }
         for (const waiter of initWaiters.splice(0)) waiter(initPayload)
@@ -130,8 +157,19 @@ if (typeof window !== 'undefined') {
         else pending.resolve(message.result)
         break
       }
-      case 'event':
-        for (const cb of eventListeners) cb(message.channel, message.frame)
+      case 'event': {
+        const forwarded: RemoteChannelMessage = message.channel === 'remote'
+          ? { channel: 'remote', event: message.event, args: message.args }
+          : message.channel === 'control'
+            ? { channel: 'control', frame: message.frame }
+            : message.channel === 'workspace'
+              ? { channel: 'workspace', frame: message.frame }
+              : { channel: 'session', frame: message.frame }
+        for (const cb of eventListeners) cb(forwarded)
+        break
+      }
+      case 'stream-error':
+        for (const cb of streamErrorListeners) cb({ scope: message.scope, error: message.error })
         break
       case 'host-status':
         for (const cb of statusListeners) cb(message.status)
@@ -214,13 +252,37 @@ export function rpc<T = unknown>(method: string, params?: unknown): Promise<T> {
 }
 
 /**
- * Subscribe to the dsh event streams.
- * @param cb - receives (channel, frame) for every forwarded frame.
+ * Subscribe to the dsh Remote channels.
+ * @param cb - receives one discriminated message per forwarded channel frame.
  * @returns unsubscribe function.
  */
-export function onEvent(cb: (channel: 'mux' | 'host', frame: unknown) => void): () => void {
+export function onEvent(cb: (message: RemoteChannelMessage) => void): () => void {
   eventListeners.add(cb)
   return () => eventListeners.delete(cb)
+}
+
+/**
+ * Subscribe to logically-dead stream reports. The carrier stays up, so a dead
+ * `session/follow` would otherwise be invisible.
+ * @param cb - receives the failing scope and the host error.
+ * @returns unsubscribe function.
+ */
+export function onStreamError(cb: (failure: StreamFailure) => void): () => void {
+  streamErrorListeners.add(cb)
+  return () => streamErrorListeners.delete(cb)
+}
+
+/**
+ * Subscribe to one session journal, replacing any previous subscription.
+ * @param address - session or direct-subagent address to follow.
+ */
+export function followSession(address: SessionAddress): void {
+  vscode?.postMessage({ type: 'follow-session', address })
+}
+
+/** Drop the current session-journal subscription. */
+export function unfollowSession(): void {
+  vscode?.postMessage({ type: 'unfollow-session' })
 }
 
 /**
@@ -244,26 +306,25 @@ export function onCommand(cb: (command: 'newChat' | 'openSettings') => void): ()
 }
 
 /**
- * Answer a pending approval request via the `respond` bridge message; the
- * extension maps approvalId back to the frame's rpcId and POSTs /api/respond.
- * Resolves once the message is posted; the `approval/resolved` frame confirms.
- * @param approvalId - id from the `approval/requested` frame.
+ * Answer a pending approval request via the `respond` bridge message. `eventId`
+ * is the request's own correlation id — the key `$events/result` accepts.
+ * @param eventId - id carried by the pending approval.
  * @param decision - 'allow-once' or 'refuse'.
  */
-export function respondApproval(approvalId: ApprovalRequestId, decision: 'allow-once' | 'refuse'): Promise<void> {
+export function respondApproval(eventId: string, decision: 'allow-once' | 'refuse'): Promise<void> {
   if (vscode === null) return Promise.reject(new Error('vscode webview API unavailable (use the mock bridge)'))
-  vscode.postMessage({ type: 'respond', kind: 'approval', approvalId, decision })
+  vscode.postMessage({ type: 'respond', kind: 'approval', eventId, decision })
   return Promise.resolve()
 }
 
 /**
  * Answer a pending ask-user question batch via the `respond` bridge message.
- * @param sessionId - session the `question/requested` frame belongs to.
+ * @param eventId - id carried by the pending question batch.
  * @param answers - per-question answers keyed by question id.
  */
-export function respondQuestion(sessionId: SessionId, answers: AskUserQuestionAnswerItem[]): Promise<void> {
+export function respondQuestion(eventId: string, answers: AskUserQuestionAnswerItem[]): Promise<void> {
   if (vscode === null) return Promise.reject(new Error('vscode webview API unavailable (use the mock bridge)'))
-  vscode.postMessage({ type: 'respond', kind: 'question', sessionId, answers })
+  vscode.postMessage({ type: 'respond', kind: 'question', eventId, answers })
   return Promise.resolve()
 }
 

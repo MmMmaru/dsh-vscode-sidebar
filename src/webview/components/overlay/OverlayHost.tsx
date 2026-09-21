@@ -83,7 +83,7 @@ export function OverlayHost(): JSX.Element | null {
   if (pendingApproval !== null) {
     return (
       <ApprovalPanel
-        key={pendingApproval.approvalId}
+        key={pendingApproval.eventId}
         request={pendingApproval}
         command={approvalCommand(nodes, pendingApproval.callId)}
         onResolve={resolveApproval}

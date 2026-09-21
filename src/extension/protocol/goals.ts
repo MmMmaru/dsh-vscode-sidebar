@@ -43,6 +43,9 @@ export interface GoalSnapshot extends GoalRef {
 /**
  * Whole value of the `goal` projection: the current durable snapshot with its
  * replay counters. `null` is the pre-create/cleared state.
+ *
+ * UNCHANGED in 0.1.5-rc.2: the projection stays nested. Only the `goals/*` RPC
+ * values are flat {@link GoalView}s — do not conflate the two shapes.
  */
 export interface GoalProjection {
   readonly goal: GoalSnapshot
@@ -52,4 +55,24 @@ export interface GoalProjection {
   readonly createdAt: number
   /** Epoch milliseconds of the latest mutation. */
   readonly updatedAt: number
+}
+
+/** Process-local continuation eligibility of the current goal; never persisted. */
+export type GoalActivation = 'armed' | 'disarmed'
+
+/**
+ * Flat value returned by `goals/get` and by every mutating `goals/*` method
+ * except `create` (which answers a bare `{ref}`) and `clear` (which answers the
+ * cleared `GoalRef`). Deliberately differs from {@link GoalProjection}: the
+ * snapshot fields are inlined here and `activation` is present.
+ */
+export interface GoalView extends GoalSnapshot {
+  /** Highest admitted round number for this goal. */
+  readonly roundsStarted: number
+  /** Epoch milliseconds of the create mutation. */
+  readonly createdAt: number
+  /** Epoch milliseconds of the latest mutation. */
+  readonly updatedAt: number
+  /** Process-local continuation eligibility. */
+  readonly activation: GoalActivation
 }

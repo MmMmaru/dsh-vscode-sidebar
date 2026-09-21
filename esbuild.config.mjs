@@ -44,7 +44,10 @@ async function buildTests() {
     ...base,
     // Keep React's Node server entry and the renderer native; bundling their
     // CJS util imports into the ESM test artifact breaks Node's require shim.
-    external: [...base.external, 'react', 'react-dom/server', 'react-test-renderer'],
+    // `ws` joins them for the same reason: its CJS internals (`require('events')`)
+    // cannot be inlined into an ESM bundle, so the fake new-protocol host in
+    // tests/fake-remote-host.ts imports it from node_modules at run time.
+    external: [...base.external, 'react', 'react-dom/server', 'react-test-renderer', 'ws'],
     entryPoints: files.map((f) => `tests/${f}`),
     outdir: '.temp/test-dist',
     outExtension: { '.js': '.mjs' },

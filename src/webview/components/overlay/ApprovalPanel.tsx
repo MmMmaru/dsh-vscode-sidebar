@@ -39,7 +39,7 @@ export function ApprovalPanel({ request, command, onResolve }: ApprovalPanelProp
   }
 
   return (
-    <div className="ovl-card" data-approval-id={request.approvalId}>
+    <div className="ovl-card" data-approval-id={request.eventId}>
       <div className="ovl-strip"><span className="ovl-strip-dot" />Waiting for approval</div>
       {/* Tab stop: the region scrolls once the command passes the cap and holds
           nothing focusable of its own. */}

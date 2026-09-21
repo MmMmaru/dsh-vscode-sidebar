@@ -6,7 +6,6 @@
  */
 
 import type {
-  ApprovalRequestId,
   AttachmentId,
   CallId,
   MessageId,
@@ -162,18 +161,29 @@ export type TurnStatus = 'idle' | 'running'
 // Takeover overlays (approval / question / plan review)
 // ---------------------------------------------------------------------------
 
-/** A pending tool approval, straight from the `approval/requested` frame. */
+/**
+ * A pending tool approval, straight from an `approval/request` waterfall frame.
+ *
+ * `approvalId` became `eventId`: 0.1.5-rc.2 takes no separate approval
+ * identifier, because the waterfall frame's `eventId` IS the key that
+ * `$events/result` accepts.
+ */
 export interface ApprovalRequest {
+  /** The waterfall frame's `agentId`: the session id for ordinary sessions. */
   sessionId: SessionId
-  approvalId: ApprovalRequestId
+  /** Reply correlation id — the key `$events/result` accepts. */
+  eventId: string
   toolName: string
   callId?: CallId
   reason?: string
 }
 
-/** A pending ask-user batch, straight from the `question/requested` frame. */
+/** A pending ask-user batch, straight from a `user-questions/request` waterfall frame. */
 export interface QuestionRequest {
+  /** The waterfall frame's `agentId`: the session id for ordinary sessions. */
   sessionId: SessionId
+  /** Reply correlation id — the key `$events/result` accepts. */
+  eventId: string
   questions: AskUserQuestionItem[]
 }
 
@@ -205,8 +215,15 @@ export interface QueuedMessage {
   placement: QueuedInboxItem['placement']
   /** Flattened plain-text preview of the message content. */
   text: string
-  /** The full pending message, for editors that need the blocks. */
-  message: Message
+  /**
+   * The pending message as the host mirrors it in `SessionQueuedItem`.
+   *
+   * This is deliberately NOT a full `Message`: the wire sends only `{id,
+   * content}` for a queued item, with no role or source, so consumers must not
+   * assume those are present. Previously typed as `Message`, which forced a
+   * double cast at the only construction site.
+   */
+  message: { id: MessageId; content: ContentBlock[] }
 }
 
 /** One selectable model, flattened from its provider group (ModelCatalogModel). */

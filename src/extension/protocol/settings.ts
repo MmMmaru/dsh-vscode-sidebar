@@ -83,40 +83,95 @@ export interface DiscoveredModelView {
   maxTokens?: number
 }
 
-/** Payload/value shapes of the settings/credentials/llm RPC methods. */
+/** Payload/value shapes of the settings-domain unary Remote methods (0.1.5-rc.2). */
 export interface SettingsRpc {
-  'settings.describe': {
+  'settings/describe': {
     payload: Record<string, never>
     value: { writable: boolean; hasDocument: boolean; namespaces: SettingsNamespaceView[] }
   }
-  'settings.openDocument': { payload: Record<string, never>; value: { opened: true } }
-  'settings.update': {
+  /** Was `settings.openDocument` before the rename. */
+  'settings/openSettingsDocument': { payload: Record<string, never>; value: { opened: true } }
+  'settings/update': {
     payload: { ns: string; patch: object; expectedRevision?: number }
     value: SettingsNamespaceView
   }
-  'settings.replace': {
+  'settings/replace': {
     payload: { ns: string; section: object; expectedRevision?: number }
     value: SettingsNamespaceView
   }
-  'settings.mutate': {
+  'settings/mutate': {
     payload: { ns: string; ops: SettingsPathOpView[]; expectedRevision?: number }
     value: SettingsNamespaceView
   }
-}
-
-/** Payload/value shapes of the credentials-domain RPC methods. */
-export interface CredentialsRpc {
-  'credentials.describe': { payload: { refs: string[] }; value: { credentials: Record<string, CredentialView> } }
-  'credentials.set': { payload: { ref: string; value: string }; value: Record<string, never> }
-  'credentials.unset': { payload: { ref: string }; value: Record<string, never> }
-}
-
-/** Payload/value shapes of the llm-domain RPC methods. */
-export interface LlmRpc {
-  'llm.providers': { payload: Record<string, never>; value: { providers: ConfigurableProviderView[] } }
-  'llm.models': { payload: Record<string, never>; value: { groups: ModelProviderGroup[]; failures: ModelCatalogFailure[] } }
-  'llm.discoverModels': {
-    payload: { settingsNs: string; provider?: string; baseURL?: string; api?: string; apiKey?: string }
-    value: { models: DiscoveredModelView[] }
+  'settings/canOpenAgentPresetDirectory': { payload: Record<string, never>; value: boolean }
+  'settings/openAgentPresetDirectory': {
+    payload: { agentPreset: string }
+    value: { opened: true } | { opened: false; path: string }
   }
+}
+
+/**
+ * Payload/value shapes of the credentials-domain unary Remote methods.
+ *
+ * `credentials/describe` answers the record DIRECTLY — the old
+ * `{credentials: {...}}` wrapper is gone. `set` and `unset` answer `void`, so a
+ * successful response omits the `value` key entirely.
+ */
+export interface CredentialsRpc {
+  'credentials/describe': { payload: { refs: string[] }; value: Record<string, CredentialView> }
+  'credentials/set': { payload: { ref: string; value: string }; value: void }
+  'credentials/unset': { payload: { ref: string }; value: void }
+}
+
+/** One configured provider route as `llm/listProviders` reports it. */
+export interface LlmProviderView {
+  readonly id: string
+  readonly name: string
+}
+
+/**
+ * Payload/value shapes of the llm-domain unary Remote methods.
+ *
+ * The catalog list answers a BARE ARRAY: the old `{providers: [...]}` and
+ * `{groups, failures}` wrappers are gone. The full model catalog moved to
+ * `session/modelCatalog` (see ./sessions).
+ */
+export interface LlmRpc {
+  'llm/listProviders': { payload: Record<string, never>; value: LlmProviderView[] }
+  'llm/listConfigurableProviders': { payload: Record<string, never>; value: ConfigurableProviderView[] }
+  'llm/discoverModels': {
+    payload: {
+      settingsNs: string
+      /** The draft endpoint fields were nested under `request` in 0.1.5-rc.2. */
+      request: { provider?: string; baseURL?: string; api?: string; apiKey?: string }
+    }
+    value: DiscoveredModelView[]
+  }
+}
+
+/** One agent preset as the presets list reports it. */
+export interface AgentPresetEntry {
+  readonly id: string
+  readonly trust: 'system' | 'user'
+  readonly isDefault: boolean
+  readonly name?: string
+  readonly description?: string
+  /** Present when the preset failed to compose; the reason text. */
+  readonly broken?: string
+}
+
+/** Payload/value shapes of the agent-preset-domain unary Remote methods. */
+export interface AgentPresetsRpc {
+  'agentPresets/list': {
+    payload: Record<string, never>
+    value: { presets: AgentPresetEntry[]; authorable: boolean }
+  }
+  'agentPresets/read': {
+    payload: { agentPreset: string }
+    value: { agentPreset: string; trust: 'system' | 'user'; content: string; name?: string; description?: string }
+  }
+  /** Selects the preset for one agent; answers the accepted preset id. */
+  'agentPresets/select': { payload: { agentId: string; agentPreset: string }; value: string }
+  'agentPresets/copy': { payload: { from: string; id: string; name?: string }; value: void }
+  'agentPresets/deletePreset': { payload: { id: string }; value: void }
 }

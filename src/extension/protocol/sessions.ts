@@ -1,9 +1,11 @@
 /**
  * Vendored protocol types from deepseek-harness.
- * Source commit: 47f943859bef60e4160492346772ded9b24f765a
- * Source: packages/host/apiproxy/src/api/sessions.ts
- * Session-domain payload/value types. Method signatures upstream are the source
- * of truth; here only the payload/value shapes are kept (see rpc-map.ts).
+ * Source commit: dsh 0.1.5-rc.2 (Typert Remote / api-gateway).
+ * Sources (built install):
+ *   dsh-api-session-controller/lib/types/{types,index}.d.ts
+ * Session-domain payload/value types. The upstream descriptors are the source of
+ * truth for wire names; here only the payload/value shapes are kept (see
+ * rpc-map.ts).
  * Simplification: SessionProjectionMap (merge-extensible upstream) is flattened
  * to a `Record<string, unknown>`-style partial map with the known keys.
  */
@@ -19,6 +21,7 @@ import type {
 import type { GoalProjection } from './goals'
 import type { SessionEvent } from './session'
 import type { ToolEventView } from './events'
+import type { SessionAddress, SessionPageValue } from './follow'
 
 /** Persisted hints used to summarize a cold session without reading a large log. */
 export interface SessionListMetadata {
@@ -29,14 +32,30 @@ export interface SessionListMetadata {
 }
 
 /**
- * Known session projection keys. `title` (string) rides the generic projection
- * pair; `sessionListMetadata` and `imageLimits` are documented upstream.
- * Unknown keys remain accessible via the index signature.
+ * Client view of the durable model-selection fold (projection key
+ * `modelSelection`). Replaces the retired `session.models.current`: the route a
+ * session will use next is `next ?? lastUsed`.
+ */
+export interface ModelSelectionProjection {
+  /** Selection consumed by the latest recorded model request. */
+  readonly lastUsed: ModelSelection | null
+  /** Selection the next request should use, falling back to `lastUsed`. */
+  readonly next: ModelSelection | null
+}
+
+/**
+ * Known session projection keys. Keys beyond this list stay reachable through
+ * the index signature; an absent key means the projection unit is not mounted.
  */
 export interface SessionProjectionValues {
-  title?: string
+  /** Latest normalized session title; null before the first title lands. */
+  title?: string | null
   sessionListMetadata?: SessionListMetadata
   imageLimits?: ImageAttachmentLimits
+  /** Durable model selection for the next request (replaces `session.models.current`). */
+  modelSelection?: ModelSelectionProjection
+  /** Agent preset this session's agent was composed from. */
+  agentPreset?: string | null
   /** Whole-log turn/step counts and wall times (session-stats unit). */
   sessionStats?: SessionStatsProjection
   /** Provider-reported usage across the durable log (token-meter unit). */
@@ -148,6 +167,28 @@ export interface SessionModels {
   failures: ModelCatalogFailure[]
 }
 
+/**
+ * Host-wide model catalog returned by `session/modelCatalog`.
+ *
+ * Replaces both the retired `session.models` and `llm.models`. Two differences
+ * from `SessionModels` matter to consumers:
+ *   - `default` is the host's configured default route (which the retired
+ *     `host.describe` used to supply), not a per-session selection; the
+ *     per-session selection now arrives as the `modelSelection` projection.
+ *   - `routableProviders` is a flat provider-id list, not the previous
+ *     boolean pair.
+ */
+export interface SessionModelCatalog {
+  /** Host-configured default route used when a session selects none. */
+  default: ModelSelection
+  /** Provider ids the host can currently route to. */
+  routableProviders: string[]
+  /** Successfully loaded provider groups. */
+  groups: ModelProviderGroup[]
+  /** Provider-local failures; successful groups remain usable. */
+  failures: ModelCatalogFailure[]
+}
+
 /** A client-requested mutation of one still-pending queue item. */
 export type QueueAction =
   | { kind: 'edit'; content: ContentBlock[] }
@@ -182,33 +223,73 @@ export interface SessionSearchItem {
   snippet: string
 }
 
-/** Payload/value shapes of the session-domain RPC methods. */
+/** Payload/value shapes of the session-domain unary Remote methods (0.1.5-rc.2). */
 export interface SessionRpc {
-  'session.list': { payload: { cursor?: string }; value: { items: SessionSummary[] } }
-  'session.search': { payload: { query: string }; value: { items: SessionSearchItem[]; hasMore: boolean } }
-  'session.create': {
-    payload: { workspaceId?: WorkspaceId; cwd?: string; sessionId?: SessionId; agentPreset?: string }
+  /**
+   * The only method whose wire parameter is not named `request`: the upstream
+   * signature is `list(_request: SessionListRequest)`, and `args` must carry the
+   * exact descriptor name, so the payload key is literally `_request`.
+   */
+  'session/list': { payload: { _request: { cursor?: string } }; value: { items: SessionSummary[] } }
+  'session/create': {
+    payload: { request: { workspaceId?: WorkspaceId; cwd?: string; sessionId?: SessionId; agentPreset?: string } }
     value: { sessionId: SessionId; agentPreset?: string }
   }
-  'session.history': {
-    payload: { sessionId: SessionId; beforeSeq?: number; maxMessages?: number }
-    value: { events: HistoryEntry[]; hasMore: boolean; projections?: SessionProjectionsBlock }
+  /** Backward paging of one addressed journal; `throughSeq` comes from the follow snapshot `cursor`. */
+  'session/page': {
+    payload: { request: { address: SessionAddress; throughSeq: number; beforeSeq?: number; maxMessages?: number } }
+    value: SessionPageValue
   }
-  'session.models': { payload: { sessionId: SessionId }; value: SessionModels }
-  'session.selectModel': {
-    payload: { sessionId: SessionId; provider: string; model: string; reasoningEffort?: string }
+  /** Host-wide model catalog; replaces both `session.models` and `llm.models`. Takes no arguments. */
+  'session/modelCatalog': { payload: Record<string, never>; value: SessionModelCatalog }
+  'session/selectModel': {
+    payload: { request: { sessionId: SessionId; provider: string; model: string; reasoningEffort?: string } }
     value: { selected: ModelSelection }
   }
-  'session.rename': { payload: { sessionId: SessionId; title: string }; value: { title: string; seq: number } }
-  'session.fork': { payload: { sessionId: SessionId; atSeq?: number }; value: { sessionId: SessionId } }
-  'session.prompt': {
-    payload: { sessionId: SessionId; mode: 'queue' | 'steer'; content: PromptContentPart[]; clientTimeZone?: string }
-    value: { accepted: true; command?: { kind: 'success'; text?: string } }
+  'session/rename': {
+    payload: { request: { sessionId: SessionId; title: string } }
+    value: { title: string; seq: number }
   }
-  'session.attachment': {
-    payload: { sessionId: SessionId; attachmentId: AttachmentId }
+  'session/fork': { payload: { request: { sessionId: SessionId; atSeq?: number } }; value: { sessionId: SessionId } }
+  'session/prompt': {
+    payload: {
+      request: {
+        /** Client-minted and required in 0.1.5-rc.2; echoed by the queue/command events. */
+        requestId: string
+        sessionId: SessionId
+        mode: 'queue' | 'steer'
+        content: PromptContentPart[]
+        clientTimeZone?: string
+      }
+    }
+    /** The old `command` field is gone: slash commands report through `commands/execute`. */
+    value: { accepted: true }
+  }
+  'session/attachment': {
+    payload: { request: { sessionId: SessionId; attachmentId: AttachmentId } }
     value: { attachment: ImageAttachmentRef; data: string }
   }
-  'session.updateQueue': { payload: { sessionId: SessionId; itemId: MessageId; action: QueueAction }; value: { accepted: true } }
-  'session.cancel': { payload: { sessionId: SessionId }; value: { accepted: true } }
+  'session/updateQueue': {
+    payload: { request: { sessionId: SessionId; itemId: MessageId; action: QueueAction } }
+    value: { accepted: true }
+  }
+  'session/cancel': { payload: { request: { sessionId: SessionId } }; value: { accepted: true } }
+  'session/openWorkspacePath': {
+    payload: { request: { path: string; action?: 'reveal' } }
+    value: { opened: true }
+  }
+  'session/canOpenWorkspacePath': { payload: Record<string, never>; value: boolean }
+}
+
+/**
+ * Parameters of the session-domain stream methods. Streams are not unary, so
+ * they stay out of {@link RpcMethodMap}; the client opens them on the mux
+ * carrier with these args and consumes {@link import('./follow').SessionFollowFrame}
+ * / {@link import('./follow').SessionControlFrame}.
+ */
+export interface SessionStreamMap {
+  /** One addressed session's durable journal plus live events. */
+  'session/follow': { request: { address: SessionAddress; maxMessages?: number; assistantStream?: true } }
+  /** Host-wide queues, jobs, and projection values. Takes no arguments. */
+  'session/control': Record<string, never>
 }

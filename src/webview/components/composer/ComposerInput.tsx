@@ -197,7 +197,7 @@ export function ComposerInput({
     if (sessionId === null || skillsLoadedFor.current === sessionId) return
     skillsLoadedFor.current = sessionId
     let stale = false
-    void rpc<{ skills: SkillEntry[] }>('skill.list', { sessionId })
+    void rpc<{ skills: SkillEntry[] }>('skills/list', { request: { sessionId } })
       .then((res) => { if (!stale) setSkills(res.skills) })
       .catch(() => { skillsLoadedFor.current = null })
     return () => { stale = true }

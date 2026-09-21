@@ -8,6 +8,7 @@
 
 import type { StateCreator } from 'zustand'
 import type {
+  AgentPresetEntry,
   ConfigurableProviderView,
   CredentialView,
   SettingsNamespaceView,
@@ -17,26 +18,17 @@ import { openSettingsTab, rpc } from '../bridge'
 import type { PermissionMode } from '../types'
 import type { AppStore } from './index'
 
-/** Result of settings.describe. */
+/** Result of `settings/describe`. */
 interface SettingsDescribeResult {
   writable: boolean
   hasDocument: boolean
   namespaces: SettingsNamespaceView[]
 }
 
-/**
- * One agent preset row from agentPreset.list. The vendored protocol copy omits
- * the agent-preset domain (see protocol/rpc-map.ts), so the wire view is
- * declared here against upstream packages/host/apiproxy/src/api/agent-presets.ts.
- */
-export interface AgentPresetEntry {
-  id: string
-  trust: 'system' | 'user'
-  isDefault: boolean
-  name?: string
-  description?: string
-  /** Why the preset cannot compose a session, when broken. */
-  broken?: string
+/** Result of `agentPresets/list`. */
+interface AgentPresetsListResult {
+  presets: AgentPresetEntry[]
+  authorable: boolean
 }
 
 /** UI preferences of the General section (language / appearance / Enter / permission). */
@@ -213,13 +205,13 @@ export const createSettingsSlice: StateCreator<AppStore, [], [], SettingsSlice> 
 
   loadSettings: async () => {
     const [described, providers, roster] = await Promise.all([
-      rpc<SettingsDescribeResult>('settings.describe', {}),
-      rpc<{ providers: ConfigurableProviderView[] }>('llm.providers', {}),
-      rpc<{ presets: AgentPresetEntry[]; authorable: boolean; hasDocument: boolean }>('agentPreset.list', {}),
+      rpc<SettingsDescribeResult>('settings/describe', {}),
+      rpc<ConfigurableProviderView[]>('llm/listConfigurableProviders', {}),
+      rpc<AgentPresetsListResult>('agentPresets/list', {}),
     ])
-    const refs = providers.providers.map((p) => deriveKeyRef(p.provider))
-    const credentialViews = await rpc<{ credentials: Record<string, CredentialView> }>(
-      'credentials.describe',
+    const refs = providers.map((p) => deriveKeyRef(p.provider))
+    const credentialViews = await rpc<Record<string, CredentialView>>(
+      'credentials/describe',
       { refs },
     )
     // Resolve each UI preference: a writable settings namespace wins; otherwise
@@ -244,8 +236,8 @@ export const createSettingsSlice: StateCreator<AppStore, [], [], SettingsSlice> 
     set({
       namespaces: described.namespaces,
       settingsWritable: described.writable,
-      providers: providers.providers,
-      credentials: credentialViews.credentials,
+      providers,
+      credentials: credentialViews,
       presets: roster.presets,
       defaultPresetId: roster.presets.find((p) => p.isDefault)?.id ?? roster.presets[0]?.id ?? '',
       uiPrefs,
@@ -254,22 +246,22 @@ export const createSettingsSlice: StateCreator<AppStore, [], [], SettingsSlice> 
   },
 
   updateSettings: async (ns, patch, expectedRevision) => {
-    const updated = await rpc<SettingsNamespaceView>('settings.update', { ns, patch, expectedRevision })
+    const updated = await rpc<SettingsNamespaceView>('settings/update', { ns, patch, expectedRevision })
     set({ namespaces: get().namespaces.map((n) => (n.ns === ns ? updated : n)) })
   },
 
   mutateSettings: async (ns, ops, expectedRevision) => {
-    const updated = await rpc<SettingsNamespaceView>('settings.mutate', { ns, ops, expectedRevision })
+    const updated = await rpc<SettingsNamespaceView>('settings/mutate', { ns, ops, expectedRevision })
     set({ namespaces: get().namespaces.map((n) => (n.ns === ns ? updated : n)) })
   },
 
   setCredential: async (ref, value) => {
-    await rpc('credentials.set', { ref, value })
+    await rpc('credentials/set', { ref, value })
     set({ credentials: { ...get().credentials, [ref]: { configured: true, writable: true } } })
   },
 
   unsetCredential: async (ref) => {
-    await rpc('credentials.unset', { ref })
+    await rpc('credentials/unset', { ref })
     set({ credentials: { ...get().credentials, [ref]: { configured: false, writable: true } } })
   },
 
@@ -299,7 +291,7 @@ export const createSettingsSlice: StateCreator<AppStore, [], [], SettingsSlice> 
     const binding = UI_PREF_BINDINGS.permissionMode
     let mode: PermissionMode | undefined
     try {
-      const described = await rpc<SettingsDescribeResult>('settings.describe', {})
+      const described = await rpc<SettingsDescribeResult>('settings/describe', {})
       const ns = described.namespaces.find((n) => n.ns === binding.ns)
       if (described.writable && ns !== undefined) {
         set({ uiPrefSources: { ...get().uiPrefSources, permissionMode: 'settings' } })
@@ -318,8 +310,8 @@ export const createSettingsSlice: StateCreator<AppStore, [], [], SettingsSlice> 
     // The default is a settings field; the host resolves it at session creation.
     const ns = get().namespaces.find((n) => n.ns === 'agent-presets')
     await get().updateSettings('agent-presets', { default: id }, ns?.revision)
-    const roster = await rpc<{ presets: AgentPresetEntry[]; authorable: boolean; hasDocument: boolean }>(
-      'agentPreset.list',
+    const roster = await rpc<AgentPresetsListResult>(
+      'agentPresets/list',
       {},
     )
     set({ presets: roster.presets, defaultPresetId: roster.presets.find((p) => p.isDefault)?.id ?? id })

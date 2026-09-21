@@ -13,9 +13,8 @@ import * as os from 'node:os'
 import * as path from 'node:path'
 import * as crypto from 'node:crypto'
 import type * as vscode from 'vscode'
-import type { ClientRequest, ServerResponse } from './protocol/rpc'
+import type { ServerResponse } from './protocol/rpc'
 import { RpcId } from './protocol/rpc'
-import type { HostDescription } from './protocol/host'
 
 const execFileAsync = promisify(execFile)
 
@@ -55,16 +54,28 @@ export interface HostInfo {
   cookie?: string
 }
 
-/** dsh package used when no `dsh` binary is on PATH. */
-const DSH_PACKAGE = '@deepseek-ai/dsh@0.1.0-rc.6'
 /**
- * Compatible host version prefixes (mirrors package.json `dsh.compatibleVersionPrefixes`).
- * Note: the published 0.1.0-rc.6 npm package reports app version "0.0.1" from
- * host.describe, while a dev/PATH dsh reports its real "0.1.*" version.
+ * dsh package used when no `dsh` binary is on PATH.
+ * Pinned to the release whose Typert Remote surface this plugin speaks; it was
+ * npm `latest` when the migration was written. An older pin would spawn a host
+ * that still serves `apiproxy` and answers 404 to every call this plugin makes.
  */
-const COMPATIBLE_VERSION_PREFIXES = ['0.1.', '0.0.1']
-/** Health-check RPC (the only probe endpoint; never invent others). */
-const PROBE_METHOD = 'host.describe'
+const DSH_PACKAGE = '@deepseek-ai/dsh@0.1.5-rc.2'
+/**
+ * Capability probe endpoints, tried in order.
+ *
+ * The retired `host.describe` no longer exists: 0.1.5-rc.2 removed the entire
+ * `host` namespace and exposes no method that reports a host version. Liveness is
+ * therefore established by CAPABILITY — both endpoints below exist only on the
+ * Typert Remote gateway, so a listener that answers one is a host this plugin can
+ * actually talk to. An apiproxy-era host answers 404 to both.
+ */
+const PROBE_ENDPOINTS: readonly { method: string; payload: unknown }[] = [
+  { method: 'settings/describe', payload: { args: {} } },
+  { method: 'session/list', payload: { args: { _request: {} } } },
+]
+/** Endpoint used by the compatibility check; proves the session controller is mounted. */
+const CAPABILITY_METHOD = 'session/list'
 /** Ports scanned in order starting from basePort. */
 const PORT_SCAN_LIMIT = 10
 /** Per-probe HTTP deadline; a hung listener must not stall startup. */
@@ -142,23 +153,23 @@ export class HostManager {
   }
 
   /**
-   * Probe one port for a dsh host: POST /api/host.describe or /api/settings/describe and accept only a
-   * well-formed ok ServerResponse.
+   * Probe one port for a dsh host that speaks the Typert Remote protocol.
+   *
+   * Accepts only a well-formed `ok` ServerResponse from one of
+   * {@link PROBE_ENDPOINTS}. The retired `host.describe` probe is deliberately
+   * gone: on 0.1.5-rc.2 it answers 404, so keeping it would make every live host
+   * look dead.
    * @param port - loopback port to probe.
    * @param token - optional Bearer auth token.
-   * @returns true when a dsh host answered the health check.
+   * @returns true when a compatible dsh host answered the capability check.
    */
   async probe(port: number, token?: string): Promise<boolean> {
     const authority = `127.0.0.1:${port}`
     const cookie = getLocalDshCookie(authority)
-    const probeEndpoints = [
-      { method: PROBE_METHOD, payload: {} },
-      { method: 'settings/describe', payload: { args: {} } },
-    ]
 
-    for (const ep of probeEndpoints) {
+    for (const ep of PROBE_ENDPOINTS) {
       try {
-        const request: ClientRequest = {
+        const request = {
           type: 'client-request',
           rpcId: RpcId(crypto.randomUUID()),
           method: ep.method,
@@ -183,7 +194,7 @@ export class HostManager {
           return true
         }
       } catch {
-        // try next probe endpoint
+        // Not this endpoint; try the next capability probe.
       }
     }
     return false
@@ -258,17 +269,28 @@ export class HostManager {
   }
 
   /**
-   * Read the host version via host.describe and compare it with the plugin's
-   * declared compatible prefixes (COMPATIBLE_VERSION_PREFIXES).
+   * Check that the host can serve the Remote surface this plugin is built on.
+   *
+   * MIGRATION NOTE: this used to read a version string from `host.describe` and
+   * compare it against compatible prefixes. That mechanism is gone — 0.1.5-rc.2
+   * has no `host` namespace and no Remote method returns a version. It also had a
+   * worse failure mode than it looked: the old fallback treated ANY HTTP 200 from
+   * `/api/settings/describe` as "compatible" without reading the body, so against
+   * a gateway host it always reported success and the real failure surfaced much
+   * later as a generic "DSH 初始化失败".
+   *
+   * The check is therefore now a real capability call: `session/list` must answer
+   * a well-formed `ok` result. That transitively proves the gateway, the session
+   * controller, and credential acceptance all work.
    * @param info - the host to interrogate.
-   * @returns a warning message when the version matches no prefix, else null.
+   * @returns an actionable warning message when incompatible, else null.
    */
   async checkVersion(info: HostInfo): Promise<string | null> {
-    const request: ClientRequest = {
+    const request = {
       type: 'client-request',
       rpcId: RpcId(crypto.randomUUID()),
-      method: PROBE_METHOD,
-      payload: {},
+      method: CAPABILITY_METHOD,
+      payload: { args: { _request: {} } },
     }
     const headers: Record<string, string> = { 'content-type': 'application/json' }
     if (info.token) {
@@ -277,28 +299,37 @@ export class HostManager {
     if (info.cookie) {
       headers['Cookie'] = info.cookie
     }
-    const response = await fetch(`http://127.0.0.1:${info.port}/api/${PROBE_METHOD}`, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify(request),
-      signal: AbortSignal.timeout(5000),
-    })
-    if (!response.ok) {
-      // If host.describe doesn't exist (e.g., 0.1.5+ with Typert gateway), verify with settings/describe
-      const altResponse = await fetch(`http://127.0.0.1:${info.port}/api/settings/describe`, {
+    let response: Response
+    try {
+      response = await fetch(`http://127.0.0.1:${info.port}/api/${CAPABILITY_METHOD}`, {
         method: 'POST',
         headers,
-        body: JSON.stringify({ type: 'client-request', rpcId: request.rpcId, method: 'settings/describe', payload: { args: {} } }),
-        signal: AbortSignal.timeout(5000),
+        body: JSON.stringify(request),
+        signal: AbortSignal.timeout(PROBE_TIMEOUT_MS),
       })
-      if (altResponse.ok) return null
-      return `无法读取 dsh 版本（HTTP ${response.status}），请确认 dsh 已正常启动`
+    } catch (error) {
+      return `无法连接 dsh（${error instanceof Error ? error.message : String(error)}），请确认 dsh 已正常启动`
     }
-    const body = (await response.json()) as ServerResponse
-    if (!body.result.ok) return `host.describe 失败：${body.result.error.message}`
-    const description = body.result.value as HostDescription
-    if (!COMPATIBLE_VERSION_PREFIXES.some((prefix) => description.version.startsWith(prefix))) {
-      return `dsh 版本 ${description.version} 与插件兼容范围 ${COMPATIBLE_VERSION_PREFIXES.join(' / ')}* 不匹配，请升级 dsh`
+    if (response.status === 401 || response.status === 403) {
+      return `dsh 拒绝了凭据（HTTP ${response.status}），请检查 ~/.dsh/.credentials.yaml 的 browser-session 授权`
+    }
+    if (response.status === 404) {
+      return `dsh 未提供 Typert Remote 接口（${CAPABILITY_METHOD} 返回 404）：该 dsh 版本过旧（apiproxy 已在 0.1.2-rc.1 移除），请升级 dsh`
+    }
+    if (!response.ok) {
+      return `dsh 应答异常（HTTP ${response.status}），请确认 dsh 已正常启动`
+    }
+    let body: ServerResponse
+    try {
+      body = (await response.json()) as ServerResponse
+    } catch {
+      return `dsh 应答不是合法的 JSON（HTTP ${response.status}），请确认 dsh 已正常启动`
+    }
+    if (body.type !== 'server-response') {
+      return 'dsh 应答信封不合法（缺少 server-response），请升级 dsh'
+    }
+    if (!body.result.ok) {
+      return `${CAPABILITY_METHOD} 调用失败：${body.result.error.message}`
     }
     return null
   }

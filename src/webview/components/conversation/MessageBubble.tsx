@@ -31,9 +31,8 @@ function AttachmentImage(props: { attachment: ImageAttachmentRef }): JSX.Element
   useEffect(() => {
     if (activeSessionId === null) return
     let alive = true
-    rpc<{ attachment: ImageAttachmentRef; data: string }>('session.attachment', {
-      sessionId: activeSessionId,
-      attachmentId: props.attachment.attachmentId,
+    rpc<{ attachment: ImageAttachmentRef; data: string }>('session/attachment', {
+      request: { sessionId: activeSessionId, attachmentId: props.attachment.attachmentId },
     })
       .then((res) => {
         if (alive) setSrc(`data:${res.attachment.mediaType};base64,${res.data}`)

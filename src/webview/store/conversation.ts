@@ -1,16 +1,44 @@
 /**
- * Conversation slice (owned by W3). Projects mux frames into the renderable
- * ConversationNode[] stream. applyMuxFrame is the frozen projector entry of
- * ARCHITECTURE.md section 5.2; it handles session/event + session/projection
- * frames here, snapshots the session/jobs frame into activeJobs, and ignores
- * overlay/queue frames (routed to their own slices by store/index.ts). It
- * also owns the subagent catalog of the active session (subagent.list /
- * subagent.interrupt).
+ * Conversation slice (owned by W3). Projects the session journal into the
+ * renderable ConversationNode[] stream. `applySessionFrame` is the frozen
+ * projector entry of ARCHITECTURE.md section 5.2; the slice also owns the
+ * subagent catalog of the active session (`subagents/list` /
+ * `subagents/interruptByParent`).
+ *
+ * MIGRATION NOTE (dsh 0.1.5-rc.2 / Typert Remote): the retired apiproxy
+ * protocol broadcast every session's `session/event` frames over one socket, so
+ * this slice demultiplexed them itself. The journal is now a per-session
+ * `session/follow` stream that the extension opens for whichever session the
+ * webview is viewing and forwards on the `session` bridge channel. Three
+ * consequences shape this file:
+ *
+ *   - The stream is GENERATION-SCOPED. Every (re)open — first subscribe,
+ *     carrier loss, host restart — begins with a `snapshot` frame whose records
+ *     ARE the whole log window: it FULLY REPLACES the transcript. Only the
+ *     `event` frames after it append and update incrementally. Folding a
+ *     snapshot as an increment would duplicate the entire history on every
+ *     reconnect.
+ *   - Token-by-token assistant rendering is gone. The host offers incremental
+ *     chunks only through the optional `assistantStream` mode, which this
+ *     plugin deliberately does NOT request, so no `assistant/chunk` event and
+ *     no `assistant-stream` frame ever reaches the webview. Text and reasoning
+ *     are built from the settled `assistant/message` events instead: a step's
+ *     content appears once, complete, when the step's message lands.
+ *   - Queues, background jobs and projection values moved out of the session
+ *     channel onto the Host-wide `session/control` stream (the `control` bridge
+ *     channel): see `applyConversationProjection` / `applyConversationControl`.
  */
 
 import type { StateCreator } from 'zustand'
 import type { CallId, SessionId } from '../../extension/protocol/brand'
-import type { MuxFrame, ToolEventView } from '../../extension/protocol/events'
+import type {
+  SessionAddress,
+  SessionControlFrame,
+  SessionControlProjectionFrame,
+  SessionFollowFrame,
+  SessionPageValue,
+  SessionWireEvent,
+} from '../../extension/protocol/follow'
 import type { ContentBlock, TokenUsage } from '../../extension/protocol/llm'
 import type {
   ContextBreakdownProjection,
@@ -18,8 +46,8 @@ import type {
   SessionStatsProjection,
   TokenUsageProjection,
 } from '../../extension/protocol/projections'
-import type { SessionEvent } from '../../extension/protocol/session'
-import type { SessionRpc } from '../../extension/protocol/sessions'
+import type { SessionEvent, SessionEventType } from '../../extension/protocol/session'
+import type { SessionProjectionsBlock } from '../../extension/protocol/sessions'
 import type {
   SubagentCatalog,
   SubagentInterruptReceipt,
@@ -39,8 +67,6 @@ import type {
   UserMessageNode,
 } from '../types'
 import type { AppStore } from './index'
-
-type HistoryResult = SessionRpc['session.history']['value']
 
 /** Parsed IDE-context block appended to a prompt (selection or file path). */
 export interface IdeBlockHint {
@@ -81,6 +107,18 @@ export interface ConversationSlice {
   nodes: ConversationNode[]
   /** True when earlier history pages exist (Load older). */
   hasMoreHistory: boolean
+  /**
+   * Inclusive log cut the current window ends at — the `session/follow`
+   * snapshot's `cursor`. Every `session/page` call carries it so a page and the
+   * live tail share one cut; null until a snapshot of the active session lands.
+   */
+  historyCursor: number | null
+  /**
+   * Session whose `session/follow` snapshot built the current nodes. Event
+   * frames carry no session id of their own, so this is what attributes them —
+   * and what drops the leftovers of a subscription the user has already left.
+   */
+  followedSessionId: SessionId | null
   /** Turn lifecycle of the active session. */
   turnStatus: TurnStatus
   /** Epoch ms of the current turn's start (drives TurnStatusLine). */
@@ -101,30 +139,67 @@ export interface ConversationSlice {
   lastTurnMs: number | null
   /** True while a Load-older page request is in flight. */
   loadingOlder: boolean
-  /** Background jobs visible to the active session (session/jobs snapshot). */
+  /** Background jobs of the active session (control stream `jobs` / `baseline`). */
   activeJobs: JobView[]
-  /** Direct-child subagent catalog of the active session (subagent.list). */
+  /** Direct-child subagent catalog of the active session (subagents/list). */
   activeSubagents: SubagentListEntry[]
 
-  /** Load the history tail page of a session and project it into nodes. */
-  loadHistory: (sessionId: SessionId) => Promise<void>
   /** Prepend the next older history page (Load older at the top of the stream). */
   loadOlderHistory: (sessionId: SessionId) => Promise<void>
   /** Fetch the subagent catalog of one session into activeSubagents. */
   loadSubagents: (sessionId: SessionId) => Promise<void>
   /** Interrupt one continuable child of the active session, then refresh. */
   stopSubagent: (childSessionId: SessionId) => Promise<void>
-  /** Fold one mux frame into conversation state (the frozen projector entry). */
-  applyMuxFrame: (frame: MuxFrame) => void
-  /** Append an error node (host/agent-error, rpc failures surfaced inline). */
+  /** Fold one `session/follow` frame into conversation state (the frozen projector entry). */
+  applySessionFrame: (frame: SessionFollowFrame) => void
+  /** Fold one `session/control` projection frame into the rendered projection values. */
+  applyConversationProjection: (frame: SessionControlProjectionFrame) => void
+  /** Fold one `session/control` frame's job slots into activeJobs. */
+  applyConversationControl: (frame: SessionControlFrame) => void
+  /** Append an error node (a failed turn, an rpc failure surfaced inline). */
   appendError: (message: string, code?: string) => void
   /** Reset all per-session conversation state (on session switch). */
   clearConversation: () => void
 }
 
-/** Key of the in-flight streaming node for one (turn, step, blockIndex). */
-function streamKey(turn: number, step: number, index: number): string {
-  return `stream-${turn}-${step}-${index}`
+/**
+ * One journal record as it crosses the wire: a `session/follow` snapshot record
+ * or one `session/page` entry. The wire only ever carries
+ * `{type:'event', event}` (`SessionEventEntry`); the looser shape accepted here
+ * also covers the type union's history-entry arm without a cast.
+ */
+type JournalRecord = { readonly event: SessionEvent | SessionWireEvent }
+
+/**
+ * Event types this projector folds into nodes or slice state. The wire types an
+ * event's `type` as a plain string (the host's event map is merge-extensible),
+ * so recognition has to happen here; an unrecognized or `ignorable` event is
+ * dropped rather than guessed at. Step markers, request headers, compaction
+ * markers and the seed sentinel are absent on purpose — they change no node and
+ * no state field of this slice.
+ */
+const PROJECTED_EVENT_TYPES: ReadonlySet<string> = new Set<string>([
+  'user/message',
+  'assistant/message',
+  'tool/call',
+  'tool/result',
+  'command/run',
+  'command/done',
+  'turn/start',
+  'turn/end',
+  'todo/write',
+] satisfies SessionEventType[])
+
+/**
+ * Narrow one wire record to the typed event vocabulary.
+ * @param record - one journal record (already the shape of the wire envelope).
+ * @returns the event when this projector knows its type, else null.
+ */
+function decodeRecord(record: JournalRecord): SessionEvent | null {
+  const wire = record.event
+  // The cast is safe: the wire envelope carries exactly the typed event's
+  // `type`/`seq`/`time`/`data` slots, and the type itself was just recognized.
+  return PROJECTED_EVENT_TYPES.has(wire.type) ? (wire as SessionEvent) : null
 }
 
 /** Flatten content blocks to plain text (generic result fallback). */
@@ -160,7 +235,12 @@ function addUsage(stats: TurnStats | null, usage: TokenUsage): TurnStats {
   }
 }
 
-/** Project one settled assistant message into text/reasoning nodes. */
+/**
+ * Project one settled assistant message into text/reasoning nodes. `streaming`
+ * is always false: a step's content arrives complete (see the module note on
+ * the deliberately unrequested `assistantStream` mode), so the UI renders the
+ * settled form from the start instead of token by token.
+ */
 function assistantNodes(
   event: Extract<SessionEvent, { type: 'assistant/message' }>,
 ): ConversationNode[] {
@@ -192,7 +272,7 @@ function assistantNodes(
 }
 
 /** Project one session event into node mutations, applied against `nodes`. */
-function projectEvent(nodes: ConversationNode[], event: SessionEvent, view?: ToolEventView): ConversationNode[] {
+function projectEvent(nodes: ConversationNode[], event: SessionEvent): ConversationNode[] {
   switch (event.type) {
     case 'user/message': {
       const msg = event.data
@@ -248,29 +328,10 @@ function projectEvent(nodes: ConversationNode[], event: SessionEvent, view?: Too
         },
       ]
     }
-    case 'assistant/message': {
-      // Settled message: drop any stream placeholders of the same step first.
-      const { turn, step } = event.data
-      const settled = nodes.filter((n) => !n.id.startsWith(`stream-${turn}-${step}-`))
-      return [...settled, ...assistantNodes(event)]
-    }
-    case 'assistant/chunk': {
-      const { turn, step, chunk } = event.data
-      if (chunk.type !== 'text-delta' && chunk.type !== 'reasoning-delta') return nodes
-      const key = streamKey(turn, step, chunk.index)
-      const kind = chunk.type === 'text-delta' ? 'assistant-text' : 'reasoning'
-      const existing = nodes.findIndex((n) => n.id === key)
-      if (existing >= 0) {
-        const prev = nodes[existing] as AssistantTextNode | ReasoningNode
-        const next = { ...prev, text: prev.text + chunk.text, seq: event.seq, time: event.time }
-        return [...nodes.slice(0, existing), next, ...nodes.slice(existing + 1)]
-      }
-      const node: AssistantTextNode | ReasoningNode =
-        kind === 'assistant-text'
-          ? { id: key, kind, seq: event.seq, time: event.time, text: chunk.text, streaming: true }
-          : { id: key, kind, seq: event.seq, time: event.time, text: chunk.text, streaming: true }
-      return [...nodes, node]
-    }
+    case 'assistant/message':
+      // One assembled message per step: its text and reasoning blocks are the
+      // whole step's content, so the nodes are appended as-is.
+      return [...nodes, ...assistantNodes(event)]
     case 'tool/call': {
       const node: ToolCallNode = {
         id: `e${event.seq}`,
@@ -281,7 +342,6 @@ function projectEvent(nodes: ConversationNode[], event: SessionEvent, view?: Too
         name: event.data.name,
         arguments: event.data.arguments,
         status: 'pending',
-        ...(view?.for === 'call' ? { callView: view.view } : {}),
       }
       return [...nodes, node]
     }
@@ -298,7 +358,6 @@ function projectEvent(nodes: ConversationNode[], event: SessionEvent, view?: Too
         status: event.data.error || block.isError ? 'error' : 'done',
         resultText: blocksToText(block.content),
         ...(event.data.error ? { error: event.data.error } : {}),
-        ...(view?.for === 'result' ? { resultView: view.view } : {}),
       }
       return [...nodes.slice(0, idx), next, ...nodes.slice(idx + 1)]
     }
@@ -344,28 +403,39 @@ function projectEvent(nodes: ConversationNode[], event: SessionEvent, view?: Too
       return [...nodes, node]
     }
     default:
-      return nodes // turn/step markers, headers and todos update other state fields
+      return nodes // turn/step markers and headers update other state fields
   }
 }
 
-/** Fold one history page into projected conversation state. */
-function projectPage(entries: HistoryResult['events']): {
+/** Derived conversation state folded out of one contiguous journal window. */
+interface ProjectedJournal {
   nodes: ConversationNode[]
   stats: TurnStats | null
   todos: TodoItem[]
   lastTurnMs: number | null
   /** Start time of the newest turn that has not ended yet (a running turn). */
   runningSince: number | null
-} {
+}
+
+/**
+ * Fold one contiguous journal window into projected conversation state. The two
+ * windows that reach it are the `session/follow` snapshot (the whole opening
+ * window of a generation) and a `session/page` answer (one older page), so the
+ * result always replaces whatever window it describes.
+ * @param records - the window's records, oldest first.
+ * @returns render nodes plus the turn/usage/todo state the window implies.
+ */
+function projectJournal(records: readonly JournalRecord[]): ProjectedJournal {
   let nodes: ConversationNode[] = []
   let stats: TurnStats | null = null
   let todos: TodoItem[] = []
   let lastTurnMs: number | null = null
   const turnStarts = new Map<number, number>()
   const endedTurns = new Set<number>()
-  for (const entry of entries) {
-    nodes = projectEvent(nodes, entry.event, entry.view)
-    const event = entry.event
+  for (const record of records) {
+    const event = decodeRecord(record)
+    if (event === null) continue
+    nodes = projectEvent(nodes, event)
     if (event.type === 'turn/start') turnStarts.set(event.data.turn, event.time)
     if (event.type === 'turn/end') {
       endedTurns.add(event.data.turn)
@@ -377,7 +447,7 @@ function projectPage(entries: HistoryResult['events']): {
     }
     if (event.type === 'todo/write') todos = event.data.todos
   }
-  // The tail page folds the live log, so a session running in the background
+  // The window's tail is the live log, so a session running in the background
   // carries its open turn's turn/start here — that time resumes the elapsed
   // clock when the user re-enters the session (no turn/end yet).
   let runningSince: number | null = null
@@ -387,9 +457,41 @@ function projectPage(entries: HistoryResult['events']): {
   return { nodes, stats, todos, lastTurnMs, runningSince }
 }
 
+/** The four projection slots this slice renders. */
+interface ConversationProjections {
+  sessionStats: SessionStatsProjection | null
+  tokenUsage: TokenUsageProjection | null
+  contextPressure: ContextPressureProjection | null
+  contextBreakdown: ContextBreakdownProjection | null
+}
+
+/**
+ * Read the four rendered projection keys out of one projection cut (the follow
+ * snapshot's baseline, which describes the window just installed). A key absent
+ * from `values` means the projection unit is not mounted on the host, so the
+ * slot becomes null and the UI hides the meter instead of showing zeros.
+ * @param values - one whole-projection cut, when the host supplied one.
+ * @returns the four slots keyed by the slice's state field names.
+ */
+function readProjections(values?: SessionProjectionsBlock['values']): ConversationProjections {
+  return {
+    sessionStats: values?.sessionStats ?? null,
+    tokenUsage: values?.tokenUsage ?? null,
+    contextPressure: values?.contextPressure ?? null,
+    contextBreakdown: values?.contextBreakdown ?? null,
+  }
+}
+
+/** The session address a `session/page` request targets. */
+function sessionAddress(sessionId: SessionId): SessionAddress {
+  return { kind: 'session', sessionId }
+}
+
 export const createConversationSlice: StateCreator<AppStore, [], [], ConversationSlice> = (set, get) => ({
   nodes: [],
   hasMoreHistory: false,
+  historyCursor: null,
+  followedSessionId: null,
   turnStatus: 'idle',
   turnStartedAt: null,
   todos: [],
@@ -403,51 +505,28 @@ export const createConversationSlice: StateCreator<AppStore, [], [], Conversatio
   activeJobs: [],
   activeSubagents: [],
 
-  loadHistory: async (sessionId) => {
-    const page = await rpc<HistoryResult>('session.history', { sessionId })
-    // A session switch may have happened while the page was in flight; a stale
-    // page must not overwrite the current session's nodes or projections.
-    if (get().activeSessionId !== sessionId) return
-    const { nodes, stats, todos, lastTurnMs, runningSince } = projectPage(page.events)
-    // The tail page carries the projection baseline (one consistent cut);
-    // a key absent from values means the capability is absent on the host.
-    const values = page.projections?.values
-    get().applyGoalHistory(sessionId, values)
-    // A session running in the background when we enter it: the open turn's
-    // turn/start (from the tail page) resumes turnStatus and the elapsed clock
-    // instead of resetting to idle — the stop button already rides the session
-    // metadata running flag (PROGRESS 08-15 16:20), this restores the timer.
-    const sessionRunning = get().sessions.find((s) => s.sessionId === sessionId)?.running === true
-    const resumed = sessionRunning && runningSince !== null
-    set({
-      nodes,
-      stats,
-      todos,
-      lastTurnMs,
-      hasMoreHistory: page.hasMore,
-      turnStatus: resumed ? 'running' : 'idle',
-      turnStartedAt: resumed ? runningSince : null,
-      sessionStats: values?.sessionStats ?? null,
-      tokenUsage: values?.tokenUsage ?? null,
-      contextPressure: values?.contextPressure ?? null,
-      contextBreakdown: values?.contextBreakdown ?? null,
-    })
-  },
-
   loadOlderHistory: async (sessionId) => {
-    if (!get().hasMoreHistory || get().loadingOlder) return
+    const cursor = get().historyCursor
+    // Backward paging is cut-anchored: without a follow snapshot cursor there
+    // is no sound `throughSeq`, and `hasMoreHistory` is only ever set by that
+    // same snapshot (or by a previous page).
+    if (!get().hasMoreHistory || get().loadingOlder || cursor === null) return
     const beforeSeq = get().nodes[0]?.seq
     if (beforeSeq === undefined) return
     set({ loadingOlder: true })
     try {
-      const page = await rpc<HistoryResult>('session.history', { sessionId, beforeSeq })
-      const older = projectPage(page.events)
+      const page = await rpc<SessionPageValue>('session/page', {
+        request: { address: sessionAddress(sessionId), throughSeq: cursor, beforeSeq },
+      })
+      // A session switch may have happened while the page was in flight; a
+      // stale page must not prepend into another session's transcript.
+      if (get().activeSessionId !== sessionId) return
       set({
-        nodes: [...older.nodes, ...get().nodes],
+        nodes: [...projectJournal(page.records).nodes, ...get().nodes],
         hasMoreHistory: page.hasMore,
         // Earlier pages only prepend content; stats/todos/lastTurnMs describe
-        // the latest turn and the four projections stay owned by the tail
-        // page's baseline plus live session/projection frames.
+        // the newest turn and the four projections stay owned by the follow
+        // snapshot plus the control stream's projection frames.
       })
     } finally {
       set({ loadingOlder: false })
@@ -455,7 +534,7 @@ export const createConversationSlice: StateCreator<AppStore, [], [], Conversatio
   },
 
   loadSubagents: async (sessionId) => {
-    const catalog = await rpc<SubagentCatalog>('subagent.list', { parentSessionId: sessionId })
+    const catalog = await rpc<SubagentCatalog>('subagents/list', { parentSessionId: sessionId })
     // A session switch may have happened while the call was in flight.
     if (get().activeSessionId === sessionId) set({ activeSubagents: catalog.entries })
   },
@@ -465,7 +544,7 @@ export const createConversationSlice: StateCreator<AppStore, [], [], Conversatio
     if (parentSessionId === null) return
     // The receipt only acknowledges admission; the refreshed catalog reports
     // the actual activity flip to 'inactive'.
-    await rpc<SubagentInterruptReceipt>('subagent.interrupt', {
+    await rpc<SubagentInterruptReceipt>('subagents/interruptByParent', {
       parentSessionId,
       childSessionId,
       mode: 'continuable',
@@ -473,16 +552,47 @@ export const createConversationSlice: StateCreator<AppStore, [], [], Conversatio
     await get().loadSubagents(parentSessionId)
   },
 
-  applyMuxFrame: (frame) => {
-    if (frame.type === 'stream/error') {
-      get().appendError(frame.error.message, frame.error.code)
-      return
-    }
-    if (frame.sessionId !== get().activeSessionId) return
+  applySessionFrame: (frame) => {
     switch (frame.type) {
-      case 'session/event': {
-        const event = frame.event
-        set({ nodes: projectEvent(get().nodes, event, frame.view) })
+      case 'snapshot': {
+        // GENERATION BOUNDARY: this frame's records ARE the whole opening
+        // window of the stream, so the transcript is rebuilt from scratch —
+        // never appended to what a previous generation left behind.
+        const sessionId = frame.header.id
+        // Stale generation: the user has already left this session (the
+        // subscription was replaced, but a frame can still be in flight).
+        if (sessionId !== get().activeSessionId) return
+        const journal = projectJournal(frame.records)
+        // A session running in the background when we enter it: the open turn's
+        // turn/start (folded from the snapshot) resumes turnStatus and the
+        // elapsed clock instead of resetting to idle — the stop button already
+        // rides the session metadata running flag, this restores the timer.
+        const running = get().sessions.find((s) => s.sessionId === sessionId)?.running === true
+        const resumed = running && journal.runningSince !== null
+        set({
+          nodes: journal.nodes,
+          stats: journal.stats,
+          todos: journal.todos,
+          lastTurnMs: journal.lastTurnMs,
+          turnStatus: resumed ? 'running' : 'idle',
+          turnStartedAt: resumed ? journal.runningSince : null,
+          hasMoreHistory: frame.hasMore,
+          historyCursor: frame.cursor,
+          followedSessionId: sessionId,
+          loadingOlder: false,
+          ...readProjections(frame.projections?.values),
+        })
+        get().applyGoalHistory(sessionId, frame.projections?.values)
+        break
+      }
+      case 'event': {
+        // Increment: only a session whose snapshot was already applied may
+        // extend the transcript, because these frames carry no session id.
+        const sessionId = get().followedSessionId
+        if (sessionId === null || sessionId !== get().activeSessionId) return
+        const event = decodeRecord(frame)
+        if (event === null) return
+        set({ nodes: projectEvent(get().nodes, event) })
         if (event.type === 'turn/start') {
           set({ turnStatus: 'running', turnStartedAt: event.time, stats: null, lastTurnMs: null })
         } else if (event.type === 'turn/end') {
@@ -502,33 +612,59 @@ export const createConversationSlice: StateCreator<AppStore, [], [], Conversatio
         }
         break
       }
-      case 'session/projection': {
-        get().applyGoalMuxFrame(frame)
-        // Whole-value projection updates (higher-seq-wins on the host); fan
-        // out by key. The title key stays owned by the sessions slice.
-        switch (frame.key) {
-          case 'sessionStats':
-            set({ sessionStats: frame.value as SessionStatsProjection })
-            break
-          case 'tokenUsage':
-            set({ tokenUsage: frame.value as TokenUsageProjection })
-            break
-          case 'contextPressure':
-            set({ contextPressure: frame.value as ContextPressureProjection })
-            break
-          case 'contextBreakdown':
-            set({ contextBreakdown: frame.value as ContextBreakdownProjection })
-            break
-          default:
-            break
-        }
+      case 'assistant-stream':
+        // Arrives only for clients that request `assistantStream`, which this
+        // plugin deliberately does not (see the module note); the settled
+        // `assistant/message` events above carry all the content.
+        break
+    }
+  },
+
+  applyConversationProjection: (frame) => {
+    if (frame.sessionId !== get().activeSessionId) return
+    // Whole-value projection updates (higher-seq-wins on the host); fan out by
+    // key. The title key stays owned by the sessions slice and the goal key by
+    // the goal slice, so both fall through here.
+    switch (frame.key) {
+      case 'sessionStats':
+        set({ sessionStats: frame.value as SessionStatsProjection })
+        break
+      case 'tokenUsage':
+        set({ tokenUsage: frame.value as TokenUsageProjection })
+        break
+      case 'contextPressure':
+        set({ contextPressure: frame.value as ContextPressureProjection })
+        break
+      case 'contextBreakdown':
+        set({ contextBreakdown: frame.value as ContextBreakdownProjection })
+        break
+      default:
+        break
+    }
+  },
+
+  applyConversationControl: (frame) => {
+    switch (frame.type) {
+      // GENERATION BOUNDARY: the control stream opens with exactly one baseline
+      // carrying the complete queue, job and projection maps. Only the active
+      // session's jobs belong to this slice: queue frames are the composer
+      // slice's and the projection values are seeded by the follow snapshot (a
+      // different cut, so mixing the two would need per-key seq ordering — the
+      // stream's per-key deltas carry that seq and are applied below).
+      case 'baseline': {
+        const active = get().activeSessionId
+        if (active === null) return
+        set({ activeJobs: [...(frame.value.jobs[active] ?? [])] })
         break
       }
-      case 'session/jobs':
-        // Whole-set snapshot after every registry commit (higher-wins on host).
-        set({ activeJobs: frame.jobs })
+      case 'jobs':
+        // Whole-set replacement after every registry commit (higher-wins on host).
+        if (frame.sessionId !== get().activeSessionId) return
+        set({ activeJobs: [...frame.jobs] })
         break
-      // approval/question/queue frames are routed to their own slices.
+      case 'projection':
+        get().applyConversationProjection(frame)
+        break
       default:
         break
     }
@@ -549,6 +685,8 @@ export const createConversationSlice: StateCreator<AppStore, [], [], Conversatio
     set({
       nodes: [],
       hasMoreHistory: false,
+      historyCursor: null,
+      followedSessionId: null,
       turnStatus: 'idle',
       turnStartedAt: null,
       todos: [],

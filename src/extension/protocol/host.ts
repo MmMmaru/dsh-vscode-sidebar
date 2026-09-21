@@ -1,9 +1,16 @@
 /**
- * Vendored protocol types from deepseek-harness.
- * Source commit: 47f943859bef60e4160492346772ded9b24f765a
- * Source: packages/host/apiproxy/src/api/host.ts
- * Host-domain payload/value types. No protocol version upstream: client and
- * host ship together; the plugin checks the host app version itself.
+ * Vendored protocol types from deepseek-harness at dsh 0.1.5-rc.2
+ * (Typert Remote / api-gateway).
+ * Source (built install): dsh-api-workspace-controller/lib/types/types.d.ts
+ *
+ * MIGRATION NOTE — the whole `host` namespace is gone in 0.1.5-rc.2:
+ *   - `host.describe` has NO replacement (no Remote method returns the host
+ *     version, and the `$events` ready frame carries only `{home}`).
+ *   - `host.openPath`        -> `session/openWorkspacePath` (see ./sessions).
+ *   - `host.pickDirectory`   -> `directoryPicker/pick`
+ *   - `host.listDirectory`   -> `directoryPicker/list`
+ *   - `host.createDirectory` -> `directoryPicker/createDirectory`
+ * What remains host-shaped is the directory picker, kept in this module.
  */
 
 /** One directory row of a listing: a child entry or a breadcrumb ancestor. */
@@ -16,7 +23,7 @@ export interface DirectoryEntry {
   hidden: boolean
 }
 
-/** host.listDirectory response value: one directory level plus its ancestry. */
+/** `directoryPicker/list` response value: one directory level plus its ancestry. */
 export interface DirectoryListing {
   /** Absolute path of the listed directory. */
   path: string
@@ -30,27 +37,12 @@ export interface DirectoryListing {
   truncated: boolean
 }
 
-/** host.describe response value: a one-shot host snapshot. */
-export interface HostDescription {
-  /** The host app's (apps/cli) package.json version. */
-  version: string
-  /** The host process working directory. */
-  cwd: string
-  /** Default provider for new agents, when explicitly configured. */
-  provider?: string
-  /** Default model for new agents, when explicitly configured. */
-  model?: string
-  /** Count of currently attached sessions (those with a live agent). */
-  attachedSessions: number
-  /** Whether this deployment can hand a path to a user-visible native desktop. */
-  canOpenPath: boolean
-}
-
-/** Payload/value shapes of the host-domain RPC methods. */
-export interface HostRpc {
-  'host.describe': { payload: Record<string, never>; value: HostDescription }
-  'host.pickDirectory': { payload: Record<string, never>; value: { path: string | null } }
-  'host.listDirectory': { payload: { path?: string }; value: DirectoryListing }
-  'host.createDirectory': { payload: { path: string; name: string }; value: { path: string } }
-  'host.openPath': { payload: { path: string }; value: { opened: true } }
+/** Payload/value shapes of the directory-picker-domain unary methods. */
+export interface DirectoryPickerRpc {
+  /** Opens the host's native picker; `null` when the user cancelled. */
+  'directoryPicker/pick': { payload: Record<string, never>; value: string | null }
+  /** Omitting `path` lists the host account's home directory, never the process cwd. */
+  'directoryPicker/list': { payload: { path?: string }; value: DirectoryListing }
+  /** Creates one directory and answers its absolute path. */
+  'directoryPicker/createDirectory': { payload: { path: string; name: string }; value: string }
 }

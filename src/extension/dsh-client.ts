@@ -1,165 +1,210 @@
 /**
- * DshClient: RPC + event-stream client for the dsh web host.
- * Contract: ARCHITECTURE.md section 4.3. Wire format follows the harness
- * apiproxy fetch/WS carriers (vendored under ./protocol):
- *   - unary RPC:   POST /api/<method>   body=ClientRequest  -> ServerResponse
- *   - answerable:  POST /api/respond    body=ClientResponse -> RpcReceipt
- *   - mux stream:  WS /api/events.mux   frames are ServerRequest{payload:MuxFrame}
- *   - host stream: WS /api/events.host  frames are ServerRequest{payload:HostFrame}
- * Both sockets reconnect with exponential backoff after an unexpected close.
+ * DshClient — the extension's single connection to one dsh host.
+ *
+ * MIGRATION NOTE: this file previously spoke the `apiproxy` protocol
+ * (`POST /api/<dot.method>`, `POST /api/respond`, `WS /api/events.mux` +
+ * `/api/events.host`). That protocol no longer exists: from
+ * `dsh-web-app@0.1.2-rc.1` the bundle mounts only
+ * `@deepseek-ai/dsh-api-gateway` (Typert Remote), and `dsh-host-apiproxy`'s last
+ * publish was `0.1.1-rc.2`. Every old route answers 404 on 0.1.5-rc.2.
+ *
+ * The new shape uses two channels:
+ *   - unary:   `POST /api/<namespace>/<method>` with an `{args}` envelope
+ *   - streams: one multiplexed WebSocket `/api/remote.mux`
+ *   - events:  a `$events` logical stream, answered by unary `$events/result`
+ *
+ * Three behaviours were replaced outright rather than renamed:
+ *   - `POST /api/respond` is gone. Approvals and ask-user questions arrive as
+ *     `$events` waterfall frames and are answered on `$events/result`, keyed by
+ *     the frame's `eventId` (never an `approvalId` or an rpcId).
+ *   - `WS /api/events.mux` is gone. Session state now arrives as three streams:
+ *     `session/control` (Host-wide queues/jobs/projections), `session/follow`
+ *     (one session's journal), and `workspace/follow` (workspace set and order).
+ *     There is no longer a per-frame session fan-out to demultiplex, and no
+ *     separate host socket.
+ *   - `host.describe` is gone with no replacement, so this client no longer
+ *     reports a host version at all (see HostManager for the capability probe).
+ *
+ * Streams are GENERATION-SCOPED: every (re)open begins with a baseline frame
+ * (`snapshot` / `baseline` / `ready`). A carrier loss therefore needs no replay
+ * or diffing — consumers discard prior state and re-apply the new baseline.
+ *
  * Pure Node (global fetch/WebSocket, Node >= 22); no vscode runtime import, so
- * the module is unit-testable under node:test.
+ * the module stays unit-testable under node:test.
  */
 
+import * as crypto from 'node:crypto'
 import type { HostInfo } from './host-manager'
-import type { ApprovalRequestId, SessionId } from './protocol/brand'
-import type { AskUserQuestionAnswerItem } from './protocol/events'
-import type { MuxFrame, HostFrame } from './protocol/events'
-import type { ClientRequest, ClientResponse, RpcReceipt, ServerRequest, ServerResponse } from './protocol/rpc'
-import { RpcId } from './protocol/rpc'
 import type { RequestPayload, ResponseValue, RpcMethod } from './protocol/rpc-map'
-import type { ApprovalResponsePayload, QuestionResponsePayload } from './protocol/approvals'
+import type { SessionAddress, SessionControlFrame, SessionFollowFrame } from './protocol/follow'
+import type { WorkspaceFollowFrame } from './protocol/workspace'
+import type { ApprovalOutcome, AskUserQuestionAnswerItem, AskUserQuestionItem } from './protocol/events'
+import type { RemoteChannelMessage } from '../shared/bridge'
+import type { SessionSummary } from './protocol/sessions'
+import type { RpcError } from './protocol/rpc'
+import { RpcBusinessError, callRemoteUnary, type UnaryTarget } from './transport/unary'
+import { RemoteMuxClient, RemoteStreamError, type RemoteStream } from './transport/mux'
+import { RemoteEventsClient, type PendingWaterfall } from './transport/events'
 
-/** Business error raised by rpc() when the host answers `ok: false`. */
-export class RpcBusinessError extends Error {
-  constructor(
-    /** Stable machine-routing code from the RpcError union. */
-    readonly code: string,
-    message: string,
-    /** Structured details carried by the error code's details row. */
-    readonly details: unknown,
-  ) {
-    super(message)
-    this.name = 'RpcBusinessError'
-  }
-}
+export { RpcBusinessError }
 
-/** Facts needed to answer one pending approval frame (keyed by the frame's rpcId). */
-interface PendingApproval {
-  sessionId: SessionId
-  approvalId: ApprovalRequestId
-}
-
-/** Facts needed to answer one pending question frame (keyed by the frame's rpcId). */
-interface PendingQuestion {
-  sessionId: SessionId
-}
-
-const MUX_EVENTS_PATH = '/api/events.mux'
-const HOST_EVENTS_PATH = '/api/events.host'
-const RPC_TIMEOUT_MS = 30_000
+/** Viewport size requested when opening a session journal. */
+const SESSION_FOLLOW_MAX_MESSAGES = 60
+/** Poll interval while waiting for the carrier to come back. */
+const CARRIER_RETRY_MS = 100
+/** How long a single `connect()` waits for the mux handshake. */
 const CONNECT_TIMEOUT_MS = 10_000
-const RECONNECT_BASE_MS = 500
-const RECONNECT_CAP_MS = 30_000
+
+/** One answerable approval request as it arrives on `$events`. */
+export interface ApprovalWaterfall {
+  /** Reply correlation id; the ONLY key `$events/result` accepts. */
+  eventId: string
+  /** Agent (session or subagent) the approval is scoped to. */
+  agentId: string
+  toolName: string
+  callId?: string
+  reason?: string
+}
+
+/** One answerable ask-user-questions request as it arrives on `$events`. */
+export interface QuestionWaterfall {
+  /** Reply correlation id; the ONLY key `$events/result` accepts. */
+  eventId: string
+  /** Agent (session or subagent) the questions are scoped to. */
+  agentId: string
+  questions: AskUserQuestionItem[]
+}
+
+/** Handle for one open session journal. */
+export interface SessionFollowHandle {
+  /** Stop following; the host aborts the underlying stream. */
+  cancel(): void
+}
+
+/** A terminal per-stream failure, tagged with the scope that produced it. */
+export interface StreamFailure {
+  /** Endpoint that failed, e.g. `session/control`. */
+  scope: string
+  error: RpcError
+}
 
 /**
- * One host connection: two downlink-only WebSockets plus unary HTTP RPC.
- * Approval/question answers are client-responses that echo the requested
- * frame's rpcId; the client keeps the pending-frame facts needed to build them.
+ * One host connection.
+ *
+ * Lifecycle: `connect()` resolves once the mux carrier is up and the Host-wide
+ * streams (`$events`, `session/control`, `workspace/follow`) have been opened.
+ * Those streams then self-heal across reconnects; the only thing a consumer must
+ * handle is that a new baseline frame starts a new generation.
  */
 export class DshClient {
-  /** Optional diagnostic sink (extension wires it to the OutputChannel). */
+  /** Optional diagnostic sink (the extension wires it to the OutputChannel). */
   onLog: ((line: string) => void) | null = null
 
-  private baseUrl: string | null = null
-  private token: string | null = null
-  private cookie: string | null = null
-  private muxSocket: WebSocket | null = null
-  private hostSocket: WebSocket | null = null
-  private readonly muxListeners = new Set<(frame: MuxFrame) => void>()
-  private readonly hostListeners = new Set<(frame: HostFrame) => void>()
-  private readonly statusListeners = new Set<(connected: boolean) => void>()
-  private readonly pendingApprovals = new Map<string, PendingApproval>()
-  private readonly pendingQuestions = new Map<string, PendingQuestion>()
+  private target: UnaryTarget | null = null
+  private mux: RemoteMuxClient | null = null
+  private events: RemoteEventsClient | null = null
   private disposed = false
   private connected = false
-  private reconnecting = false
-  private reconnectAttempts = 0
-  private reconnectTimer: ReturnType<typeof setTimeout> | null = null
+
+  private readonly statusListeners = new Set<(connected: boolean) => void>()
+  private readonly controlListeners = new Set<(frame: SessionControlFrame) => void>()
+  private readonly workspaceListeners = new Set<(frame: WorkspaceFollowFrame) => void>()
+  private readonly remoteEventListeners = new Set<(event: string, args: unknown[]) => void>()
+  private readonly approvalListeners = new Set<(request: ApprovalWaterfall) => void>()
+  private readonly approvalClearListeners = new Set<(eventId: string) => void>()
+  private readonly questionListeners = new Set<(request: QuestionWaterfall) => void>()
+  private readonly streamErrorListeners = new Set<(failure: StreamFailure) => void>()
+
+  /** Live Host-wide stream handles, so a reopen or dispose can close them. */
+  private controlStream: RemoteStream<unknown> | null = null
+  private workspaceStream: RemoteStream<unknown> | null = null
+  /** Per-subscription journal callbacks, so the test seam can reach them. */
+  private readonly activeFollows = new Set<(frame: SessionFollowFrame) => void>()
 
   /**
-   * Establish both WS connections (mux + host). Resolves once both are open;
-   * rejects when either fails before opening. Later drops auto-reconnect.
-   * @param info - host connection info from HostManager.
+   * Establish the carrier and open the Host-wide streams.
+   * @param info - discovered host facts, including the signed cookie when the host requires browser auth.
+   * @throws when the mux handshake fails or is refused (401/403).
    */
   async connect(info: HostInfo): Promise<void> {
     this.disposed = false
-    this.baseUrl = `http://127.0.0.1:${info.port}`
-    this.token = info.token ?? null
-    this.cookie = info.cookie ?? null
-    await this.openSockets()
+    const authority = `127.0.0.1:${info.port}`
+    this.target = {
+      baseUrl: `http://${authority}`,
+      ...(info.cookie !== undefined && info.cookie !== '' ? { cookie: info.cookie } : {}),
+      ...(info.token !== undefined && info.token !== '' ? { token: info.token } : {}),
+    }
+    const mux = new RemoteMuxClient(`ws://${authority}`, info.cookie, info.token)
+    mux.log = (line) => this.log(line)
+    mux.onStatus((connected) => this.setConnected(connected))
+    mux.onCarrierLost(() => {
+      // A lost carrier ends every generation. Reopen the Host-wide streams so
+      // their baselines are re-delivered; per-session journals reopen themselves.
+      this.log('carrier lost; reopening host-wide streams')
+      if (!this.disposed) this.openHostWideStreams()
+    })
+    this.mux = mux
+    this.events = new RemoteEventsClient(mux, () => this.requireTarget(), {
+      onEmit: (event, args) => {
+        for (const listener of this.remoteEventListeners) listener(event, args)
+      },
+      onWaterfall: (request) => this.dispatchWaterfall(request),
+      onCancel: (eventId) => {
+        for (const listener of this.approvalClearListeners) listener(eventId)
+      },
+    })
+    mux.connect()
+    await this.withTimeout(mux.whenReady(), CONNECT_TIMEOUT_MS)
+    this.openHostWideStreams()
+    void this.events.subscribe()
   }
 
+  // ---- request / response ----
+
   /**
-   * Typed unary RPC: POST /api/<method> with a ClientRequest envelope, verify
-   * the echoed rpcId, unwrap the result slot. Business errors reject with
-   * RpcBusinessError; transport failures reject with a plain Error.
-   * @param method - registered method name, e.g. 'session.list'.
-   * @param params - business payload of the method.
-   * @returns the ok value of the server response.
+   * Call one unary Remote method.
+   * @param method - wire endpoint, `<namespace>/<method>`.
+   * @param params - the EXACT `args` object its descriptor declares.
+   * @returns the method's success value (undefined for `void` results).
+   * @throws {RpcBusinessError} on a host business failure.
    */
   async rpc<K extends RpcMethod>(method: K, params: RequestPayload<K>): Promise<ResponseValue<K>>
   async rpc<T = unknown>(method: string, params?: unknown): Promise<T>
   async rpc<T>(method: string, params?: unknown): Promise<T> {
-    if (this.baseUrl === null) throw new Error('dsh client is not connected')
-    const request: ClientRequest = {
-      type: 'client-request',
-      rpcId: RpcId(crypto.randomUUID()),
-      method,
-      payload: params ?? {},
-    }
-    const headers: Record<string, string> = { 'content-type': 'application/json' }
-    if (this.token !== null) {
-      headers['Authorization'] = `Bearer ${this.token}`
-    }
-    if (this.cookie !== null) {
-      headers['Cookie'] = this.cookie
-    }
-    const response = await fetch(`${this.baseUrl}/api/${method}`, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify(request),
-      signal: AbortSignal.timeout(RPC_TIMEOUT_MS),
+    return callRemoteUnary<T>(this.requireTarget(), method, (params ?? {}) as Record<string, unknown>)
+  }
+
+  /**
+   * List sessions. Convenience wrapper over the `_request` envelope.
+   * @returns the list rows; note that a row carries NO title, because titles
+   *   arrive separately as the `title` projection on the control stream.
+   */
+  async sessionList(): Promise<SessionSummary[]> {
+    const value = await this.rpc('session/list', { _request: {} })
+    return (value as { items: SessionSummary[] }).items
+  }
+
+  /**
+   * Send one prompt, minting the `requestId` the host now requires.
+   * @param sessionId - target session.
+   * @param content - already-assembled prompt parts.
+   * @param mode - `queue` for a normal send, `steer` to interrupt the live turn.
+   */
+  async promptSession(
+    sessionId: string,
+    content: RequestPayload<'session/prompt'>['request']['content'],
+    mode: 'queue' | 'steer' = 'queue',
+  ): Promise<void> {
+    await this.rpc('session/prompt', {
+      request: { requestId: crypto.randomUUID(), sessionId: sessionId as never, mode, content },
     })
-    if (!response.ok) throw new Error(`transport failure for ${method}: HTTP ${response.status}`)
-    const body = (await response.json()) as ServerResponse
-    if (body.type !== 'server-response') throw new Error(`malformed response for ${method}: unexpected type`)
-    if (body.rpcId !== request.rpcId) {
-      throw new Error(`rpcId mismatch for ${method}: sent ${request.rpcId}, got ${body.rpcId}`)
-    }
-    if (!body.result.ok) {
-      const error = body.result.error
-      throw new RpcBusinessError(error.code, error.message, error.details)
-    }
-    return body.result.value as T
   }
 
-  /**
-   * Subscribe to mux stream frames. Answerable frames are tracked internally
-   * so resolveApproval/answerQuestion can echo their rpcId.
-   * @param cb - frame consumer.
-   * @returns unsubscribe function.
-   */
-  onMuxEvent(cb: (frame: MuxFrame) => void): () => void {
-    this.muxListeners.add(cb)
-    return () => this.muxListeners.delete(cb)
-  }
+  // ---- subscriptions ----
 
   /**
-   * Subscribe to host stream frames.
-   * @param cb - frame consumer.
-   * @returns unsubscribe function.
-   */
-  onHostEvent(cb: (frame: HostFrame) => void): () => void {
-    this.hostListeners.add(cb)
-    return () => this.hostListeners.delete(cb)
-  }
-
-  /**
-   * Subscribe to connectivity flips (both sockets open -> true; an unexpected
-   * close -> false). Additive to the frozen contract; the bridge maps it to
-   * host-status messages.
-   * @param cb - status consumer.
+   * Observe connection flips.
+   * @param cb - receives the new state.
    * @returns unsubscribe function.
    */
   onStatus(cb: (connected: boolean) => void): () => void {
@@ -168,260 +213,324 @@ export class DshClient {
   }
 
   /**
-   * Answer a pending approval request (client-response echoing the frame's rpcId).
-   * @param requestId - rpcId of the `approval/requested` frame.
-   * @param decision - 'allow-once' maps to outcome 'allowed-once', 'refuse' to 'rejected'.
+   * Observe the Host-wide session control stream (queues, jobs, projections).
+   * @param cb - receives every frame, including each generation's baseline.
+   * @returns unsubscribe function.
    */
-  async resolveApproval(requestId: string, decision: 'allow-once' | 'refuse'): Promise<void> {
-    const pending = this.pendingApprovals.get(requestId)
-    if (!pending) throw new Error(`unknown or already-resolved approval request: ${requestId}`)
-    const value: ApprovalResponsePayload = {
-      sessionId: pending.sessionId,
-      approvalId: pending.approvalId,
-      outcome: decision === 'allow-once' ? 'allowed-once' : 'rejected',
+  onSessionControl(cb: (frame: SessionControlFrame) => void): () => void {
+    this.controlListeners.add(cb)
+    return () => this.controlListeners.delete(cb)
+  }
+
+  /**
+   * Observe the workspace stream (set, manual order, archived set).
+   * @param cb - receives every frame, including each generation's baseline.
+   * @returns unsubscribe function.
+   */
+  onWorkspace(cb: (frame: WorkspaceFollowFrame) => void): () => void {
+    this.workspaceListeners.add(cb)
+    return () => this.workspaceListeners.delete(cb)
+  }
+
+  /**
+   * Observe broadcast forwarded events (`api-session/added`, `commands/change`, …).
+   * Emits are sparse and are NOT a state feed; session state comes from the streams.
+   * @param cb - receives the event name and its positional arguments.
+   * @returns unsubscribe function.
+   */
+  onRemoteEvent(cb: (event: string, args: unknown[]) => void): () => void {
+    this.remoteEventListeners.add(cb)
+    return () => this.remoteEventListeners.delete(cb)
+  }
+
+  /**
+   * Observe approval requests. Answer them with {@link resolveApproval} using the
+   * SAME `eventId`.
+   * @param cb - receives each pending approval.
+   * @returns unsubscribe function.
+   */
+  onApprovalRequest(cb: (request: ApprovalWaterfall) => void): () => void {
+    this.approvalListeners.add(cb)
+    return () => this.approvalListeners.delete(cb)
+  }
+
+  /**
+   * Observe retracted approvals, so a stale prompt can be dropped.
+   * @param cb - receives the retracted `eventId`.
+   * @returns unsubscribe function.
+   */
+  onApprovalCleared(cb: (eventId: string) => void): () => void {
+    this.approvalClearListeners.add(cb)
+    return () => this.approvalClearListeners.delete(cb)
+  }
+
+  /**
+   * Observe ask-user-questions requests.
+   * @param cb - receives each pending batch and its reply key.
+   * @returns unsubscribe function.
+   */
+  onQuestionRequest(cb: (request: QuestionWaterfall) => void): () => void {
+    this.questionListeners.add(cb)
+    return () => this.questionListeners.delete(cb)
+  }
+
+  /**
+   * Observe terminal per-stream failures.
+   *
+   * A bad endpoint or a business failure kills only its own logical stream, not
+   * the socket, so without this hook a dead stream would fail silently — which is
+   * exactly how the old client lost host-channel `stream/error` frames.
+   * @param cb - receives the failing scope and the host error.
+   * @returns unsubscribe function.
+   */
+  onStreamError(cb: (failure: StreamFailure) => void): () => void {
+    this.streamErrorListeners.add(cb)
+    return () => this.streamErrorListeners.delete(cb)
+  }
+
+  // ---- session journals ----
+
+  /**
+   * Follow one session (or addressed subagent) journal.
+   *
+   * The callback sees each generation's `snapshot` first and then live events. A
+   * subscriber MUST treat a new `snapshot` as a full replacement of its history
+   * buffer, because the stream restarts from a baseline after every carrier loss.
+   * @param address - ordinary-session or direct-subagent address.
+   * @param onFrame - receives every frame of the current generation.
+   * @returns a handle whose `cancel()` stops following.
+   */
+  followSession(address: SessionAddress, onFrame: (frame: SessionFollowFrame) => void): SessionFollowHandle {
+    let stopped = false
+    let current: RemoteStream<unknown> | null = null
+    this.activeFollows.add(onFrame)
+
+    const pump = async (): Promise<void> => {
+      while (!stopped && !this.disposed) {
+        const mux = this.mux
+        if (mux === null) return
+        await this.waitForCarrier()
+        if (stopped || this.disposed) return
+        const stream = mux.openStream('session/follow', {
+          request: { address, maxMessages: SESSION_FOLLOW_MAX_MESSAGES },
+        })
+        current = stream
+        try {
+          for await (const frame of stream) onFrame(frame as SessionFollowFrame)
+        } catch (error) {
+          // A carrier loss is expected and retried below; anything else is
+          // terminal for this journal and must reach the UI.
+          if (stopped || this.disposed) return
+          if (!(error instanceof RemoteStreamError && error.carrier)) {
+            this.reportStreamError('session/follow', error)
+            return
+          }
+        }
+      }
     }
-    await this.respond(RpcId(requestId), value)
-  }
+    void pump()
 
-  /**
-   * Answer a pending ask-user question batch (one ask, one batch answer).
-   * @param requestId - rpcId of the `question/requested` frame.
-   * @param answers - per-question answers keyed by question id.
-   */
-  async answerQuestion(requestId: string, answers: AskUserQuestionAnswerItem[]): Promise<void> {
-    const pending = this.pendingQuestions.get(requestId)
-    if (!pending) throw new Error(`unknown or already-resolved question request: ${requestId}`)
-    const value: QuestionResponsePayload = { sessionId: pending.sessionId, answer: { answers } }
-    await this.respond(RpcId(requestId), value)
-  }
-
-  /**
-   * Answer a pending approval correlated by approvalId instead of rpcId. The
-   * webview never sees rpcIds (the MuxFrame union does not carry them), so the
-   * bridge's `respond` message correlates by approvalId and this lookup
-   * recovers the frame rpcId (ARCHITECTURE.md section 3 revision 2).
-   * @param approvalId - approvalId from the `approval/requested` frame.
-   * @param decision - 'allow-once' or 'refuse'.
-   */
-  async resolveApprovalByApprovalId(approvalId: ApprovalRequestId, decision: 'allow-once' | 'refuse'): Promise<void> {
-    for (const [rpcId, pending] of this.pendingApprovals) {
-      if (pending.approvalId === approvalId) return await this.resolveApproval(rpcId, decision)
+    return {
+      cancel: () => {
+        stopped = true
+        this.activeFollows.delete(onFrame)
+        current?.cancel()
+      },
     }
-    throw new Error(`unknown or already-resolved approval: ${approvalId}`)
+  }
+
+  // ---- answering ----
+
+  /**
+   * Answer a pending approval.
+   * @param eventId - the `eventId` delivered to {@link onApprovalRequest}.
+   * @param decision - `allow-once` permits this one call; `refuse` rejects it.
+   */
+  async resolveApproval(eventId: string, decision: 'allow-once' | 'refuse'): Promise<void> {
+    const outcome: ApprovalOutcome = decision === 'allow-once' ? 'allowed-once' : 'rejected'
+    await this.requireEvents().respondApproval(eventId, outcome)
   }
 
   /**
-   * Answer a pending question batch correlated by sessionId instead of rpcId
-   * (same correlation gap as resolveApprovalByApprovalId). At most one ask()
-   * batch is pending per session, so the sessionId identifies the frame.
-   * @param sessionId - sessionId of the `question/requested` frame.
-   * @param answers - per-question answers keyed by question id.
+   * Answer a pending ask-user-questions batch.
+   * @param eventId - the `eventId` delivered to {@link onQuestionRequest}.
+   * @param answers - one answer per asked question.
    */
-  async answerQuestionBySessionId(sessionId: SessionId, answers: AskUserQuestionAnswerItem[]): Promise<void> {
-    for (const [rpcId, pending] of this.pendingQuestions) {
-      if (pending.sessionId === sessionId) return await this.answerQuestion(rpcId, answers)
+  async answerQuestion(eventId: string, answers: AskUserQuestionAnswerItem[]): Promise<void> {
+    await this.requireEvents().respondQuestions(eventId, answers)
+  }
+
+  /**
+   * TEST SEAM: deliver one channel message exactly as a host stream would.
+   *
+   * The e2e harness uses this to drive host-initiated frames (session status,
+   * answerable requests, journal events) without needing a controllable host,
+   * so UI reaction can be asserted deterministically. The stream mechanics
+   * themselves are covered separately against a faithful fake host in
+   * `tests/transport.test.ts`. Production code never calls this.
+   * @param message - the channel message to deliver.
+   */
+  emitChannel(message: RemoteChannelMessage): void {
+    switch (message.channel) {
+      case 'control':
+        for (const listener of this.controlListeners) listener(message.frame)
+        return
+      case 'workspace':
+        for (const listener of this.workspaceListeners) listener(message.frame)
+        return
+      case 'session':
+        for (const listener of this.activeFollows) listener(message.frame)
+        return
+      case 'remote':
+        for (const listener of this.remoteEventListeners) listener(message.event, message.args)
     }
-    throw new Error(`unknown or already-resolved question for session: ${sessionId}`)
   }
 
-  /**
-   * Test hook (E2E): emit one mux frame through the exact same dispatch path
-   * as a WebSocket frame — pending-request tracking (`trackPending`, so the
-   * respond correlation works) plus the listener fan-out — with the frame
-   * sourced from test code instead of the wire. Interface-aligned by design:
-   * consumers (Bridge/OverlayRetention/webview) cannot tell the source apart.
-   * @param frame - the mux frame to dispatch.
-   * @param rpcId - optional rpcId for answerable frames; a synthetic id is
-   * minted when omitted (answering then hits the real host, which rejects the
-   * unknown rpcId — expected for injected frames).
-   */
-  emitMuxFrame(frame: MuxFrame, rpcId?: RpcId): void {
-    const id = rpcId ?? RpcId(crypto.randomUUID())
-    this.trackPending(id, frame)
-    for (const cb of this.muxListeners) cb(frame)
-  }
-
-  /**
-   * Test hook (E2E): emit one host frame through the same listener fan-out as
-   * a WebSocket host frame, sourced from test code instead of the wire.
-   * @param frame - the host frame to dispatch.
-   */
-  emitHostFrame(frame: HostFrame): void {
-    for (const cb of this.hostListeners) cb(frame)
-  }
-
-  /** Close both sockets, stop reconnecting, and drop pending state. */
+  /** Close the carrier, release the subscription, and settle every stream. */
   async dispose(): Promise<void> {
     this.disposed = true
-    if (this.reconnectTimer !== null) {
-      clearTimeout(this.reconnectTimer)
-      this.reconnectTimer = null
-    }
-    this.muxSocket?.close()
-    this.hostSocket?.close()
-    this.muxSocket = null
-    this.hostSocket = null
-    this.pendingApprovals.clear()
-    this.pendingQuestions.clear()
+    this.controlStream?.cancel()
+    this.workspaceStream?.cancel()
+    this.controlStream = null
+    this.workspaceStream = null
+    this.events?.close()
+    this.events = null
+    this.mux?.dispose()
+    this.mux = null
+    this.target = null
     this.setConnected(false)
+    // Release every subscription. This instance is reused across a host restart
+    // (`Bridge.handleRestartHost` disposes then reconnects the same client), so
+    // leaving the listener sets intact would make the bridge's re-wire register a
+    // SECOND copy of each subscription and deliver every frame twice — which
+    // shows up as a duplicated transcript, not as a visible error.
+    this.clearListeners()
   }
 
-  /** POST /api/respond with a client-response; reject when the host refuses the receipt. */
-  private async respond(rpcId: RpcId, value: unknown): Promise<void> {
-    if (this.baseUrl === null) throw new Error('dsh client is not connected')
-    const message: ClientResponse = { type: 'client-response', rpcId, result: { ok: true, value } }
-    const headers: Record<string, string> = { 'content-type': 'application/json' }
-    if (this.token !== null) {
-      headers['Authorization'] = `Bearer ${this.token}`
-    }
-    if (this.cookie !== null) {
-      headers['Cookie'] = this.cookie
-    }
-    const response = await fetch(`${this.baseUrl}/api/respond`, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify(message),
-      signal: AbortSignal.timeout(RPC_TIMEOUT_MS),
+  // ---- internals ----
+
+  /** Drop every subscription (see the note in `dispose`). */
+  private clearListeners(): void {
+    this.statusListeners.clear()
+    this.controlListeners.clear()
+    this.workspaceListeners.clear()
+    this.remoteEventListeners.clear()
+    this.approvalListeners.clear()
+    this.approvalClearListeners.clear()
+    this.questionListeners.clear()
+    this.streamErrorListeners.clear()
+    this.activeFollows.clear()
+  }
+
+  /** Open (or reopen) the Host-wide streams; each one starts at a baseline. */
+  private openHostWideStreams(): void {
+    const mux = this.mux
+    if (mux === null || this.disposed) return
+    this.controlStream?.cancel()
+    this.workspaceStream?.cancel()
+
+    const control = mux.openStream('session/control', {})
+    this.controlStream = control
+    void this.drain(control, 'session/control', (frame) => {
+      for (const listener of this.controlListeners) listener(frame as SessionControlFrame)
     })
-    if (!response.ok) throw new Error(`transport failure for respond: HTTP ${response.status}`)
-    const receipt = (await response.json()) as RpcReceipt
-    if (!receipt.accepted) throw new Error(`respond rejected: ${receipt.reason}`)
-  }
 
-  /** Open both sockets; resolve when both are open, reject on the first pre-open failure. */
-  private openSockets(): Promise<void> {
-    return new Promise((resolve, reject) => {
-      const timer = setTimeout(() => reject(new Error('dsh WebSocket connect timeout')), CONNECT_TIMEOUT_MS)
-      let opened = 0
-      const onOneOpen = (): void => {
-        opened += 1
-        if (opened === 2) {
-          clearTimeout(timer)
-          this.onBothSocketsMaybeUp()
-          resolve()
-        }
-      }
-      const onPreOpenError = (error: unknown): void => {
-        clearTimeout(timer)
-        reject(error instanceof Error ? error : new Error(String(error)))
-      }
-      this.muxSocket = this.openSocket(MUX_EVENTS_PATH, onOneOpen, onPreOpenError)
-      this.hostSocket = this.openSocket(HOST_EVENTS_PATH, onOneOpen, onPreOpenError)
+    const workspace = mux.openStream('workspace/follow', {})
+    this.workspaceStream = workspace
+    void this.drain(workspace, 'workspace/follow', (frame) => {
+      for (const listener of this.workspaceListeners) listener(frame as WorkspaceFollowFrame)
     })
   }
 
   /**
-   * Open one downlink WebSocket and wire frame dispatch + reconnect triggers.
-   * @param path - WS pathname (/api/events.mux or /api/events.host).
-   * @param onOpen - called once the socket opens.
-   * @param onPreOpenError - reject hook valid only before the socket first opens.
+   * Forward a stream's frames until it dies.
+   * Carrier losses need no handling here: the carrier-lost hook reopens the
+   * stream and the new baseline supersedes the old state.
    */
-  private openSocket(path: string, onOpen: () => void, onPreOpenError: (error: unknown) => void): WebSocket {
-    const port = new URL(this.baseUrl as string).port
-    const query = this.token ? `?token=${encodeURIComponent(this.token)}` : ''
-    const url = `ws://127.0.0.1:${port}${path}${query}`
-    const socket = new WebSocket(url)
-    let everOpened = false
-    socket.addEventListener('open', () => {
-      const firstOpen = !everOpened
-      everOpened = true
-      this.log(`ws open: ${path}`)
-      if (firstOpen) onOpen()
-      else this.onBothSocketsMaybeUp()
-    })
-    socket.addEventListener('message', (event) => this.handleMessage(path, event))
-    socket.addEventListener('error', (event) => {
-      if (!everOpened) onPreOpenError(new Error(`dsh WebSocket failed to open: ${path}`))
-      else this.log(`ws error on ${path}: ${String(event)}`)
-    })
-    socket.addEventListener('close', () => {
-      this.log(`ws closed: ${path}`)
-      if (this.disposed || this.reconnecting) return
-      this.setConnected(false)
-      this.scheduleReconnect()
-    })
-    return socket
+  private async drain(stream: RemoteStream<unknown>, scope: string, onFrame: (frame: unknown) => void): Promise<void> {
+    try {
+      for await (const frame of stream) onFrame(frame)
+    } catch (error) {
+      if (this.disposed) return
+      if (!(error instanceof RemoteStreamError && error.carrier)) this.reportStreamError(scope, error)
+    }
   }
 
-  /** Parse and dispatch one WS text frame; malformed frames are logged and dropped. */
-  private handleMessage(path: string, event: MessageEvent): void {
-    let full: ServerRequest
-    try {
-      if (typeof event.data !== 'string') throw new Error('binary WebSocket frame')
-      full = JSON.parse(event.data) as ServerRequest
-      if (full.type !== 'server-request' || typeof full.payload !== 'object' || full.payload === null) {
-        throw new Error('not a server-request envelope')
+  /** Surface one terminal stream failure to listeners. */
+  private reportStreamError(scope: string, error: unknown): void {
+    const rpcError = (error instanceof RemoteStreamError
+      ? { code: error.code ?? 'transport', message: error.message, details: error.details ?? {} }
+      : { code: 'transport', message: error instanceof Error ? error.message : String(error), details: {} }) as RpcError
+    this.log(`stream error [${scope}]: ${rpcError.code} ${rpcError.message}`)
+    for (const listener of this.streamErrorListeners) listener({ scope, error: rpcError })
+  }
+
+  /** Route one waterfall frame to the matching listener family. */
+  private dispatchWaterfall(request: PendingWaterfall): void {
+    if (request.event === 'approval/request') {
+      const wire = request.request as { toolName?: string; callId?: string; reason?: string }
+      const approval: ApprovalWaterfall = {
+        eventId: request.eventId,
+        agentId: request.agentId,
+        toolName: typeof wire.toolName === 'string' ? wire.toolName : '',
+        ...(typeof wire.callId === 'string' ? { callId: wire.callId } : {}),
+        ...(typeof wire.reason === 'string' ? { reason: wire.reason } : {}),
       }
-    } catch (error) {
-      this.log(`dropping malformed WebSocket frame on ${path}: ${String(error)}`)
+      for (const listener of this.approvalListeners) listener(approval)
       return
     }
-    if (path === MUX_EVENTS_PATH) {
-      const frame = full.payload as MuxFrame
-      this.trackPending(full.rpcId, frame)
-      for (const cb of this.muxListeners) cb(frame)
-    } else {
-      const frame = full.payload as HostFrame
-      for (const cb of this.hostListeners) cb(frame)
+    if (request.event === 'user-questions/request') {
+      const wire = request.request as { questions?: AskUserQuestionItem[] }
+      const batch: QuestionWaterfall = {
+        eventId: request.eventId,
+        agentId: request.agentId,
+        questions: Array.isArray(wire.questions) ? wire.questions : [],
+      }
+      for (const listener of this.questionListeners) listener(batch)
     }
   }
 
-  /** Track answerable frames (requested) and clear them on resolved, keyed by rpcId. */
-  private trackPending(rpcId: RpcId, frame: MuxFrame): void {
-    switch (frame.type) {
-      case 'approval/requested':
-        this.pendingApprovals.set(rpcId, { sessionId: frame.sessionId, approvalId: frame.approvalId })
-        break
-      case 'approval/resolved':
-        for (const [id, pending] of this.pendingApprovals) {
-          if (pending.approvalId === frame.approvalId) this.pendingApprovals.delete(id)
-        }
-        break
-      case 'question/requested':
-        this.pendingQuestions.set(rpcId, { sessionId: frame.sessionId })
-        break
-      case 'question/resolved':
-        this.pendingQuestions.delete(frame.questionRpcId)
-        break
-    }
+  /** Wait until the carrier reports itself connected (resolves immediately when it is). */
+  private async waitForCarrier(): Promise<void> {
+    const mux = this.mux
+    if (mux === null || mux.isConnected) return
+    await new Promise<void>((resolve) => {
+      const unsubscribe = mux.onStatus((connected) => {
+        if (!connected) return
+        unsubscribe()
+        resolve()
+      })
+      if (this.disposed || mux.isConnected) {
+        unsubscribe()
+        resolve()
+      }
+    })
   }
 
-  /** Reopen both sockets after a drop, with exponential backoff (500ms * 2^n, capped at 30s). */
-  private scheduleReconnect(): void {
-    if (this.reconnectTimer !== null || this.reconnecting) return
-    const delay = Math.min(RECONNECT_BASE_MS * 2 ** this.reconnectAttempts, RECONNECT_CAP_MS)
-    this.reconnectAttempts += 1
-    this.log(`reconnecting in ${delay}ms (attempt ${this.reconnectAttempts})`)
-    this.reconnectTimer = setTimeout(() => void this.reconnect(), delay)
+  /** The unary target, or a hard failure when used before `connect`. */
+  private requireTarget(): UnaryTarget {
+    if (this.target === null) throw new Error('dsh client is not connected')
+    return this.target
   }
 
-  /** One reconnect pass: close stale sockets, reopen both, reschedule on failure. */
-  private async reconnect(): Promise<void> {
-    this.reconnectTimer = null
-    if (this.disposed) return
-    // Closing stale sockets must not re-enter scheduleReconnect from their close events.
-    this.reconnecting = true
-    this.muxSocket?.close()
-    this.hostSocket?.close()
+  /** The events client, or a hard failure when used before `connect`. */
+  private requireEvents(): RemoteEventsClient {
+    if (this.events === null) throw new Error('dsh client is not connected')
+    return this.events
+  }
+
+  /** Reject a promise that does not settle in time. */
+  private async withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
+    let timer: ReturnType<typeof setTimeout> | null = null
     try {
-      await this.openSockets()
-      this.onBothSocketsMaybeUp()
-    } catch (error) {
-      this.log(`reconnect failed: ${String(error)}`)
+      return await Promise.race([
+        promise,
+        new Promise<never>((_, reject) => {
+          timer = setTimeout(() => reject(new Error('dsh WebSocket connect timeout')), timeoutMs)
+        }),
+      ])
     } finally {
-      this.reconnecting = false
-    }
-    if (!this.connected && !this.disposed) this.scheduleReconnect()
-  }
-
-  /** After a reconnect, flip status back up once both sockets are open again. */
-  private onBothSocketsMaybeUp(): void {
-    if (
-      this.muxSocket?.readyState === WebSocket.OPEN
-      && this.hostSocket?.readyState === WebSocket.OPEN
-    ) {
-      this.reconnectAttempts = 0
-      this.setConnected(true)
+      if (timer !== null) clearTimeout(timer)
     }
   }
 
@@ -429,7 +538,7 @@ export class DshClient {
   private setConnected(connected: boolean): void {
     if (this.connected === connected) return
     this.connected = connected
-    for (const cb of this.statusListeners) cb(connected)
+    for (const listener of this.statusListeners) listener(connected)
   }
 
   /** Emit one diagnostic line through the optional sink. */
