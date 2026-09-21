@@ -5,46 +5,47 @@ DeepSeek harness（dsh）的 VSCode 侧边栏插件。插件只做前端界面�
 vibe coded by **kimi k3 & GPT 5.6 & deepseek v4**.
 ## 界面展示
 
-<table>
-  <tr>
-    <td><img src="artifacts/image1.png" width="300"></td>
-    <td><img src="artifacts/image2.png" width="300"></td>
-  </tr>
-  <tr>
-    <td align="center">对话页面</td>
-    <td align="center">设置页面右图说明</td>
-  </tr>
-</table>
+<img src="artifacts/preview.png" width="400" alt="dsh-vscode-sidebar 界面预览">
+
+界面预览
 
 ## 核心原理
 ```text
 [VSCode Webview: React UI（会话/对话/审批/设置）]
         │ postMessage 桥协议 (shared/bridge.ts)
         ▼
-[Bridge + SidebarProvider]  ◄── 广播 mux/host 事件帧、host-status
-        │ 透传 rpc / respond
+[Bridge + SidebarProvider]  ◄── 广播 control/workspace/session/remote 四路事件帧、host-status
+        │ 透传 rpc，以及审批 / 提问的应答
         ▼
 [DshClient（extension 进程, Node ≥22）]
-   │                              │                         │
-   │ POST /api/<method>          │ POST /api/respond       │ WS /api/events.mux
-   │ (session.create 等 unary)   │ (审批/提问应答)         │ + /api/events.host
-   ▼                              ▼                         ▼
+   │                                    │
+   │ POST /api/<namespace>/<method>     │ WS /api/remote.mux（单条载体）
+   │ 信封 {type:'client-request',       │  ├─ session/control   队列 / jobs / 投影
+   │       rpcId, method, payload:{args}│  ├─ session/follow    会话流水快照 + 增量
+   │ 应答 {type:'server-response',      │  ├─ workspace/follow  工作区与归档集合
+   │       rpcId, result:{ok,value}}    │  └─ $events           emit / waterfall / cancel
+   ▼                                    ▼
 [HostManager: 探测 127.0.0.1:3080..3089 → 无则 spawn `dsh web`]  (只连 loopback)
-        │ spawn / 复用 / 版本检查
+        │ spawn / 复用（能力探测，不再比较版本号）
         ▼
 [dsh web host 进程]
   [webserver: createServer + 'upgrade' 分发]  ── /api/* 请求、WS 升级
         │
-  [client-connection: isTrustedApiRequest 信任门 → toFetchHandler / WebSocketDownlinks]
+  [client-connection: isTrustedApiRequest 信任门 → 签名 cookie 鉴权 → 路由分发]
         │
-  [ApiProxy (apiproxy 包)]
-    ├─ unary: session.*/workspace.*/settings.*/preset.*/llm.* → 执行业务
-    ├─ respond: 按 rpcId 结算 pending 的审批/提问
-    └─ events: 订阅 ctx 事件总线，把 session/event 等转成 MuxFrame/HostFrame
+  [api-gateway（Typert Remote 服务端）]
+    ├─ unary: session/* ・ workspace/* ・ settings/* ・ credentials/* 等命名空间
+    ├─ $events: 订阅 ctx 事件总线，把审批 / 提问等做成 waterfall，应答由
+    │           POST /api/$events/result 按 eventId 结算
+    └─ 流: session/control ・ session/follow ・ workspace/follow …
         │ ctx.on('session/event') 等
         ▼
 [Session / Agent / workspace 注册表（harness 核心）]
 ```
+
+> 协议版本要求：dsh ≥ `0.1.2-rc.1`。自该版本起 apiproxy（`POST /api/<method>`、
+> `/api/events.mux`、`/api/events.host`、`host.describe`）已被移除，只有 api-gateway 被挂载；
+> 更早的 dsh 上插件会报"未提供 Typert Remote 接口"。已在 `0.1.5-rc.1` / `0.1.5-rc.2` 上验证。
 ## 安装
 ### dsh插件
 确保dsh已经安装
@@ -79,11 +80,11 @@ vibe coded by **kimi k3 & GPT 5.6 & deepseek v4**.
 ### 输入区（下层栏 Composer）
 
 - 文本框多行自动增高，Enter 发送 / Shift+Enter 换行；随时可输入，无会话时发送自动建会话
-- **斜杠命令提示**：输入 `/` 弹出命令建议——内置宿主命令 `/goal`、`/compact`、`/plan` 优先，其后跟随会话技能名（skill.list）；输入中过滤，Enter/Tab 选中，Esc 关闭。发送 `/`-开头的一行消息即斜杠命令：宿主命令注册表支持时由宿主直接执行（不发给模型），旧版宿主则作为普通消息交给模型
+- **斜杠命令提示**：输入 `/` 弹出命令建议——内置宿主命令 `/goal`、`/compact`、`/plan` 优先，其后跟随该会话的技能名（`skills/list`）；输入中过滤，Enter/Tab 选中，Esc 关闭。发送 `/`-开头的一行消息即斜杠命令：宿主命令注册表里有这个名字时由宿主直接执行（不发给模型），否则作为普通消息交给模型。命令表变化经 `commands/change` 转发事件同步
 - **Esc 打断**：运行中按 Esc 中断当前回合（与停止按钮同动作）；弹层打开时 Esc 优先关闭弹层，菜单/对话框/输入框内的 Esc 保持原有语义
 - **窄宽度自适应**：面板变窄时工具栏按优先级隐藏（权限选择 → 模型 → 上下文环 → IDE 开关 → 附件按钮），发送按钮与输入框永远保留，图标不被挤压变形
 - 权限芯片：Read Only / Workspace Write / Full access（选 Full access 弹风险确认）；启动时同步 host 端默认权限，新建会话重置为已保存默认
-- 模型选择器：两级菜单（模型按 provider 分组 + reasoning effort 档位）；"记住上次模型"由 host 端实现（新会话自动带回），无会话首页通过 host.describe 预选默认模型，无会话时的选择暂存、建会话后自动应用
+- 模型选择器：两级菜单（模型按 provider 分组 + reasoning effort 档位）；"记住上次模型"由 host 端实现（新会话自动带回），默认档位读 host 的 `modelSelection` 投影（`next ?? lastUsed`）——`host.describe` 已随新协议移除且没有替代，无会话时的选择暂存、建会话后自动应用
 - 上下文用量环（ContextMeter）：按 contextWindow 计算占用，环旁带百分比文本，缺数据不渲染
 - 统计行（StatsLine）：输入卡片下方小字——turns/steps、LLM/Tool 耗时、TTFT、tok/s、缓存命中、Input/Output token（数据源为 host 投影帧）
 - 消息队列（QueueDock）：运行中发送的消息入队，显示在输入框上方，可编辑/删除/立即插话（Steer）
@@ -93,9 +94,9 @@ vibe coded by **kimi k3 & GPT 5.6 & deepseek v4**.
 
 ### SubagentDock 管理栏
 
-- 列出当前会话的子代理；continuable 且运行中的子代理显示"停止"按钮（subagent.interrupt）
+- 列出当前会话的子代理；continuable 且运行中的子代理显示"停止"按钮（`subagents/interruptByParent`）
 - one-shot / 已结束的子代理只读展示
-- 后台任务（session/jobs 帧）渲染只读状态行——协议不支持手动停止，停止权属模型侧 job_kill
+- 后台任务（`session/control` 流的 `jobs` 帧）渲染只读状态行——协议不支持手动停止，停止权属模型侧 job_kill
 
 ### 设置页
 
@@ -106,8 +107,8 @@ vibe coded by **kimi k3 & GPT 5.6 & deepseek v4**.
 
 ### 后端接入与 workspace 归属
 
-- 连接本机 dsh Web Host（loopback）：HTTP RPC + mux / host 两条 WebSocket，断线自动重连；无实例时自动拉起，用户无感
-- 会话归属：以当前 VSCode 工程根目录（cwd）归属会话；新建会话先调 workspace.create（按插件根目录幂等归属）再 session.create，插件会话在 dsh 网页端归入对应 Workspace 统一管理（老 host 不支持时回退 cwd 创建）
+- 连接本机 dsh Web Host（loopback）：一元调用走 `POST /api/<namespace>/<method>`，流走**单条** `WS /api/remote.mux`（同一连接承载 session/control、session/follow、workspace/follow 与 `$events`）；断线自动重连并重开全部流，无实例时自动拉起，用户无感
+- 会话归属：以当前 VSCode 工程根目录（cwd）归属会话；新建会话先调 `workspace/create`（按插件根目录幂等归属）再 `session/create`，插件会话在 dsh 网页端归入对应 Workspace 统一管理（`workspace/create` 失败时回退为按 cwd 创建会话）
 - 协议类型 vendored 自 deepseek-harness（见 `src/extension/protocol/`）
 
 ## 从源码安装
@@ -118,7 +119,7 @@ npm run package   # 产出 VSIX（dist/*.vsix）
 code --install-extension dist/dsh-vscode-sidebar-*.vsix
 ```
 
-或在 VSCode 中"扩展"面板 → `...` → "从 VSIX 安装"。本地使用，不发布插件市场。
+或在 VSCode 中"扩展"面板 → `...` → "从 VSIX 安装"。也可以直接从[插件市场](https://marketplace.visualstudio.com/items?itemName=XuRongsheng.dsh-vscode-sidebar)安装。
 
 ## 测试
 
