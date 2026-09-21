@@ -369,17 +369,22 @@ export const createSessionsSlice: StateCreator<AppStore, [], [], SessionsSlice> 
     applyControlFrame: (frame) => {
       switch (frame.type) {
         // GENERATION BOUNDARY: the control stream opens every generation with
-        // exactly one baseline whose `projections` map carries a complete cut for
-        // every session the host knows — it is a full replacement, not a delta.
-        // Treating it as a delta (or ignoring it) would leave rows holding titles
-        // from the dead generation, so each row is RECOMPUTED from the cut: a
-        // session the cut does not mention, or one whose cut omits `title`, has
-        // no title any more.
+        // exactly one baseline. Its `projections` map is NOT a complete cut: a cut
+        // exists only for sessions whose projection unit is mounted in that host
+        // process (measured 10 cuts for 245 sessions on a live host), while
+        // `session/list` carries a title for almost every row. So a cut is applied
+        // to the session it names, and a session the cut does not mention is left
+        // alone — recomputing it from a missing cut erased every title the init
+        // payload had just installed, which showed the whole list as 新会话.
+        // A session whose projection unit really is unmounted arrives as a PRESENT
+        // cut with `title: null` inside it.
         case 'baseline': {
           const rows = get().sessions
           let changed = false
           const next = rows.map((row) => {
-            const patched = fromProjectionCut(row, frame.value.projections[row.sessionId]?.values)
+            const cut = frame.value.projections[row.sessionId]
+            if (cut === undefined) return row
+            const patched = fromProjectionCut(row, cut.values)
             if (patched !== row) changed = true
             return patched
           })

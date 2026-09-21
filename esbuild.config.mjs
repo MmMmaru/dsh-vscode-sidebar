@@ -48,6 +48,11 @@ async function buildTests() {
     // cannot be inlined into an ESM bundle, so the fake new-protocol host in
     // tests/fake-remote-host.ts imports it from node_modules at run time.
     external: [...base.external, 'react', 'react-dom/server', 'react-test-renderer', 'ws'],
+    // The extension modules import `vscode` at RUNTIME (bridge.ts calls
+    // `vscode.window.show*Message`), so a test that drives them needs the module
+    // to resolve. The e2e harness already aliases the same tracked stub; unit
+    // tests did not, which is why nothing exercised the Bridge before.
+    alias: { vscode: resolvePath('tests/e2e/vscode-stub.ts') },
     entryPoints: files.map((f) => `tests/${f}`),
     outdir: '.temp/test-dist',
     outExtension: { '.js': '.mjs' },

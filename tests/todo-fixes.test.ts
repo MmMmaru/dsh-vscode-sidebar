@@ -140,6 +140,50 @@ test('api-session/added from another workspace is ignored; same-cwd rows enter',
   assert.deepEqual(useAppStore.getState().sessions.map((s) => s.sessionId), [c, b, a])
 })
 
+test('a sparse control baseline keeps the titles the init payload installed', async () => {
+  const { useAppStore } = await import('../src/webview/store')
+  const state = useAppStore.getState()
+
+  // REGRESSION: the control stream's `projections` map is NOT a complete cut — a
+  // cut exists only for sessions whose projection unit is mounted in that host
+  // process (measured 10 cuts for 245 sessions on a live host). The baseline
+  // handler used to recompute EVERY row from the cut, so a session the cut did not
+  // mention lost its title and the whole list rendered as 新会话 right after the
+  // init payload had supplied the titles.
+  state.initSessions([
+    meta(a, 3, { title: '问候与交流' }),
+    meta(b, 2, { title: 'Work in /x' }),
+    meta(c, 1, { title: 'third' }),
+  ], MOCK_CWD)
+  assert.deepEqual(useAppStore.getState().sessions.map((s) => s.title), ['问候与交流', 'Work in /x', 'third'])
+
+  // The cut mentions ONE session, and only that row is recomputed.
+  state.applyControlFrame({
+    type: 'baseline',
+    value: { queues: {}, jobs: {}, projections: { [b as string]: { asOfSeq: 9, values: { title: 'renamed-b' } } } },
+  })
+  assert.deepEqual(useAppStore.getState().sessions.map((s) => s.title), ['问候与交流', 'renamed-b', 'third'])
+
+  // A PRESENT cut that omits `title` still clears that row: the projection unit
+  // is mounted there and reports no title.
+  state.applyControlFrame({
+    type: 'baseline',
+    value: { queues: {}, jobs: {}, projections: { [c as string]: { asOfSeq: 10, values: {} } } },
+  })
+  assert.deepEqual(useAppStore.getState().sessions.map((s) => s.title), ['问候与交流', 'renamed-b', null])
+})
+
+test('an empty control baseline does not wipe any title', async () => {
+  const { useAppStore } = await import('../src/webview/store')
+  const state = useAppStore.getState()
+  state.initSessions([meta(a, 2, { title: 'kept' }), meta(b, 1, { title: 'also kept' })], MOCK_CWD)
+
+  // A fresh host generation whose registry holds nothing yet: the frame arrives,
+  // and every row must survive it.
+  state.applyControlFrame({ type: 'baseline', value: { queues: {}, jobs: {}, projections: {} } })
+  assert.deepEqual(useAppStore.getState().sessions.map((s) => s.title), ['kept', 'also kept'])
+})
+
 test('initSessions keeps only rows of the canonical workspace cwd', async () => {
   const { useAppStore } = await import('../src/webview/store')
   const state = useAppStore.getState()

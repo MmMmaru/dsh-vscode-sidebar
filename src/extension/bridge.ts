@@ -37,12 +37,51 @@ import type { SessionSummary } from './protocol/sessions'
 import { openFileAt } from './open-file'
 import { OverlayRetention } from './overlay-retention'
 
-/** Join the session-list rows with cached projections into UI-facing rows. */
+/**
+ * Read one projection value out of a `session/list` row's own projection block.
+ * @param summary - the row.
+ * @param key - projection key, e.g. `title`.
+ * @returns the raw value, or undefined when the row carries no such projection.
+ */
+function readSummaryProjection(summary: SessionSummary, key: string): unknown {
+  const values = summary.projections?.values
+  if (typeof values !== 'object' || values === null) return undefined
+  return (values as Record<string, unknown>)[key]
+}
+
+/**
+ * Read the `title` projection value.
+ * @param value - the raw projection value.
+ * @returns the title, `null` for an explicit "no title", or undefined when the
+ * value is not a title at all.
+ */
+function readTitleValue(value: unknown): string | null | undefined {
+  if (value === null) return null
+  if (typeof value === 'string') return value
+  return undefined
+}
+
+/**
+ * Join the session-list rows with cached projections into UI-facing rows.
+ *
+ * `session/list` already carries each row's own `projections.values.title`, and
+ * that is the only COMPLETE source: the control stream's projection cuts are
+ * sparse (a cut exists just for sessions with a mounted projection unit —
+ * measured 10 cuts for 245 sessions), so reading the cache alone renders almost
+ * every row as 新会话 until the user happens to touch each session. The cache
+ * still decides when a row omits `title` entirely, since the control stream is
+ * the only thing that knows about a rename with no fresh list fetch behind it.
+ * @param summary - one `session/list` row.
+ * @param titles - titles absorbed from the control stream.
+ * @returns the UI-facing row.
+ */
 function toSessionMeta(summary: SessionSummary, titles: ReadonlyMap<string, string | null>): SessionMeta {
-  const title = titles.get(summary.sessionId)
+  const fromSummary = readTitleValue(readSummaryProjection(summary, 'title'))
+  const cached = titles.get(summary.sessionId)
+  const title = fromSummary !== undefined ? fromSummary : (cached ?? null)
   return {
     sessionId: summary.sessionId,
-    title: title === undefined || title === null ? null : title,
+    title,
     updatedAt: summary.updatedAt,
     running: summary.running,
     blank: summary.blank,
