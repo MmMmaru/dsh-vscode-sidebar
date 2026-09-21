@@ -100,13 +100,18 @@ test('manual IDE insert (command path) appends to the draft and toasts failures'
   const input = page.locator('.composer-input')
   await expect(input).toBeVisible()
 
-  // The dsh.insertSelection / dsh.insertActiveFile command path: the
-  // extension reads the editor and posts ide-content; the composer appends
-  // the formatted block to the draft.
+  // The dsh.insertSelection / dsh.insertActiveFile command path: the extension
+  // reads the editor and posts ide-content; the composer files it as an attached
+  // text chip rather than inlining a `### 选中代码（…）` block into the draft.
+  // (The inline block is now a LEGACY format that is only parsed back for
+  // history compatibility — see shared/attached-text.ts LEGACY_IDE_BLOCK_RE.)
   harness.emitIdeContent({ kind: 'selection', text: 'SELECTED CODE', path: '/work/src/demo.ts' })
-  await expect(input).toHaveValue(/### 选中代码（\/work\/src\/demo\.ts）/)
-  await expect(input).toHaveValue(/```ts/)
-  await expect(input).toHaveValue(/SELECTED CODE/)
+  const chip = page.locator('.composer-attached-text-chip')
+  await expect(chip).toHaveCount(1)
+  await expect(chip).toContainText('demo.ts')
+  await expect(chip).toHaveAttribute('title', '/work/src/demo.ts')
+  // The draft stays clean: the content rides the attachment, not the prompt text.
+  await expect(input).toHaveValue('')
 
   // Failures ride the payload's error slot and toast in place.
   harness.emitIdeContent({ kind: 'selection', text: '', error: '没有活动的编辑器' })
@@ -267,7 +272,15 @@ test('asking with an editor selection auto-injects the selected code', async ({ 
   await expect(bubble).toContainText('这个函数是做什么的？', { timeout: 30_000 })
   await expect(bubble).not.toContainText('### 选中代码')
   await expect(bubble).not.toContainText('function selectedFn() { return 42 }')
-  await expect(page.locator('.ctx-row', { hasText: 'ide：选中代码（/work/src/auto.ts）' })).toBeVisible()
+  // The injected selection surfaces as an attached-text card beside the bubble.
+  // It is NOT an `ide：` ctx-row: that row came from the legacy inline block,
+  // which the send path no longer emits (it now wraps `[DSH_ATTACHED_TEXT]`).
+  await expect(page.locator('.msg-attached-text-card')).toHaveCount(1)
+  // The card names the source and carries the full path as its tooltip.
+  const name = page.locator('.msg-attached-text-name')
+  await expect(name).toContainText('auto.ts')
+  await expect(name).toHaveAttribute('title', '/work/src/auto.ts')
+  await expect(page.locator('.ctx-row', { hasText: 'ide：' })).toHaveCount(0)
 })
 
 test('asking without a selection attaches the active file path', async ({ page, harness }) => {
@@ -292,7 +305,11 @@ test('asking without a selection attaches the active file path', async ({ page, 
   await expect(bubble).toContainText('这个文件是做什么的？', { timeout: 30_000 })
   await expect(bubble).not.toContainText('### 当前文件')
   await expect(bubble).not.toContainText('FULL FILE CONTENT THAT MUST NOT BE INJECTED')
-  await expect(page.locator('.ctx-row', { hasText: 'ide：当前文件：/work/src/context.ts' })).toBeVisible()
+  await expect(page.locator('.msg-attached-text-card')).toHaveCount(1)
+  const name = page.locator('.msg-attached-text-name')
+  await expect(name).toContainText('context.ts')
+  await expect(name).toHaveAttribute('title', '/work/src/context.ts')
+  await expect(page.locator('.ctx-row', { hasText: 'ide：' })).toHaveCount(0)
 })
 
 test('toggling IDE context injection off stops the injection', async ({ page, harness }) => {

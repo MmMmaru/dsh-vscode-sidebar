@@ -2,8 +2,9 @@
  * Playwright E2E: overlay / menu visual unification (TODO 29).
  *
  * Asserts the shared "raised card" treatment lands on the real build:
- *   - takeover card (.ovl-card): 10px radius, layered shadow, ovl-enter animation
- *   - session hover menu (.session-menu): same 10px radius
+ *   - takeover card (.ovl-card): 16px radius (tokens --dsh-radius-lg), layered
+ *     shadow, ovl-enter animation
+ *   - session hover menu (.session-menu): the same radius token
  *
  * Run: `npm run test:e2e` (or `npm run build:webview && node esbuild.config.mjs --e2e`
  * then `LD_LIBRARY_PATH=.temp/libs/root/usr/lib/x86_64-linux-gnu npx playwright test -g "OVL-"`).
@@ -60,8 +61,9 @@ test('OVL-1: takeover card and session menu use the shared card tokens', async (
   const card = page.locator(`.ovl-card[data-question-session="${sessionId}"]`)
   await expect(card).toBeVisible()
 
-  // Computed style: 10px radius, two-layer shadow, ovl-enter entrance.
-  await expect(card).toHaveCSS('border-radius', '10px')
+  // Computed style: 16px radius (aligned across every card by 5c02a1c), a
+  // two-layer shadow, and the ovl-enter entrance.
+  await expect(card).toHaveCSS('border-radius', '16px')
   const shadow = await card.evaluate((el) => getComputedStyle(el).boxShadow)
   expect(shadow.split(',').length).toBeGreaterThanOrEqual(6) // two rgba() layers
   expect(shadow).toContain('8px 24px')
@@ -74,7 +76,7 @@ test('OVL-1: takeover card and session menu use the shared card tokens', async (
   await expect(card).not.toBeVisible()
   harness.emitChannel({ channel: 'remote', event: 'request/cancelled', args: [eventId] })
 
-  // Session menu (⋯): same 10px radius. The list lives in the history
+  // Session menu (⋯): the same radius token. The list lives in the history
   // dropdown once a session is active; the trigger shows on row hover.
   await page.locator('.chat-list-header .icon-btn').first().click()
   const row = page.locator('.chat-list-dropdown .session-row', { hasText: title })
@@ -82,7 +84,7 @@ test('OVL-1: takeover card and session menu use the shared card tokens', async (
   await row.locator('.session-menu-trigger').click()
   const menu = page.locator('.session-menu')
   await expect(menu).toBeVisible()
-  await expect(menu).toHaveCSS('border-radius', '10px')
+  await expect(menu).toHaveCSS('border-radius', '16px')
   await expect(menu).toHaveCSS('animation-name', 'ovl-enter')
 })
 

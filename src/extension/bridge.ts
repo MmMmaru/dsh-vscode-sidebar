@@ -414,9 +414,7 @@ export class Bridge {
     })
 
     this.client.onSessionControl((frame) => {
-      this.absorbTitles(frame)
-      // Only a baseline restarts a generation; later frames are increments.
-      if (frame.type === 'baseline') this.controlBaseline = frame
+      this.absorbControl(frame)
       this.broadcast({ type: 'event', channel: 'control', frame })
     })
 
@@ -442,9 +440,20 @@ export class Bridge {
     })
   }
 
-  /** Maintain the per-session `title` cache from control-stream projection frames. */
-  private absorbTitles(frame: SessionControlFrame): void {
+  /**
+   * Track the control generation's live state, plus the per-session `title` cache.
+   *
+   * The cached frame must be the generation's CURRENT state, not its opening
+   * baseline: it is replayed to every late-attaching webview, and the store treats
+   * a baseline as an authoritative replacement. Replaying the opening frame after
+   * the increments had already advanced it would REGRESS those webviews — a session
+   * renamed since the stream opened would be blanked back to "新会话". So every
+   * increment is folded into the cache instead of being forwarded and forgotten.
+   * @param frame - one `session/control` frame of the live generation.
+   */
+  private absorbControl(frame: SessionControlFrame): void {
     if (frame.type === 'baseline') {
+      this.controlBaseline = frame
       for (const [sessionId, baseline] of Object.entries(frame.value.projections)) {
         if (Object.hasOwn(baseline.values, 'title')) {
           this.titles.set(sessionId, (baseline.values.title ?? null) as string | null)
@@ -452,8 +461,52 @@ export class Bridge {
       }
       return
     }
-    if (frame.type === 'projection' && frame.key === 'title') {
-      this.titles.set(frame.sessionId, (frame.value ?? null) as string | null)
+
+    const cached = this.controlBaseline
+    // An increment before the generation's baseline cannot happen on a well-formed
+    // stream; if it does, drop it rather than fabricate a baseline to patch.
+    if (cached === null || cached.type !== 'baseline') return
+
+    if (frame.type === 'projection') {
+      if (frame.key === 'title') {
+        this.titles.set(frame.sessionId, (frame.value ?? null) as string | null)
+      }
+      const previous = cached.value.projections[frame.sessionId]
+      this.controlBaseline = {
+        type: 'baseline',
+        value: {
+          ...cached.value,
+          projections: {
+            ...cached.value.projections,
+            [frame.sessionId]: {
+              // `asOfSeq` advances with the value, so a replay stays coherent.
+              asOfSeq: frame.seq,
+              values: { ...(previous?.values ?? {}), [frame.key]: frame.value },
+            },
+          },
+        },
+      }
+      return
+    }
+
+    if (frame.type === 'queue') {
+      this.controlBaseline = {
+        type: 'baseline',
+        value: {
+          ...cached.value,
+          queues: { ...cached.value.queues, [frame.sessionId]: frame.items },
+        },
+      }
+      return
+    }
+
+    // `session/control` is the complete frame set: baseline | queue | jobs | projection.
+    this.controlBaseline = {
+      type: 'baseline',
+      value: {
+        ...cached.value,
+        jobs: { ...cached.value.jobs, [frame.sessionId]: frame.jobs },
+      },
     }
   }
 

@@ -99,12 +99,20 @@ test('DEL-2: the ⋯ menu opens next to the row it was clicked on', async ({ pag
   expect(rowBox).not.toBeNull()
   expect(menuBox).not.toBeNull()
 
-  // 垂直方向：菜单顶缘与该行顶缘对齐（top:0 相对 li）。菜单比行高时中心必然
-  // 下移，不能比中心——贴面板顶部时菜单顶缘会远离行顶，此断言即可抓住回归。
-  expect(Math.abs(menuBox!.y - rowBox!.y)).toBeLessThan(4)
+  // 垂直方向：菜单顶缘贴近被点击行的顶缘。菜单现在是 JS 定位的 position:fixed
+  // 浮层（不再是 li 内 top:0 的绝对定位），其自身 4px padding 使它比行顶低约 4px，
+  // 因此容差取 6px。断言仍能抓住原回归——行是第三行，若菜单退回"永远贴在面板
+  // 顶部"，顶缘差值会是几十像素。
+  expect(Math.abs(menuBox!.y - rowBox!.y)).toBeLessThan(6)
+  // 并且确实没有贴在面板顶部（原 bug 的症状）。
+  const panelBox = await page.locator('.chat-list').boundingBox()
+  expect(panelBox).not.toBeNull()
+  expect(menuBox!.y).toBeGreaterThan(panelBox!.y)
 
-  // 水平方向：菜单向左伸入行内，右缘与 ⋯ trigger 左缘（right:30px）对齐。
+  // 水平方向：菜单向左伸入行内，右缘对准 ⋯ trigger 左缘（right:8px + 宽 22px
+  // = 距行右缘 30px）。JS 按该锚点定位的是菜单的内容盒，菜单自身 4px padding 使
+  // 边框盒再向右多出 4px，故容差 6px。
   const rowRight = rowBox!.x + rowBox!.width
   const menuRight = menuBox!.x + menuBox!.width
-  expect(Math.abs(menuRight - (rowRight - 30))).toBeLessThan(2)
+  expect(Math.abs(menuRight - (rowRight - 30))).toBeLessThan(6)
 })
