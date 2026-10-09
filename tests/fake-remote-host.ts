@@ -95,6 +95,17 @@ export interface FakeRemoteHost {
   pushStream(endpoint: string, value: unknown): void
   /** End every currently-open stream of a push-driven endpoint. */
   endStream(endpoint: string): void
+  /**
+   * Refuse the next `open`s for one endpoint with a transient gateway error.
+   *
+   * Mirrors the real race this plugin hit: the host answers the readiness probe as
+   * soon as `settings/describe` mounts, while `session/control` / `workspace/follow`
+   * still answer `gateway/service-unavailable` until their controllers register.
+   * @param endpoint - `<namespace>/<method>`.
+   * @param times - how many consecutive opens to refuse.
+   * @param code - gateway code to answer with.
+   */
+  refuseNextOpens(endpoint: string, times: number, code?: string): void
   /** Broadcast one `emit` frame on the live `$events` stream. */
   emit(event: string, args: unknown[]): void
   /**
@@ -145,6 +156,8 @@ export async function startFakeRemoteHost(options: FakeRemoteHostOptions = {}): 
   const sockets = new Set<WebSocket>()
   /** Endpoints declared push-driven: opens yield nothing and never `end`. */
   const pushDrivenEndpoints = new Set<string>()
+  /** Endpoints whose next opens must be refused (transient-failure simulation). */
+  const refusals = new Map<string, { left: number; code: string }>()
   /** Currently-open push-driven streams, keyed by endpoint. */
   const liveStreams = new Map<string, Set<{ socket: WebSocket; streamId: string }>>()
 
@@ -188,6 +201,16 @@ export async function startFakeRemoteHost(options: FakeRemoteHostOptions = {}): 
           const clientId = `client-${eventSockets.size + 1}`
           eventSockets.add({ socket: ws, streamId: frame.streamId, clientId })
           ws.send(JSON.stringify({ type: 'item', streamId: frame.streamId, value: { type: 'ready', clientId, host: { home: '/home/tester' } } }))
+          return
+        }
+        const refusal = refusals.get(frame.endpoint)
+        if (refusal !== undefined && refusal.left > 0) {
+          refusal.left -= 1
+          ws.send(JSON.stringify({
+            type: 'error',
+            streamId: frame.streamId,
+            error: { code: refusal.code, message: `${frame.endpoint}: active Service is unavailable`, details: {} },
+          }))
           return
         }
         const producer = streams.get(frame.endpoint)
@@ -325,6 +348,9 @@ export async function startFakeRemoteHost(options: FakeRemoteHostOptions = {}): 
     },
     handleValue(endpoint, value) {
       unary.set(endpoint, () => ({ ok: true, value }))
+    },
+    refuseNextOpens(endpoint, times, code) {
+      refusals.set(endpoint, { left: times, code: code ?? 'gateway/service-unavailable' })
     },
     stream(endpoint, values) {
       streams.set(endpoint, values)

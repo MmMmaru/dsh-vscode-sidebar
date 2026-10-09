@@ -80,10 +80,31 @@ const CAPABILITY_METHOD = 'session/list'
 const PORT_SCAN_LIMIT = 10
 /** Per-probe HTTP deadline; a hung listener must not stall startup. */
 const PROBE_TIMEOUT_MS = 1500
+/**
+ * How long an already-probed host may take to expose the capability.
+ *
+ * A host that answers {@link probe} speaks the protocol, so it will become ready;
+ * waiting is strictly better than both alternatives — adopting it half-booted
+ * (whose streams then fail with `gateway/service-unavailable`) or skipping it and
+ * spawning a duplicate backend on the next port.
+ */
+const ADOPT_READY_TIMEOUT_MS = 15_000
 /** Spawn readiness deadline (first `npx` run downloads the package; measured ~4.5min cold). */
 const SPAWN_READY_TIMEOUT_MS = 600_000
 /** Poll interval while waiting for a spawned host to answer. */
 const SPAWN_POLL_MS = 500
+
+/**
+ * What one capability check learned about a port.
+ *
+ * `pending` means the host cannot serve the capability *yet* (still booting), so it
+ * is retried; `fatal` means no amount of waiting helps, so it is reported at once
+ * instead of after a multi-minute timeout.
+ */
+type CapabilityOutcome =
+  | { kind: 'ready' }
+  | { kind: 'pending'; detail: string }
+  | { kind: 'fatal'; message: string }
 
 /** Minimal logger shape so tests can substitute a plain object. */
 type Logger = Pick<vscode.OutputChannel, 'appendLine'>
@@ -141,15 +162,174 @@ export class HostManager {
    */
   async ensureHost(): Promise<HostInfo> {
     for (let port = this.basePort; port < this.basePort + PORT_SCAN_LIMIT; port++) {
-      if (await this.probe(port, this.token)) {
-        this.log.appendLine(`[host-manager] found existing dsh host on 127.0.0.1:${port}`)
-        const cookie = getLocalDshCookie(`127.0.0.1:${port}`) ?? undefined
-        return { port, spawnedByUs: false, token: this.token, cookie }
+      if (!(await this.probe(port, this.token))) continue
+      // Probed hosts speak the protocol, so wait for the capability rather than
+      // adopting whatever half-booted state is on the port: `probe` is satisfied by
+      // `settings/describe`, whose service mounts before the controllers the streams
+      // need. Skipping instead of waiting would be worse — it spawns a duplicate
+      // backend beside a host that was about to be fine.
+      const ready = await this.waitForCapability(port, ADOPT_READY_TIMEOUT_MS, this.token)
+      if (ready.kind !== 'ready') {
+        const reason = ready.kind === 'fatal' ? ready.message : ready.detail
+        this.log.appendLine(
+          `[host-manager] 127.0.0.1:${port} 在 ${ADOPT_READY_TIMEOUT_MS}ms 内未能提供 ${CAPABILITY_METHOD}`
+          + `（${reason}），继续扫描`,
+        )
+        continue
       }
+      this.log.appendLine(`[host-manager] found existing dsh host on 127.0.0.1:${port}`)
+      const cookie = getLocalDshCookie(`127.0.0.1:${port}`) ?? undefined
+      return { port, spawnedByUs: false, token: this.token, cookie }
     }
     const port = await this.firstFreePort()
     this.log.appendLine(`[host-manager] no live host; spawning on 127.0.0.1:${port}`)
     return this.spawn(port)
+  }
+
+  /**
+   * Check one port for the capability the plugin actually needs.
+   *
+   * `session/list` is owned by `dsh-api-session-controller`, and the host-wide
+   * streams (`session/control`, `workspace/follow`) need `sessionController` /
+   * `workspaceController`. Those mount AFTER `dsh-api-settings-controller`, which
+   * owns `settings/describe` — so {@link probe} can succeed against a host whose
+   * controllers are still booting. Readiness therefore has to ask for the
+   * capability, not for "something answered".
+   * @param port - loopback port.
+   * @param token - optional Bearer token to present.
+   * @param cookie - signed cookie override; defaults to the local credentials file.
+   * @returns ready, still-booting (retry), or permanently unavailable (give up).
+   */
+  private async capabilityOutcome(port: number, token?: string, cookie?: string): Promise<CapabilityOutcome> {
+    const authority = `127.0.0.1:${port}`
+    const request = {
+      type: 'client-request',
+      rpcId: RpcId(crypto.randomUUID()),
+      method: CAPABILITY_METHOD,
+      payload: { args: { _request: {} } },
+    }
+    const headers: Record<string, string> = { 'content-type': 'application/json' }
+    if (token !== undefined && token !== '') headers['Authorization'] = `Bearer ${token}`
+    const effectiveCookie = cookie ?? getLocalDshCookie(authority) ?? undefined
+    if (effectiveCookie !== undefined) headers['Cookie'] = effectiveCookie
+
+    let response: Response
+    try {
+      response = await fetch(`http://127.0.0.1:${port}/api/${CAPABILITY_METHOD}`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(request),
+        signal: AbortSignal.timeout(PROBE_TIMEOUT_MS),
+      })
+    } catch (error) {
+      // A connection failure during startup is expected: the listener is not up yet.
+      return { kind: 'pending', detail: `无法连接 dsh（${error instanceof Error ? error.message : String(error)}）` }
+    }
+    if (response.status === 401 || response.status === 403) {
+      return {
+        kind: 'fatal',
+        message: `dsh 拒绝了凭据（HTTP ${response.status}），请检查 ~/.dsh/.credentials.yaml 的 browser-session 授权`,
+      }
+    }
+    if (response.status === 404) {
+      // A 404 is AMBIGUOUS while starting up: the HTTP server binds before the
+      // connection plugin mounts its routes, so a host that is merely still booting
+      // answers 404 to every API path. Measured: attempt 1 refused the connection,
+      // attempt 2 (500ms later) answered 404, and the same host was serving normally
+      // moments afterwards. Only an apiproxy-era host is permanently without the
+      // route, and that one still answers the retired `host.describe`, so ask it.
+      if (await this.answersLegacyHostDescribe(port, headers)) {
+        return {
+          kind: 'fatal',
+          message: `dsh 未提供 Typert Remote 接口（${CAPABILITY_METHOD} 返回 404）：该 dsh 版本过旧`
+            + '（apiproxy 已在 0.1.2-rc.1 移除），请升级 dsh',
+        }
+      }
+      return { kind: 'pending', detail: `dsh 尚未挂载 ${CAPABILITY_METHOD}（HTTP 404），可能仍在启动` }
+    }
+    if (!response.ok) {
+      return { kind: 'pending', detail: `dsh 应答异常（HTTP ${response.status}）` }
+    }
+    let body: ServerResponse
+    try {
+      body = (await response.json()) as ServerResponse
+    } catch {
+      return { kind: 'pending', detail: `dsh 应答不是合法的 JSON（HTTP ${response.status}）` }
+    }
+    if (body.type !== 'server-response') {
+      return { kind: 'pending', detail: 'dsh 应答信封不合法（缺少 server-response）' }
+    }
+    if (!body.result.ok) {
+      // `gateway/service-unavailable` lands here while the controllers boot, so a
+      // business failure is treated as "not yet" and retried rather than fatal.
+      return { kind: 'pending', detail: `${CAPABILITY_METHOD} 调用失败：${body.result.error.message}` }
+    }
+    return { kind: 'ready' }
+  }
+
+  /**
+   * Does this port answer the RETIRED apiproxy `host.describe`?
+   *
+   * The only reliable way to tell "an aged host that will never serve this plugin"
+   * apart from "a host whose routes are not mounted YET", because both answer 404 to
+   * the capability route. An apiproxy-era host always answers this one.
+   * @param port - loopback port.
+   * @param headers - the same credential headers the capability call used.
+   * @returns true when the legacy endpoint answered.
+   */
+  private async answersLegacyHostDescribe(port: number, headers: Record<string, string>): Promise<boolean> {
+    try {
+      const response = await fetch(`http://127.0.0.1:${port}/api/host.describe`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          type: 'client-request',
+          rpcId: RpcId(crypto.randomUUID()),
+          method: 'host.describe',
+          payload: {},
+        }),
+        signal: AbortSignal.timeout(PROBE_TIMEOUT_MS),
+      })
+      return response.ok
+    } catch {
+      return false
+    }
+  }
+
+  /**
+   * Poll {@link capabilityOutcome} until it is ready or the budget runs out.
+   * @param port - loopback port.
+   * @param budgetMs - how long to keep trying.
+   * @param token - optional Bearer token.
+   * @returns the last outcome (never `pending` past the budget).
+   */
+  private async waitForCapability(port: number, budgetMs: number, token?: string): Promise<CapabilityOutcome> {
+    const deadline = Date.now() + budgetMs
+    let outcome = await this.capabilityAttempt(port, token)
+    while (outcome.kind === 'pending' && Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, SPAWN_POLL_MS))
+      outcome = await this.capabilityAttempt(port, token)
+    }
+    return outcome
+  }
+
+  /**
+   * One capability attempt, falling back to no-Bearer.
+   *
+   * The plugin generates the launch token for a host it spawned, but an adopted
+   * host was started by someone else and may want no token at all; the signed
+   * cookie is the real API credential either way, so a credential rejection is
+   * retried once without the Bearer before it is believed.
+   * @param port - loopback port.
+   * @param token - optional Bearer token.
+   * @returns the outcome.
+   */
+  private async capabilityAttempt(port: number, token?: string): Promise<CapabilityOutcome> {
+    const first = await this.capabilityOutcome(port, token)
+    if (first.kind === 'fatal' && token !== undefined && token !== '') {
+      return this.capabilityOutcome(port, undefined)
+    }
+    return first
   }
 
   /**
@@ -252,20 +432,39 @@ export class HostManager {
 
     const effectiveToken = () => detectedToken ?? spawnedToken
     const deadline = Date.now() + SPAWN_READY_TIMEOUT_MS
+    let lastDetail = '尚未应答'
+    let reportedWaiting = false
     while (Date.now() < deadline) {
       if (child.exitCode !== null) throw new Error(`dsh host exited during startup (code ${String(child.exitCode)})`)
-      if (await this.probe(port, effectiveToken())) {
+      // Readiness means the CAPABILITY endpoint answers, not that some endpoint did.
+      // Accepting `settings/describe` alone declared the host ready while
+      // `sessionController` / `workspaceController` were still booting, so both
+      // host-wide streams immediately failed with `gateway/service-unavailable` and
+      // the sidebar stayed empty until a manual window reload.
+      const outcome = await this.capabilityAttempt(port, effectiveToken())
+      if (outcome.kind === 'ready') {
         const cookie = getLocalDshCookie(`127.0.0.1:${port}`) ?? undefined
+        this.log.appendLine(`[host-manager] spawned host on 127.0.0.1:${port} is ready`)
         return { port, pid: child.pid, spawnedByUs: true, token: effectiveToken(), cookie }
       }
-      if (await this.probe(port)) {
-        const cookie = getLocalDshCookie(`127.0.0.1:${port}`) ?? undefined
-        return { port, pid: child.pid, spawnedByUs: true, cookie }
+      if (outcome.kind === 'fatal') {
+        // Waiting cannot fix an aged-out host or a rejected credential, so fail now
+        // with the actionable reason instead of after the full readiness budget.
+        this.log.appendLine(`[host-manager] spawned host on 127.0.0.1:${port} is unusable: ${outcome.message}`)
+        child.kill()
+        throw new Error(outcome.message)
+      }
+      lastDetail = outcome.detail
+      if (!reportedWaiting) {
+        reportedWaiting = true
+        this.log.appendLine(`[host-manager] waiting for ${CAPABILITY_METHOD} on 127.0.0.1:${port}（当前：${lastDetail}）`)
       }
       await new Promise((resolve) => setTimeout(resolve, SPAWN_POLL_MS))
     }
     child.kill()
-    throw new Error(`dsh host did not become ready on port ${port} within ${SPAWN_READY_TIMEOUT_MS}ms`)
+    throw new Error(
+      `dsh host did not become ready on port ${port} within ${SPAWN_READY_TIMEOUT_MS}ms（最后状态：${lastDetail}）`,
+    )
   }
 
   /**
@@ -286,52 +485,9 @@ export class HostManager {
    * @returns an actionable warning message when incompatible, else null.
    */
   async checkVersion(info: HostInfo): Promise<string | null> {
-    const request = {
-      type: 'client-request',
-      rpcId: RpcId(crypto.randomUUID()),
-      method: CAPABILITY_METHOD,
-      payload: { args: { _request: {} } },
-    }
-    const headers: Record<string, string> = { 'content-type': 'application/json' }
-    if (info.token) {
-      headers['Authorization'] = `Bearer ${info.token}`
-    }
-    if (info.cookie) {
-      headers['Cookie'] = info.cookie
-    }
-    let response: Response
-    try {
-      response = await fetch(`http://127.0.0.1:${info.port}/api/${CAPABILITY_METHOD}`, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify(request),
-        signal: AbortSignal.timeout(PROBE_TIMEOUT_MS),
-      })
-    } catch (error) {
-      return `无法连接 dsh（${error instanceof Error ? error.message : String(error)}），请确认 dsh 已正常启动`
-    }
-    if (response.status === 401 || response.status === 403) {
-      return `dsh 拒绝了凭据（HTTP ${response.status}），请检查 ~/.dsh/.credentials.yaml 的 browser-session 授权`
-    }
-    if (response.status === 404) {
-      return `dsh 未提供 Typert Remote 接口（${CAPABILITY_METHOD} 返回 404）：该 dsh 版本过旧（apiproxy 已在 0.1.2-rc.1 移除），请升级 dsh`
-    }
-    if (!response.ok) {
-      return `dsh 应答异常（HTTP ${response.status}），请确认 dsh 已正常启动`
-    }
-    let body: ServerResponse
-    try {
-      body = (await response.json()) as ServerResponse
-    } catch {
-      return `dsh 应答不是合法的 JSON（HTTP ${response.status}），请确认 dsh 已正常启动`
-    }
-    if (body.type !== 'server-response') {
-      return 'dsh 应答信封不合法（缺少 server-response），请升级 dsh'
-    }
-    if (!body.result.ok) {
-      return `${CAPABILITY_METHOD} 调用失败：${body.result.error.message}`
-    }
-    return null
+    const outcome = await this.capabilityOutcome(info.port, info.token, info.cookie)
+    if (outcome.kind === 'ready') return null
+    return outcome.kind === 'fatal' ? outcome.message : outcome.detail
   }
 
   /** Kill the child process when (and only when) this manager spawned it. */

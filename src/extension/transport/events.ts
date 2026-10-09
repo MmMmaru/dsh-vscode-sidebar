@@ -178,6 +178,12 @@ export class RemoteEventsClient {
     switch (frame.type) {
       case 'ready':
         this.generation = frame.clientId
+        // A `ready` always opens a NEW generation (the host mints a new clientId),
+        // and a new generation mints new eventIds, so anything still pending from
+        // the previous one is no longer answerable. This is the same reset
+        // `subscribe()` performs for a carrier loss, and it is also what a
+        // transparent stream re-open (mux retry) lands on.
+        this.pending.clear()
         this.listener.onReady?.(frame.clientId, frame.host)
         return
       case 'emit':

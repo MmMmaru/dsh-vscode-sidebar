@@ -397,7 +397,15 @@ export class Bridge {
           this.post(webview, { type: 'host-status', status: 'starting' })
           const info = await this.host.ensureHost()
           const warning = await this.host.checkVersion(info)
-          if (warning !== null) void vscode.window.showWarningMessage(warning)
+          if (warning !== null) {
+            // `ensureHost` only hands back a host that just answered the capability
+            // call, so a rejection here means the host degraded in between (a service
+            // restart, a credential rotation). Connecting anyway would install a
+            // client whose every call fails and whose UI looks merely empty; failing
+            // instead resets `starting`, so the next `ready` retries the whole path.
+            this.post(webview, { type: 'host-status', status: 'down' })
+            throw new Error(warning)
+          }
           await this.client.connect(info)
           this.hostInfo = info
           this.wireClient()

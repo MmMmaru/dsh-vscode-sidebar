@@ -503,3 +503,107 @@ test('$events: an answer is refused locally for an unknown, answered or retracte
     }
   })
 })
+
+test('mux: a transient gateway failure re-opens the stream instead of failing it', async () => {
+  await withHost({}, async (host) => {
+    // REGRESSION: a freshly spawned host answers the readiness probe as soon as
+    // `settings/describe` mounts, while `session/control` still answers
+    // `gateway/service-unavailable` until `sessionController` registers. That used
+    // to fail the stream permanently, leaving the sidebar connected-looking but
+    // empty until a manual window reload.
+    host.pushDriven('session/control')
+    host.refuseNextOpens('session/control', 2)
+
+    const mux = new RemoteMuxClient(host.wsUrl)
+    try {
+      mux.connect()
+      await mux.whenReady()
+      const stream = mux.openStream<{ type: string }>('session/control')
+
+      const received: string[] = []
+      const settled = (async () => {
+        for await (const frame of stream) received.push(frame.type)
+      })().catch(() => undefined)
+
+      // The refusal must NOT reach the consumer: the queue stays open across the gap.
+      await until(() => openedCount(host, 'session/control') >= 3)
+      host.pushStream('session/control', { type: 'baseline' })
+      await until(() => received.includes('baseline'))
+      assert.deepEqual(received, ['baseline'])
+
+      // The reopened id is the live one, so cancel reaches it and ends the iteration.
+      stream.cancel()
+      await settled
+      assert.equal(openedCount(host, 'session/control'), 3, 'two refusals then a successful reopen')
+      assert.deepEqual(host.streamCancels, [], 'a refused id is never cancelled (the host ended it)')
+    } finally {
+      mux.dispose()
+    }
+  })
+})
+
+test('mux: a transient failure is retried on the same stream until the budget runs out', async () => {
+  await withHost({}, async (host) => {
+    // Refusals beyond the budget: the failure must eventually be reported rather
+    // than retried forever, or a genuinely missing route would hang the consumer.
+    host.pushDriven('session/control')
+    host.refuseNextOpens('session/control', 100)
+    const mux = new RemoteMuxClient(host.wsUrl)
+    try {
+      mux.connect()
+      await mux.whenReady()
+      const stream = mux.openStream('session/control')
+      await assert.rejects(async () => {
+        for await (const _frame of stream) { /* drain until it fails */ }
+      }, /Service is unavailable/)
+      // One initial open plus the retry budget.
+      assert.equal(openedCount(host, 'session/control'), 6)
+    } finally {
+      mux.dispose()
+    }
+  })
+})
+
+test('mux: a non-transient failure is reported at once, with no retry', async () => {
+  await withHost({}, async (host) => {
+    // Only the two "the host cannot serve this yet" codes are retryable; anything
+    // else is a real failure and must surface immediately.
+    host.pushDriven('session/control')
+    host.refuseNextOpens('session/control', 5, 'gateway/invalid-argument')
+    const mux = new RemoteMuxClient(host.wsUrl)
+    try {
+      mux.connect()
+      await mux.whenReady()
+      const stream = mux.openStream('session/control')
+      await assert.rejects(async () => {
+        for await (const _frame of stream) { /* drain */ }
+      }, /Service is unavailable/)
+      assert.equal(openedCount(host, 'session/control'), 1)
+    } finally {
+      mux.dispose()
+    }
+  })
+})
+
+test('mux: a stream awaiting a reopen still settles when the carrier dies', async () => {
+  await withHost({}, async (host) => {
+    // A stream waiting to be reopened is deliberately absent from the id index, so
+    // teardown must reach it through the live set or the consumer would hang forever.
+    host.pushDriven('session/control')
+    host.refuseNextOpens('session/control', 100)
+    const mux = new RemoteMuxClient(host.wsUrl)
+    try {
+      mux.connect()
+      await mux.whenReady()
+      const stream = mux.openStream('session/control')
+      const settling = (async () => {
+        for await (const _frame of stream) { /* drain */ }
+      })()
+      await until(() => openedCount(host, 'session/control') >= 1)
+      mux.dispose()
+      await assert.rejects(settling, /disposed/)
+    } finally {
+      mux.dispose()
+    }
+  })
+})

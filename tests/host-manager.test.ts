@@ -32,6 +32,37 @@ async function startDummyListener(port = 0): Promise<{ port: number; close: () =
 }
 
 /**
+ * Start a listener shaped like an apiproxy-era dsh: every Typert Remote route 404s,
+ * but the retired `host.describe` answers. That combination is what makes a 404
+ * permanent instead of "still booting".
+ * @returns the port and a close function.
+ */
+async function startLegacyListener(): Promise<{ port: number; close: () => Promise<void> }> {
+  const server: Server = createServer((req, res) => {
+    let raw = ''
+    req.on('data', (chunk: Buffer) => { raw += chunk.toString() })
+    req.on('end', () => {
+      if (req.url !== '/api/host.describe') {
+        res.writeHead(404).end('not found')
+        return
+      }
+      const body = JSON.parse(raw) as { rpcId: string }
+      res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify({
+        type: 'server-response',
+        rpcId: body.rpcId,
+        result: { ok: true, value: { version: '0.1.1-rc.2', cwd: '/tmp', attachedSessions: 0, canOpenPath: false } },
+      }))
+    })
+  })
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+  const address = server.address()
+  return {
+    port: typeof address === 'object' && address !== null ? address.port : 0,
+    close: () => new Promise<void>((resolve) => server.close(() => resolve())),
+  }
+}
+
+/**
  * Start a minimal Typert Remote responder on an explicit port.
  *
  * Needed because the shared fake host always binds an ephemeral port, and the
@@ -128,13 +159,29 @@ test('checkVersion passes on a live capability endpoint and explains each refusa
     await good.close()
   }
 
-  // A 404 means the listener predates the gateway (apiproxy was removed in
-  // 0.1.2-rc.1); the message must say so rather than blame the connection.
-  const stale = await startDummyListener()
+  // A bare 404 is AMBIGUOUS: a host whose HTTP server is up but whose connection
+  // plugin has not mounted its routes yet answers 404 to every API path, which is
+  // exactly what a booting host looks like. So the wording must leave room for
+  // "still starting" instead of declaring the build too old.
+  const booting = await startDummyListener()
+  try {
+    const warning = await manager.checkVersion({ port: booting.port, spawnedByUs: false })
+    assert.ok(warning !== null && warning.includes('404'), String(warning))
+    assert.match(warning, /启动/, 'a bare 404 may just be a booting host')
+    assert.doesNotMatch(warning, /版本过旧/)
+  } finally {
+    await booting.close()
+  }
+
+  // An apiproxy-era host is the one that stays 404 on the capability route AND
+  // answers the retired `host.describe`; that is the permanent case, and it must
+  // tell the user to upgrade rather than to wait.
+  const stale = await startLegacyListener()
   try {
     const warning = await manager.checkVersion({ port: stale.port, spawnedByUs: false })
-    assert.ok(warning !== null && warning.includes('404'), String(warning))
-    assert.ok(warning.includes('Typert Remote'), String(warning))
+    assert.ok(warning !== null, String(warning))
+    assert.match(warning, /404/)
+    assert.match(warning, /版本过旧/, 'the legacy endpoint is the proof of an old build')
   } finally {
     await stale.close()
   }

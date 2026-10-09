@@ -35,9 +35,12 @@ async function openApp(page: Page, harness: Harness): Promise<void> {
 }
 
 test('slash popup lists host commands, Escape dismisses, picking inserts, sending delivers the line', async ({ page, harness }) => {
-  await harness.createSession(harness.workspacePath, 'SLASH-CMD')
+  // Sessions persist on the host across runs — a per-run unique title keeps
+  // the `.session-row` locator unambiguous on retries.
+  const title = `SLASH-${Date.now().toString(36)}`
+  await harness.createSession(harness.workspacePath, title)
   await openApp(page, harness)
-  await page.locator('.session-row', { hasText: 'SLASH-CMD' }).click()
+  await page.locator('.session-row', { hasText: title }).click()
   const input = page.locator('.composer-input')
   await expect(input).toBeVisible()
 
@@ -71,9 +74,10 @@ test('slash popup lists host commands, Escape dismisses, picking inserts, sendin
 
 test('Escape interrupts the running turn (live)', async ({ page, harness }, testInfo) => {
   test.setTimeout(240_000)
-  await harness.createSession(harness.workspacePath, 'ESC-INT')
+  const title = `ESC-${Date.now().toString(36)}`
+  await harness.createSession(harness.workspacePath, title)
   await openApp(page, harness)
-  await page.locator('.session-row', { hasText: 'ESC-INT' }).click()
+  await page.locator('.session-row', { hasText: title }).click()
   const input = page.locator('.composer-input')
   await expect(input).toBeVisible()
 

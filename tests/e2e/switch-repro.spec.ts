@@ -115,11 +115,15 @@ test('real question panel survives switching away and back (live)', async ({ pag
   // Cleanup: answer the real question so the extension-side retention is
   // cleared for later tests (an unanswered real question would be replayed
   // into the next test's init and auto-select this session).
+  // An option-less question renders a `.ovl-custom-textarea` instead of the
+  // `.ovl-custom-input` that ships with options (QuestionPanel branches on
+  // `hasOptions`), and whether the live model asks with options is not ours to
+  // choose — so accept either.
   const hasOptions = (await page.locator('.ovl-option').count()) > 0
   if (hasOptions) {
     await page.locator('.ovl-option').first().click()
   } else {
-    await page.locator('.ovl-custom-input').fill('继续')
+    await page.locator('.ovl-custom-input, .ovl-custom-textarea').fill('继续')
   }
   await page.getByRole('button', { name: 'Submit' }).click()
   await expect(panel).not.toBeVisible({ timeout: 30_000 })
@@ -150,10 +154,15 @@ test('answering a real question resolves it and the agent continues (live)', asy
     return
   }
 
-  // Answer through the real UI: pick the first option and submit.
-  const option = page.locator('.ovl-option').first()
-  const label = (await option.getAttribute('aria-label')) ?? '继续'
-  await option.click()
+  // Answer through the real UI. Whether the live model asks WITH options is not
+  // ours to choose, and QuestionPanel renders `.ovl-option` only in that case
+  // (otherwise the free-text row is `.ovl-custom-textarea`, not `.ovl-custom-input`),
+  // so handle both shapes instead of waiting 300s for options that never come.
+  if ((await page.locator('.ovl-option').count()) > 0) {
+    await page.locator('.ovl-option').first().click()
+  } else {
+    await page.locator('.ovl-custom-input, .ovl-custom-textarea').fill('继续')
+  }
   await page.getByRole('button', { name: 'Submit' }).click()
 
   // The real host accepts the answer (real rpcId) and broadcasts

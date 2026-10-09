@@ -2,6 +2,9 @@
 # README screenshots resolve to the GitHub repository (repository field in
 # package.json), so the local artifacts/ copies stay out of the VSIX.
 artifacts
+# The agent skills that live in this repo are developer documentation, not part of
+# the extension: they were being shipped to every installer.
+.agents
 PROGRESS.md
 .gitignore
 .temp

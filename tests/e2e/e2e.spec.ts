@@ -201,10 +201,14 @@ test('a question that arrived while the page was closed replays on return (live)
   await expect(replayed).toContainText(/？|吗|是否/)
 
   // Answer so the retention does not leak into later tests.
+  // An option-less question renders a `.ovl-custom-textarea` instead of the
+  // `.ovl-custom-input` that ships with options (QuestionPanel branches on
+  // `hasOptions`), and whether the live model asks with options is not ours to
+  // choose — so accept either.
   if ((await page2.locator('.ovl-option').count()) > 0) {
     await page2.locator('.ovl-option').first().click()
   } else {
-    await page2.locator('.ovl-custom-input').fill('继续')
+    await page2.locator('.ovl-custom-input, .ovl-custom-textarea').fill('继续')
   }
   await page2.getByRole('button', { name: 'Submit' }).click()
   await expect(replayed).not.toBeVisible({ timeout: 30_000 })

@@ -138,10 +138,35 @@ class StreamQueue<T> {
 
 /** Mutable bookkeeping for one logical stream owned by the mux. */
 interface ActiveStream {
+  /** Current host stream id; replaced when a transient failure forces a re-open. */
+  id: StreamId
+  /** Endpoint + args, kept so a transient failure can reopen the same stream. */
+  endpoint: string
+  args: Record<string, unknown>
   queue: StreamQueue<unknown>
+  /** Re-open attempts already spent on transient gateway failures. */
+  attempts: number
+  /** Pending re-open timer, so teardown can cancel it. */
+  retryTimer: ReturnType<typeof setTimeout> | null
   /** True once the host is known to have stopped producing for this id. */
   finished: boolean
 }
+
+/**
+ * Gateway codes that mean "the host cannot serve this yet", not "this stream is
+ * dead". Measured cause: a freshly spawned host answers the readiness probe as
+ * soon as `settings/describe` (dsh-api-settings-controller) mounts, while
+ * `session/control` and `workspace/follow` need `sessionController` /
+ * `workspaceController`, which mount later. The gateway truthfully answers
+ * `service-unavailable` and then serves the stream normally moments later, so the
+ * id is reopened instead of failing the generation.
+ */
+const TRANSIENT_STREAM_CODES = new Set(['gateway/service-unavailable', 'gateway/invocation-unavailable'])
+
+/** Re-open budget and backoff for one transiently unavailable stream. */
+const STREAM_RETRY_ATTEMPTS = 5
+const STREAM_RETRY_BASE_MS = 400
+const STREAM_RETRY_CAP_MS = 2_000
 
 /** Diagnostics sink shape (the extension wires this to its OutputChannel). */
 export type MuxLogger = (line: string) => void
@@ -179,6 +204,11 @@ export class RemoteMuxClient {
    */
   private readonly deferredOpens: RemoteStreamClientMessage[] = []
   private readonly streams = new Map<string, ActiveStream>()
+  /**
+   * Every stream the consumer still holds, including those awaiting a re-open
+   * (which are deliberately absent from {@link streams}).
+   */
+  private readonly liveStreams = new Set<ActiveStream>()
   private readonly carrierLostListeners = new Set<() => void>()
   private readonly statusListeners = new Set<(connected: boolean) => void>()
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null
@@ -283,8 +313,17 @@ export class RemoteMuxClient {
   openStream<T = unknown>(endpoint: string, args: Record<string, unknown> = {}): RemoteStream<T> {
     const id = mintStreamId(crypto.randomUUID())
     const queue = new StreamQueue<T>()
-    const active: ActiveStream = { queue: queue as StreamQueue<unknown>, finished: false }
+    const active: ActiveStream = {
+      id,
+      endpoint,
+      args,
+      queue: queue as StreamQueue<unknown>,
+      attempts: 0,
+      retryTimer: null,
+      finished: false,
+    }
     this.streams.set(id, active)
+    this.liveStreams.add(active)
     const payload: RemoteStreamPayload = { args }
     this.send({ type: 'open', streamId: id, endpoint, payload })
     const handle: RemoteStream<T> = {
@@ -293,8 +332,10 @@ export class RemoteMuxClient {
       cancel: () => {
         if (active.finished) return
         active.finished = true
-        this.send({ type: 'cancel', streamId: id })
-        this.streams.delete(id)
+        this.clearStreamRetry(active)
+        this.send({ type: 'cancel', streamId: active.id })
+        this.streams.delete(active.id)
+        this.liveStreams.delete(active)
         queue.end()
       },
       settled: queue.done,
@@ -361,21 +402,69 @@ export class RemoteMuxClient {
       active.queue.push(frame.value)
       return
     }
-    active.finished = true
-    this.streams.delete(frame.streamId)
     if (frame.type === 'end') {
+      active.finished = true
+      this.streams.delete(frame.streamId)
+      this.liveStreams.delete(active)
       active.queue.end()
       return
     }
     const failure: RpcError = frame.error
+    if (TRANSIENT_STREAM_CODES.has(failure.code) && active.attempts < STREAM_RETRY_ATTEMPTS) {
+      this.scheduleStreamRetry(active, failure)
+      return
+    }
+    active.finished = true
+    this.streams.delete(frame.streamId)
+    this.liveStreams.delete(active)
     active.queue.fail(new RemoteStreamError(failure.message, failure.code, failure.details))
+  }
+
+  /**
+   * Re-open one transiently unavailable stream, keeping the SAME queue so the
+   * consumer's iteration continues across the gap.
+   *
+   * Every generation restarts with its baseline/snapshot, and consumers already
+   * treat that opening frame as a full replacement (it is the same thing a carrier
+   * loss delivers), so a reopen needs no coordination beyond not failing the queue.
+   * @param active - the stream to reopen.
+   * @param failure - the gateway failure that triggered the retry.
+   */
+  private scheduleStreamRetry(active: ActiveStream, failure: RpcError): void {
+    this.streams.delete(active.id)
+    active.attempts += 1
+    const delay = Math.min(STREAM_RETRY_BASE_MS * 2 ** (active.attempts - 1), STREAM_RETRY_CAP_MS)
+    this.log?.(
+      `mux: ${active.endpoint} unavailable (${failure.code}); reopening in ${delay}ms `
+      + `(attempt ${active.attempts}/${STREAM_RETRY_ATTEMPTS})`,
+    )
+    active.retryTimer = setTimeout(() => {
+      active.retryTimer = null
+      if (this.disposed || active.finished) return
+      const id = mintStreamId(crypto.randomUUID())
+      active.id = id
+      this.streams.set(id, active)
+      this.send({ type: 'open', streamId: id, endpoint: active.endpoint, payload: { args: active.args } })
+    }, delay)
+  }
+
+  /** Stop any pending re-open for one stream. */
+  private clearStreamRetry(active: ActiveStream): void {
+    if (active.retryTimer === null) return
+    clearTimeout(active.retryTimer)
+    active.retryTimer = null
   }
 
   /** Settle every live stream with one failure (carrier loss or disposal). */
   private failAllStreams(error: Error): void {
-    const live = [...this.streams.values()]
+    const live = [...this.liveStreams]
+    // Iterate every live stream, not just the indexed ones: a stream waiting to be
+    // reopened is deliberately absent from `streams`, and would otherwise hang a
+    // consumer forever when the carrier goes away mid-retry.
     this.streams.clear()
+    this.liveStreams.clear()
     for (const active of live) {
+      this.clearStreamRetry(active)
       active.finished = true
       active.queue.fail(error)
     }
